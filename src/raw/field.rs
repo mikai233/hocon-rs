@@ -1,11 +1,12 @@
 use crate::raw::include::Inclusion;
+use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectField {
     Inclusion(Inclusion),
-    KeyValue(String, RawValue),
+    KeyValue(RawString, RawValue),
 }
 
 impl Display for ObjectField {

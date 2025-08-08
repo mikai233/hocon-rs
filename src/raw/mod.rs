@@ -6,3 +6,6 @@ pub mod raw_array;
 pub mod concat;
 pub mod add_assign;
 pub mod field;
+pub mod macros;
+pub mod extension;
+pub mod raw_string;

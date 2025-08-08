@@ -1,4 +1,5 @@
 use crate::raw::field::ObjectField;
+use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
@@ -8,12 +9,15 @@ use std::fmt::{Display, Formatter};
 pub struct RawObject(Vec<ObjectField>);
 
 impl RawObject {
-    pub fn with_kvs<I>(kvs: I) -> Self
+    pub fn kv<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item=(String, RawValue)>,
+        I: IntoIterator<Item=(RawString, RawValue)>,
     {
-        let fields = kvs.into_iter().map(|(k, v)| ObjectField::KeyValue(k, v)).collect();
-        Self(fields)
+        let kvs = iter
+            .into_iter()
+            .map(|(k, v)| ObjectField::KeyValue(k, v))
+            .collect();
+        Self(kvs)
     }
 }
 
@@ -28,7 +32,7 @@ impl Display for RawObject {
 
 impl From<Vec<(String, RawValue)>> for RawObject {
     fn from(value: Vec<(String, RawValue)>) -> Self {
-        let fields = value.into_iter().map(|(k, v)| ObjectField::KeyValue(k, v)).collect();
+        let fields = value.into_iter().map(|(k, v)| ObjectField::KeyValue(RawString::QuotedString(k), v)).collect();
         Self(fields)
     }
 }
