@@ -7,7 +7,7 @@ use nom::error::context;
 use nom::sequence::{pair, terminated};
 use nom::Parser;
 
-pub(crate) fn parse_boolean(input: &str) -> R<bool> {
+pub(crate) fn parse_boolean(input: &str) -> R<'_, bool> {
     context(
         "boolean literal (expected 'true' or 'false')",
         terminated(

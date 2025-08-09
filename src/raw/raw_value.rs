@@ -77,7 +77,7 @@ impl RawValue {
     }
 
     pub fn multiline_string(s: impl Into<String>) -> RawValue {
-        RawValue::String(RawString::multi_line(s))
+        RawValue::String(RawString::multiline(s))
     }
 
     pub fn concat_string<I, S>(iter: I) -> RawValue
@@ -119,24 +119,17 @@ impl RawValue {
 impl Display for RawValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RawValue::Object(object) => write!(f, "Object({})", object),
-            RawValue::Array(array) => write!(f, "Array({})", array),
-            RawValue::Boolean(boolean) => write!(f, "Boolean({})", boolean),
+            RawValue::Object(object) => write!(f, "{}", object),
+            RawValue::Array(array) => write!(f, "{}", array),
+            RawValue::Boolean(boolean) => write!(f, "{}", boolean),
             RawValue::Null => write!(f, "Null"),
-            RawValue::String(string) => {
-                match string {
-                    RawString::QuotedString(s) => write!(f, "QuotedString({})", s),
-                    RawString::UnquotedString(s) => write!(f, "UnquotedString({})", s),
-                    RawString::MultiLineString(s) => write!(f, "MultiLineString({})", s),
-                    RawString::ConcatString(s) => write!(f, "Concat({})", s),
-                }
-            },
-            RawValue::Float(float) => write!(f, "Float({})", float),
-            RawValue::Int(int) => write!(f, "Int({})", int),
-            RawValue::Inclusion(inclusion) => write!(f, "Inclusion({})", inclusion),
-            RawValue::Substitution(substitution) => write!(f, "Substitution({})", substitution),
-            RawValue::Concat(concat) => write!(f, "Concat({})", concat),
-            RawValue::AddAssign(add_assign) => write!(f, "AddAssign({})", add_assign),
+            RawValue::String(string) => write!(f, "{}", string),
+            RawValue::Float(float) => write!(f, "{}", float),
+            RawValue::Int(int) => write!(f, "{}", int),
+            RawValue::Inclusion(inclusion) => write!(f, "{}", inclusion),
+            RawValue::Substitution(substitution) => write!(f, "{}", substitution),
+            RawValue::Concat(concat) => write!(f, "{}", concat),
+            RawValue::AddAssign(add_assign) => write!(f, "{}", add_assign),
         }
     }
 }

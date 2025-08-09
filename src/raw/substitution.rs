@@ -1,13 +1,14 @@
+use crate::raw::raw_string::RawString;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, derive_more::Constructor)]
 pub struct Substitution {
-    pub path: Vec<String>,
+    pub path: RawString,
     pub optional: bool,
 }
 
 impl Display for Substitution {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{path: {}, optional: {}}}", self.path.join("."), self.optional)
+        write!(f, "{{path: {}, optional: {}}}", self.path.as_path().join(". "), self.optional)
     }
 }

@@ -2,27 +2,27 @@ use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RawString {
     QuotedString(String),
     UnquotedString(String),
-    MultiLineString(String),
+    MultilineString(String),
     ConcatString(ConcatString),
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Constructor, Deref, DerefMut)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Constructor, Deref, DerefMut)]
 pub struct ConcatString(Vec<(RawString, String)>);
 
 impl ConcatString {
     pub fn synthetic(&self) -> String {
         let mut result = String::new();
         let iter = self.iter();
-        let last_index = iter.len();
+        let last_index = iter.len() - 1;
         for (index, (string, space)) in iter.enumerate() {
             match string {
                 RawString::QuotedString(s) |
                 RawString::UnquotedString(s) |
-                RawString::MultiLineString(s) => {
+                RawString::MultilineString(s) => {
                     result.push_str(s.as_str());
                 }
                 RawString::ConcatString(s) => {
@@ -51,7 +51,7 @@ impl RawString {
         match self {
             RawString::QuotedString(_) => "quoted_string",
             RawString::UnquotedString(_) => "unquoted_string",
-            RawString::MultiLineString(_) => "multi_line_string",
+            RawString::MultilineString(_) => "multiline_string",
             RawString::ConcatString(_) => "concat_string",
         }
     }
@@ -60,8 +60,19 @@ impl RawString {
         match self {
             RawString::QuotedString(s) |
             RawString::UnquotedString(s) |
-            RawString::MultiLineString(s) => s,
+            RawString::MultilineString(s) => s,
             RawString::ConcatString(s) => s.synthetic(),
+        }
+    }
+
+    pub fn as_path(&self) -> Vec<&str> {
+        match self {
+            RawString::QuotedString(s) |
+            RawString::UnquotedString(s) |
+            RawString::MultilineString(s) => vec![s],
+            RawString::ConcatString(c) => {
+                c.iter().flat_map(|(s, _)| s.as_path()).collect()
+            }
         }
     }
 
@@ -73,8 +84,8 @@ impl RawString {
         Self::UnquotedString(string.into())
     }
 
-    pub fn multi_line(string: impl Into<String>) -> Self {
-        Self::MultiLineString(string.into())
+    pub fn multiline(string: impl Into<String>) -> Self {
+        Self::MultilineString(string.into())
     }
 
     pub fn concat<I, S>(iter: I) -> Self
@@ -92,8 +103,8 @@ impl Display for RawString {
         match self {
             RawString::QuotedString(s) => write!(f, "{}", s),
             RawString::UnquotedString(s) => write!(f, "{}", s),
-            RawString::MultiLineString(s) => write!(f, "{}", s),
-            RawString::ConcatString(s) => write!(f, "{:?}", s),
+            RawString::MultilineString(s) => write!(f, "{}", s),
+            RawString::ConcatString(s) => write!(f, "{}", s),
         }
     }
 }

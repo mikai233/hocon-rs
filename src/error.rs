@@ -16,4 +16,9 @@ pub enum Error {
     ParseError(String),
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("cannot concatenation different type: {ty1} {ty2}")]
+    ConcatenationDifferentType {
+        ty1: &'static str,
+        ty2: &'static str,
+    }
 }

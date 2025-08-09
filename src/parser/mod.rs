@@ -9,45 +9,41 @@ mod int;
 mod float;
 mod substitution;
 
-use crate::error::Error;
-use crate::parser::array::array;
+use crate::parser::array::parse_array;
 use crate::parser::boolean::parse_boolean;
 use crate::parser::float::parse_float;
-use crate::parser::include::parse_include;
 use crate::parser::int::parse_int;
 use crate::parser::null::parse_null;
-use crate::parser::object::object;
-use crate::parser::string::parse_hocon_string;
+use crate::parser::object::{parse_object, parse_root_object};
+use crate::parser::string::parse_string;
+use crate::parser::substitution::parse_substitution;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_value::RawValue;
 use nom::branch::alt;
 use nom::bytes::complete::{take_while, take_while1};
 use nom::character::complete::char;
 use nom::combinator::{all_consuming, map, value};
-use nom::multi::many_m_n;
+use nom::error::context;
+use nom::multi::{many1, many_m_n};
+use nom::sequence::preceded;
 use nom::{IResult, Parser};
-use nom_language::error::{convert_error, VerboseError};
+use nom_language::error::VerboseError;
 
 type R<'a, T> = IResult<&'a str, T, VerboseError<&'a str>>;
 
-pub fn parse_object(input: &str) -> crate::Result<RawObject> {
-    let (_, object) = alt((empty_content, object))
-        .parse(input)
-        .map_err(|e| {
-            match e {
-                nom::Err::Incomplete(_) => unreachable!(),
-                nom::Err::Error(e) => {
-                    Error::ParseError(convert_error(input, e).replace("\\n", "\n"))
-                }
-                nom::Err::Failure(e) => {
-                    Error::ParseError(convert_error(input, e).replace("\\n", "\n"))
-                }
-            }
-        })?;
-    Ok(object)
+pub fn parse(input: &str) -> R<'_, RawObject> {
+    preceded(
+        hocon_multi_space0,
+        alt(
+            (
+                parse_object,
+                parse_root_object,
+            )
+        ),
+    ).parse_complete(input)
 }
 
-fn empty_content(input: &str) -> R<RawObject> {
+fn empty_content(input: &str) -> R<'_, RawObject> {
     value(RawObject::default(), all_consuming(hocon_multi_space0)).parse(input)
 }
 
@@ -65,51 +61,70 @@ fn is_hocon_horizontal_whitespace(c: char) -> bool {
     is_hocon_whitespace(c) && c != '\r' && c != '\n'
 }
 
-fn hocon_multi_space0(input: &str) -> R<&str> {
+fn hocon_multi_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_whitespace).parse_complete(input)
 }
 
-fn hocon_multi_space1(input: &str) -> R<&str> {
+fn hocon_multi_space1(input: &str) -> R<'_, &str> {
     take_while1(is_hocon_whitespace).parse_complete(input)
 }
 
-fn hocon_horizontal_multi_space0(input: &str) -> R<&str> {
+fn hocon_horizontal_multi_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_horizontal_whitespace).parse_complete(input)
 }
 
-fn hocon_horizontal_multi_space1(input: &str) -> R<&str> {
+fn hocon_horizontal_multi_space1(input: &str) -> R<'_, &str> {
     take_while1(is_hocon_horizontal_whitespace).parse_complete(input)
 }
 
-fn parse_value(input: &str) -> R<RawValue> {
-    alt(
-        (
-            map(parse_null, |_| RawValue::Null),
-            map(parse_include, RawValue::Inclusion),
-            map(parse_boolean, RawValue::Boolean),
-            map(parse_int, RawValue::Int),
-            map(parse_float, RawValue::Float),
-            map(array, RawValue::Array),
-            map(object, RawValue::Object),
-            map(parse_hocon_string, RawValue::String),
-        )
-    ).parse(input)
+fn parse_value(input: &str) -> R<'_, RawValue> {
+    let (remainder, (value, )) = (
+        map(
+            many1(
+                (
+                    hocon_horizontal_multi_space0,
+                    alt(
+                        (
+                            parse_boolean.map(RawValue::boolean),
+                            context("parse_null", parse_null.map(|_| RawValue::null())),
+                            context("parse_int", parse_int.map(RawValue::int)),
+                            context("parse_float", parse_float.map(RawValue::float)),
+                            context("parse_substitution", parse_substitution.map(RawValue::substitution)),
+                            context("parse_string", parse_string.map(RawValue::String)),
+                            context("parse_array", parse_array.map(RawValue::Array)),
+                            context("parse_object", parse_object.map(RawValue::Object)),
+                        ),
+                    ),
+                    hocon_horizontal_multi_space0,
+                )
+            ),
+            |mut values| {
+                if values.len() == 1 {
+                    values.remove(0).1
+                } else {
+                    RawValue::concat(values.into_iter().map(|v| v.1))
+                }
+            },
+        ),
+    ).parse_complete(input)?;
+    Ok((remainder, value))
 }
 
-// fn parse_simple_value(input: &str) -> R<RawValue> {
-//     alt((
-//         parse_quoted_string,
-//         parse_multiline_string,
-//         parse_boolean,
-//         parse_null,
-//         parse_int,
-//         parse_float,
-//         parse_unquoted_string,
-//     )).parse(input)
-// }
+fn parse_simple_value(input: &str) -> R<'_, RawValue> {
+    alt(
+        (
+            parse_boolean.map(RawValue::boolean),
+            parse_null.map(|_| RawValue::null()),
+            parse_int.map(RawValue::int),
+            parse_float.map(RawValue::float),
+            parse_substitution.map(RawValue::substitution),
+            parse_string.map(RawValue::String),
+        ),
+    ).parse_complete(input)
+}
 
-fn next_element_whitespace(input: &str) -> R<()> {
-    value((), (hocon_multi_space0, many_m_n(0, 1, char(',')))).parse(input)
+fn next_element_whitespace(input: &str) -> R<'_, ()> {
+    value((), (hocon_multi_space0, many_m_n(0, 1, char(',')))).parse_complete(input)
 }
 
 pub(crate) fn load_conf(name: impl AsRef<str>) -> crate::Result<String> {
@@ -119,19 +134,34 @@ pub(crate) fn load_conf(name: impl AsRef<str>) -> crate::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::{parse_object, parse_value};
+    use crate::parser::parse_value;
+    use crate::parser::string::parse_key;
     use crate::raw::raw_string::RawString;
     use crate::raw::raw_value::RawValue;
+    use nom::Err;
+    use nom_language::error::convert_error;
 
     #[test]
     fn test1() -> crate::Result<()> {
-        let demo = std::fs::read_to_string("resources/demo.conf")?;
-        match parse_object(&demo) {
-            Ok(_) => {}
-            Err(e) => {
-                println!("{e}");
+        match parse_value("").err() {
+            None => {}
+            Some(e) => {
+                match e {
+                    Err::Incomplete(_) => {}
+                    Err::Error(e) => {
+                        println!("e:{}", convert_error("world", e));
+                    }
+                    Err::Failure(_) => {}
+                }
             }
         }
+        // let demo = std::fs::read_to_string("resources/demo.conf")?;
+        // match parse_object(&demo) {
+        //     Ok(_) => {}
+        //     Err(e) => {
+        //         println!("{e}");
+        //     }
+        // }
         // let obj = parse_object(&demo)?;
         Ok(())
     }
@@ -141,5 +171,9 @@ mod tests {
         let (remainder, result) = parse_value("\"world\"}").unwrap();
         assert_eq!(result, RawValue::String(RawString::QuotedString("world".to_string())));
         assert_eq!(remainder, "}");
+        let (r, o) = parse_value("true false ${?a}").unwrap();
+        println!("{}={}", r, o);
+        let (r, o) = parse_key("a = true false ${}").unwrap();
+        println!("{}={}", r, o);
     }
 }

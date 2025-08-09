@@ -7,7 +7,7 @@ use nom::error::context;
 use nom::sequence::{pair, terminated};
 use nom::Parser;
 
-pub(crate) fn parse_int(input: &str) -> R<i64> {
+pub(crate) fn parse_int(input: &str) -> R<'_, i64> {
     context(
         "i64 number expect",
         terminated(

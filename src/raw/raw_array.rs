@@ -14,6 +14,6 @@ pub struct RawArray(Vec<RawValue>);
 
 impl Display for RawArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.iter().join(", ").fmt(f)
+        write!(f, "[{}]", self.iter().join(", "))
     }
 }

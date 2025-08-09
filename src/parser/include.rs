@@ -9,7 +9,7 @@ use nom::error::context;
 use nom::sequence::{delimited, preceded};
 use nom::Parser;
 
-pub(crate) fn parse_include(input: &str) -> R<Inclusion> {
+pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
     // optional 'required(...)' wrapper
     let (remainder, is_required) = opt(delimited(
         context("required", tag("required")),

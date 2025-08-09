@@ -1,17 +1,16 @@
-use crate::parser::{hocon_multi_space0, is_hocon_horizontal_whitespace, R};
+use crate::parser::{hocon_horizontal_multi_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace, R};
 use crate::raw::raw_string::{ConcatString, RawString};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::char;
-use nom::character::complete::{anychar, multispace1, none_of};
-use nom::combinator::{map, map_opt, map_res, peek, value, verify};
-use nom::multi::{fold, many1};
+use nom::character::complete::{anychar, multispace1};
+use nom::combinator::{map, map_opt, map_res, not, peek, value, verify};
+use nom::multi::{fold, many1, separated_list1};
 use nom::sequence::{delimited, preceded, terminated};
 use nom::Parser;
+use std::ops::{Deref, DerefMut};
 
-// pub(crate) fn unquoted_string(input: &str) -> R<&str> {
-//     take_while1(|c| !is_hocon_whitespace(c) && !FORBIDDEN_CHARACTERS.contains(&c)).parse_complete(input)
-// }
+const FORBIDDEN_CHARACTERS: [char; 19] = ['$', '"', '{', '}', '[', ']', ':', '=', ',', '+', '#', '`', '^', '?', '!', '@', '*', '&', '\\'];
 
 #[derive(Debug, Copy, Clone)]
 enum StringFragment<'a> {
@@ -20,13 +19,42 @@ enum StringFragment<'a> {
     EscapedWS,
 }
 
+#[derive(Debug, Clone)]
+enum Path {
+    Quoted(String),
+    Unquoted(String),
+    Multiline(String),
+}
+
+impl Deref for Path {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Path::Quoted(s) |
+            Path::Unquoted(s) |
+            Path::Multiline(s) => s
+        }
+    }
+}
+
+impl DerefMut for Path {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Path::Quoted(s) |
+            Path::Unquoted(s) |
+            Path::Multiline(s) => s
+        }
+    }
+}
+
 // 辅助谓词函数：检查字符是否不是双引号或反斜杠
 fn not_quote_slash(c: char) -> bool {
     c != '"' && c != '\\'
 }
 
 /// 解析 \u{XXXX} Unicode 转义序列，其中 XXXX 是 1 到 6 位十六进制数字。
-fn parse_unicode(input: &str) -> R<char> {
+fn parse_unicode(input: &str) -> R<'_, char> {
     preceded(
         char('\\'),
         map_opt(
@@ -45,7 +73,7 @@ fn parse_unicode(input: &str) -> R<char> {
 }
 
 /// 解析标准 JSON 转义序列，如 \n, \t, \", \\, \/, \b, \f，并集成 parse_unicode。
-fn parse_escaped_char(input: &str) -> R<char> {
+fn parse_escaped_char(input: &str) -> R<'_, char> {
     preceded(
         char('\\'),
         alt((
@@ -64,17 +92,17 @@ fn parse_escaped_char(input: &str) -> R<char> {
 }
 
 /// 解析反斜杠后跟一个或多个空白字符的序列。
-fn parse_escaped_whitespace(input: &str) -> R<&str> {
+fn parse_escaped_whitespace(input: &str) -> R<'_, &str> {
     preceded(char('\\'), multispace1).parse_complete(input)
 }
 
 /// 解析一系列不是双引号（"）或反斜杠（\）的字符。
-fn parse_literal(input: &str) -> R<&str> {
+fn parse_literal(input: &str) -> R<'_, &str> {
     verify(take_while(not_quote_slash), |s: &str| !s.is_empty()).parse_complete(input)
 }
 
 /// 将不同类型的字符串片段（字面量、转义字符、转义空白）组合成一个 StringFragment 枚举。
-fn parse_fragment(input: &str) -> R<StringFragment> {
+fn parse_fragment(input: &str) -> R<'_, StringFragment<'_>> {
     alt((
         map(parse_literal, StringFragment::Literal),
         map(parse_escaped_char, StringFragment::EscapedChar),
@@ -83,7 +111,7 @@ fn parse_fragment(input: &str) -> R<StringFragment> {
 }
 
 /// 解析完整的 HOCON 引用字符串，从开头的 " 到结尾的 "，并将内部片段组装成一个 String。
-pub(crate) fn parse_quoted_string(input: &str) -> R<String> {
+pub(crate) fn parse_quoted_string(input: &str) -> R<'_, String> {
     let build_string = fold(
         0.., // 解析 `parse_fragment` 零次或多次
         parse_fragment, // 用于单个字符串片段的解析器
@@ -104,72 +132,59 @@ pub(crate) fn parse_quoted_string(input: &str) -> R<String> {
 
 // 谓词函数：检查字符是否是未引用字符串中的禁止字符
 fn is_forbidden_unquoted_char(c: char) -> bool {
-    matches!(c, '$' | '"' | '{' | '}' | '[' | ']' | ':' | '=' | ',' | '+' | '#' | '`' | '^' | '?' | '!' | '@' | '*' | '&' | '\\') ||
-        is_hocon_horizontal_whitespace(c)
-}
-
-// 谓词函数：检查字符是否是未引用字符串中允许的单个字符（不包括对 `//` 的特殊处理）
-fn is_unquoted_char_allowed_single(c: char) -> bool {
-    !is_forbidden_unquoted_char(c)
+    FORBIDDEN_CHARACTERS.contains(&c) || is_hocon_whitespace(c)
 }
 
 /// 解析未引用字符串中的单个允许字符，处理 `//` 序列以避免将其作为字符串内容。
-fn parse_unquoted_char(input: &str) -> R<char> {
+fn parse_unquoted_char(input: &str) -> R<'_, char> {
     alt(
         (
             // 匹配任何允许且不是 '/' 的字符
-            verify(anychar, |&c| is_unquoted_char_allowed_single(c) && c != '/'),
+            verify(anychar, |&c| !is_forbidden_unquoted_char(c) && c != '/'),
             // 匹配 '/' 字符，但仅当其后面没有另一个 '/' 时
             // 使用 `peek` 组合器向前查看而不消耗输入。
-            preceded(char('/'), peek(none_of("/"))).map(|_| '/'),
+            (char('/'), peek(not(char('/')))).map(|_| '/'),
         ),
     ).parse_complete(input)
 }
 
-/// 解析 HOCON 未引用字符串。
-/// 未引用字符串不能包含特定禁止字符，也不能包含 `//` 序列 [2, 6, 7]。
-/// 此外，它不能以 `true`, `false`, `null` 或数字开头（此检查通常在更高级别处理）[2, 6, 7]。
-pub(crate) fn parse_unquoted_string(input: &str) -> R<String> {
-    // `many1` 确保至少解析一个字符。
-    let (remaining, fragments) = many1(parse_unquoted_char).parse_complete(input)?;
-
-    let s: String = fragments.into_iter().collect();
-
-    // HOCON 规范指出未引用字符串不能以 `true`, `false`, `null` 或数字开头 [2, 6, 7]。
-    // 此函数仅处理字符集和 `//` 规则。
-    // 完整的 HOCON 解析器应在尝试未引用字符串之前，先尝试解析布尔值、null 和数字。
-    Ok((remaining, s))
+fn parse_unquoted_path_char(input: &str) -> R<'_, char> {
+    alt(
+        (
+            verify(anychar, |c| !FORBIDDEN_CHARACTERS.contains(&c) && *c != '/' && *c != '.'),
+            (char('/'), peek(not(char('/')))).map(|_| '/'),
+        ),
+    ).parse_complete(input)
 }
 
-/// 解析 HOCON 多行字符串。
-/// 多行字符串以 `"""` 开头和结尾，内部所有字符（包括换行符和空格）都按字面意义处理 [2, 6]。
-/// 不支持转义序列 [2]。
-/// 任何至少三个引号的序列都会终止字符串，额外的引号被视为字符串内容的一部分 [2]。
-// pub fn parse_hocon_multiline_string(input: &str) -> R<String> {
-//     // 匹配开头的 """
-//     let (input, _) = tag("\"\"\"")(input)?;
-//
-//     // 匹配直到下一个 """ 的所有字符。`take_until` 是非贪婪的，它会停止在第一个匹配项。
-//     let (remaining, content) = take_until("\"\"\"")(input)?;
-//
-//     // 匹配结束的 """
-//     let (remaining, _) = tag("\"\"\"")(remaining)?;
-//
-//     // 处理额外的引号：任何在结束 """ 之后的额外 " 字符都被视为字符串内容的一部分 [2]。
-//     let (remaining, extra_quotes) = take_while(|c| c == '"')(remaining)?;
-//
-//     // 组合内容和额外引号
-//     let mut result = String::from(content);
-//     result.push_str(extra_quotes);
-//
-//     Ok((remaining, result))
-// }
-//
-// pub(crate) fn quoted_string(input: &str) -> R<String> {
-//     todo!()
-// }
+pub(crate) fn parse_unquoted_string(input: &str) -> R<'_, String> {
+    fold(
+        1..,
+        parse_unquoted_char,
+        String::new,
+        |mut acc, char| {
+            acc.push(char);
+            acc
+        },
+    ).parse_complete(input)
+}
 
-pub(crate) fn parse_multiline_string(input: &str) -> R<String> {
+fn parse_unquoted_path_expression(input: &str) -> R<'_, String> {
+    verify(
+        fold(
+            1..,
+            parse_unquoted_path_char,
+            String::new,
+            |mut acc, c| {
+                acc.push(c);
+                acc
+            },
+        ),
+        |path: &String| path.chars().any(|c| !is_hocon_horizontal_whitespace(c)),
+    ).parse_complete(input)
+}
+
+pub(crate) fn parse_multiline_string(input: &str) -> R<'_, String> {
     delimited(
         tag(r#"""""#),
         take_until(r#"""""#),
@@ -179,17 +194,57 @@ pub(crate) fn parse_multiline_string(input: &str) -> R<String> {
         .parse_complete(input)
 }
 
-pub(crate) fn parse_hocon_string(input: &str) -> R<RawString> {
+fn parse_path(input: &str) -> R<'_, Vec<Path>> {
+    separated_list1(
+        char('.'),
+        alt(
+            (
+                parse_multiline_string.map(Path::Multiline),
+                parse_quoted_string.map(Path::Quoted),
+                parse_unquoted_path_expression.map(Path::Unquoted),
+            )
+        ),
+    )
+        .map(|mut path| {
+            path.last_mut().map(|p| {
+                let trimmed_len = p.trim_end_matches(is_hocon_horizontal_whitespace).len();
+                p.truncate(trimmed_len);
+            });
+            path
+        })
+        .parse_complete(input)
+}
+
+pub(crate) fn parse_key(input: &str) -> R<'_, RawString> {
+    parse_path.map(|paths| {
+        let mut keys = Vec::with_capacity(paths.len());
+        for path in paths {
+            let key = match path {
+                Path::Quoted(s) => (RawString::quoted(s), ""),
+                Path::Unquoted(s) => (RawString::unquoted(s), ""),
+                Path::Multiline(s) => (RawString::multiline(s), "")
+            };
+            keys.push(key);
+        }
+        RawString::concat(keys.into_iter())
+    }).parse_complete(input)
+}
+
+pub(crate) fn parse_path_expression(input: &str) -> R<'_, RawString> {
+    parse_key.parse_complete(input)
+}
+
+pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
     many1(
         (
             alt(
                 (
-                    parse_multiline_string.map(RawString::MultiLineString),
+                    parse_multiline_string.map(RawString::MultilineString),
                     parse_quoted_string.map(RawString::QuotedString),
                     parse_unquoted_string.map(RawString::UnquotedString),
                 )
             ),
-            hocon_multi_space0.map(|s| s.to_string()),
+            hocon_horizontal_multi_space0.map(|s| s.to_string()),
         )
     )
         .map(maybe_concat)
@@ -207,7 +262,8 @@ fn maybe_concat(mut values: Vec<(RawString, String)>) -> RawString {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::string::{parse_hocon_string, parse_multiline_string, parse_quoted_string, parse_unquoted_string};
+    use crate::parser::string::{parse_multiline_string, parse_path, parse_path_expression, parse_quoted_string, parse_string, parse_unquoted_path_char, parse_unquoted_path_expression, parse_unquoted_string};
+    use crate::parser::substitution::parse_substitution;
 
     #[test]
     fn test_unquoted_string() {
@@ -236,8 +292,8 @@ World!""""""#).unwrap();
 
     #[test]
     fn test_string() {
-        let (r, o) = parse_hocon_string("4 5.0").unwrap();
-        let (r, o) = parse_hocon_string("\"\"\"a\"\"\". b.\" c\"").unwrap();
+        let (r, o) = parse_string("4 5.0").unwrap();
+        let (r, o) = parse_string("\"\"\"a\"\"\". b.\" c\"").unwrap();
         println!("{}", o.synthetic());
         // assert!(r.is_empty());
         // let v = RawString::ConcatString(ConcatString::new(vec![(RawString::UnquotedString("4".to_string()), " ".to_string()), (RawString::UnquotedString("5.0".to_string()), "".to_string())]));
@@ -248,5 +304,14 @@ World!""""""#).unwrap();
         // println!("{}={}", r, o);
         // let (r, o) = parse_hocon_quoted_string("\"1\r\n\"").unwrap();
         // println!("k{}={:?}", r, o);
+    }
+
+    #[test]
+    fn test_unquoted_path_expression() {
+        let (r, o) = parse_substitution("${a}").unwrap();
+        println!("{o:?}");
+        // parse_unquoted_path_char("/ ").unwrap();
+        // let (r, o) = parse_unquoted_path_expression(" c / }").unwrap();
+        // println!("{}={}", r, o);
     }
 }

@@ -8,7 +8,7 @@ use nom::number::complete::double;
 use nom::sequence::{pair, terminated};
 use nom::Parser;
 
-pub(crate) fn parse_float(input: &str) -> R<f64> {
+pub(crate) fn parse_float(input: &str) -> R<'_, f64> {
     context(
         "f64 number expect",
         terminated(
