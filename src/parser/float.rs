@@ -1,7 +1,7 @@
-use crate::parser::R;
+use crate::parser::{hocon_horizontal_multi_space0, R};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{line_ending, space0};
+use nom::character::complete::line_ending;
 use nom::combinator::{eof, peek};
 use nom::error::context;
 use nom::number::complete::double;
@@ -14,7 +14,7 @@ pub(crate) fn parse_float(input: &str) -> R<'_, f64> {
         terminated(
             double,
             pair(
-                space0,
+                hocon_horizontal_multi_space0,
                 alt(
                     (
                         peek(tag(",")),

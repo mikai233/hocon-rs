@@ -11,7 +11,7 @@ pub enum RawString {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Constructor, Deref, DerefMut)]
-pub struct ConcatString(Vec<(RawString, String)>);
+pub struct ConcatString(Vec<(RawString, Option<String>)>);
 
 impl ConcatString {
     pub fn synthetic(&self) -> String {
@@ -20,16 +20,14 @@ impl ConcatString {
         let last_index = iter.len() - 1;
         for (index, (string, space)) in iter.enumerate() {
             match string {
-                RawString::QuotedString(s) |
-                RawString::UnquotedString(s) |
-                RawString::MultilineString(s) => {
-                    result.push_str(s.as_str());
-                }
                 RawString::ConcatString(s) => {
                     result.push_str(s.synthetic().as_str());
                 }
+                other => {
+                    result.push_str(other.synthetic().as_str());
+                }
             }
-            if index != last_index && !space.is_empty() {
+            if index != last_index && let Some(space) = space {
                 result.push_str(space);
             }
         }
@@ -39,10 +37,7 @@ impl ConcatString {
 
 impl Display for ConcatString {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for (string, space) in self.iter() {
-            write!(f, "{}{}", string, space)?;
-        }
-        Ok(())
+        write!(f, "{}", self.synthetic())
     }
 }
 
@@ -56,13 +51,27 @@ impl RawString {
         }
     }
 
-    pub fn synthetic(self) -> String {
+    pub fn synthetic(&self) -> String {
+        let mut result = String::new();
         match self {
-            RawString::QuotedString(s) |
-            RawString::UnquotedString(s) |
-            RawString::MultilineString(s) => s,
-            RawString::ConcatString(s) => s.synthetic(),
+            RawString::QuotedString(s) => {
+                result.push('"');
+                result.push_str(s);
+                result.push('"');
+            }
+            RawString::UnquotedString(s) => {
+                result.push_str(s);
+            }
+            RawString::MultilineString(s) => {
+                result.push_str("\"\"\"");
+                result.push_str(s);
+                result.push_str("\"\"\"");
+            }
+            RawString::ConcatString(s) => {
+                result = s.synthetic();
+            }
         }
+        result
     }
 
     pub fn as_path(&self) -> Vec<&str> {
@@ -90,10 +99,10 @@ impl RawString {
 
     pub fn concat<I, S>(iter: I) -> Self
     where
-        I: IntoIterator<Item=(RawString, S)>,
+        I: IntoIterator<Item=(RawString, Option<S>)>,
         S: Into<String>,
     {
-        let strings = iter.into_iter().map(|(t, u)| (t, u.into())).collect_vec();
+        let strings = iter.into_iter().map(|(t, u)| (t, u.map(|u| u.into()))).collect_vec();
         Self::ConcatString(ConcatString::new(strings))
     }
 }

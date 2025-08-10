@@ -1,15 +1,15 @@
+use crate::key::Key;
 use crate::object::Object;
 use crate::raw::raw_object::RawObject;
-use crate::raw::raw_value::RawValue;
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
-    value: RawValue,
+    object: RawObject,
 }
 
 impl Config {
-    pub fn get(&self, path: impl AsRef<str>) -> crate::Result<Option<Value>> {
+    pub fn get(&self, key: impl Into<Key>) -> crate::Result<Option<Value>> {
         todo!()
         // let trimmed = path.as_ref().trim();
         // if trimmed.is_empty() {

@@ -32,15 +32,18 @@ use nom_language::error::VerboseError;
 type R<'a, T> = IResult<&'a str, T, VerboseError<&'a str>>;
 
 pub fn parse(input: &str) -> R<'_, RawObject> {
-    preceded(
-        hocon_multi_space0,
-        alt(
-            (
-                parse_object,
-                parse_root_object,
-            )
-        ),
-    ).parse_complete(input)
+    all_consuming(
+        preceded(
+            hocon_multi_space0,
+            alt(
+                (
+                    parse_object,
+                    parse_root_object,
+                )
+            ),
+        )
+    )
+        .parse_complete(input)
 }
 
 fn empty_content(input: &str) -> R<'_, RawObject> {
@@ -85,7 +88,7 @@ fn parse_value(input: &str) -> R<'_, RawValue> {
                     hocon_horizontal_multi_space0,
                     alt(
                         (
-                            parse_boolean.map(RawValue::boolean),
+                            context("parse_boolean", parse_boolean.map(RawValue::boolean)),
                             context("parse_null", parse_null.map(|_| RawValue::null())),
                             context("parse_int", parse_int.map(RawValue::int)),
                             context("parse_float", parse_float.map(RawValue::float)),
@@ -134,12 +137,20 @@ pub(crate) fn load_conf(name: impl AsRef<str>) -> crate::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::parse_value;
     use crate::parser::string::parse_key;
+    use crate::parser::{next_element_whitespace, parse_value};
     use crate::raw::raw_string::RawString;
     use crate::raw::raw_value::RawValue;
     use nom::Err;
     use nom_language::error::convert_error;
+
+    #[test]
+    fn test_next_element_whitespace() {
+        let (r, _) = next_element_whitespace("  , hello = world").unwrap();
+        assert_eq!(r, " hello = world");
+        let (r, _) = next_element_whitespace("  ,, hello = world").unwrap();
+        assert_eq!(r, ", hello = world");
+    }
 
     #[test]
     fn test1() -> crate::Result<()> {

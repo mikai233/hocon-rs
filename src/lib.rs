@@ -11,5 +11,6 @@ pub mod raw;
 pub mod factory;
 pub(crate) mod path;
 pub mod parser;
+mod key;
 
 pub type Result<T> = std::result::Result<T, error::Error>;

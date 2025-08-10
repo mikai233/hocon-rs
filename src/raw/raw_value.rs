@@ -82,7 +82,7 @@ impl RawValue {
 
     pub fn concat_string<I, S>(iter: I) -> RawValue
     where
-        I: IntoIterator<Item=(RawString, S)>,
+        I: IntoIterator<Item=(RawString, Option<String>)>,
         S: Into<String>,
     {
         RawValue::String(RawString::concat(iter))
@@ -122,7 +122,7 @@ impl Display for RawValue {
             RawValue::Object(object) => write!(f, "{}", object),
             RawValue::Array(array) => write!(f, "{}", array),
             RawValue::Boolean(boolean) => write!(f, "{}", boolean),
-            RawValue::Null => write!(f, "Null"),
+            RawValue::Null => write!(f, "null"),
             RawValue::String(string) => write!(f, "{}", string),
             RawValue::Float(float) => write!(f, "{}", float),
             RawValue::Int(int) => write!(f, "{}", int),

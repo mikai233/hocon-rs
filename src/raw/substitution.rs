@@ -9,6 +9,12 @@ pub struct Substitution {
 
 impl Display for Substitution {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{path: {}, optional: {}}}", self.path.as_path().join(". "), self.optional)
+        write!(f, "${{")?;
+        if self.optional {
+            write!(f, "?")?;
+        }
+        write!(f, "{}", self.path.synthetic())?;
+        write!(f, "}}")?;
+        Ok(())
     }
 }

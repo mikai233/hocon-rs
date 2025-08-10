@@ -29,14 +29,23 @@ impl Display for Location {
 
 impl Display for Inclusion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{")?;
-        write!(f, "path: {}", self.path)?;
-        write!(f, "required: {};", self.required)?;
-        match self.location {
-            None => write!(f, "location: None")?,
-            Some(location) => write!(f, "{}", location)?,
+        write!(f, "include ")?;
+        if self.required {
+            write!(f, "required(")?;
         }
-        write!(f, "}}")?;
+        match self.location {
+            None => {
+                write!(f, "{}", self.path)?;
+            }
+            Some(location) => {
+                write!(f, "{}(", location)?;
+                write!(f, "{}", self.path)?;
+                write!(f, ")")?;
+            }
+        }
+        if self.required {
+            write!(f, ")")?;
+        }
         Ok(())
     }
 }

@@ -216,17 +216,28 @@ fn parse_path(input: &str) -> R<'_, Vec<Path>> {
 }
 
 pub(crate) fn parse_key(input: &str) -> R<'_, RawString> {
-    parse_path.map(|paths| {
-        let mut keys = Vec::with_capacity(paths.len());
-        for path in paths {
-            let key = match path {
-                Path::Quoted(s) => (RawString::quoted(s), ""),
-                Path::Unquoted(s) => (RawString::unquoted(s), ""),
-                Path::Multiline(s) => (RawString::multiline(s), "")
-            };
-            keys.push(key);
+    fn path_to_raw(path: Path) -> RawString {
+        match path {
+            Path::Quoted(s) => RawString::quoted(s),
+            Path::Unquoted(s) => RawString::unquoted(s),
+            Path::Multiline(s) => RawString::multiline(s)
         }
-        RawString::concat(keys.into_iter())
+    }
+    parse_path.map(|mut paths| {
+        if paths.len() == 1 {
+            path_to_raw(paths.remove(0))
+        } else {
+            let mut keys = Vec::with_capacity(paths.len());
+            for path in paths {
+                let key = match path {
+                    Path::Quoted(s) => (RawString::quoted(s), Some(".")),
+                    Path::Unquoted(s) => (RawString::unquoted(s), Some(".")),
+                    Path::Multiline(s) => (RawString::multiline(s), Some("."))
+                };
+                keys.push(key);
+            }
+            RawString::concat(keys.into_iter())
+        }
     }).parse_complete(input)
 }
 
@@ -244,14 +255,20 @@ pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
                     parse_unquoted_string.map(RawString::UnquotedString),
                 )
             ),
-            hocon_horizontal_multi_space0.map(|s| s.to_string()),
+            hocon_horizontal_multi_space0.map(|s| {
+                if s.len() == 0 {
+                    None
+                } else {
+                    Some(s.to_string())
+                }
+            }),
         )
     )
         .map(maybe_concat)
         .parse_complete(input)
 }
 
-fn maybe_concat(mut values: Vec<(RawString, String)>) -> RawString {
+fn maybe_concat(mut values: Vec<(RawString, Option<String>)>) -> RawString {
     assert!(!values.is_empty());
     if values.len() == 1 {
         values.remove(0).0
@@ -262,7 +279,7 @@ fn maybe_concat(mut values: Vec<(RawString, String)>) -> RawString {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::string::{parse_multiline_string, parse_path, parse_path_expression, parse_quoted_string, parse_string, parse_unquoted_path_char, parse_unquoted_path_expression, parse_unquoted_string};
+    use crate::parser::string::{parse_multiline_string, parse_quoted_string, parse_string, parse_unquoted_string};
     use crate::parser::substitution::parse_substitution;
 
     #[test]
@@ -293,7 +310,7 @@ World!""""""#).unwrap();
     #[test]
     fn test_string() {
         let (r, o) = parse_string("4 5.0").unwrap();
-        let (r, o) = parse_string("\"\"\"a\"\"\". b.\" c\"").unwrap();
+        let (r, o) = parse_string("\"\"\"a.\"\"\". b.\" c\"").unwrap();
         println!("{}", o.synthetic());
         // assert!(r.is_empty());
         // let v = RawString::ConcatString(ConcatString::new(vec![(RawString::UnquotedString("4".to_string()), " ".to_string()), (RawString::UnquotedString("5.0".to_string()), "".to_string())]));

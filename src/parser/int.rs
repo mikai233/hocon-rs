@@ -1,7 +1,7 @@
-use crate::parser::R;
+use crate::parser::{hocon_horizontal_multi_space0, R};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{i64, line_ending, space0};
+use nom::character::complete::{i64, line_ending};
 use nom::combinator::{eof, peek};
 use nom::error::context;
 use nom::sequence::{pair, terminated};
@@ -13,7 +13,7 @@ pub(crate) fn parse_int(input: &str) -> R<'_, i64> {
         terminated(
             i64,
             pair(
-                space0,
+                hocon_horizontal_multi_space0,
                 alt(
                     (
                         peek(tag(",")),
