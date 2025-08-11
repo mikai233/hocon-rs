@@ -3,7 +3,6 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug, PartialEq, Clone, derive_more::Constructor)]
 pub struct Inclusion {
-    pub depth: usize,
     pub path: String,
     pub required: bool,
     pub location: Option<Location>,

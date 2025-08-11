@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-enum Syntax {
+pub enum Syntax {
     Conf,
     Json,
     Properties,

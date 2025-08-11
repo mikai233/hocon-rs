@@ -28,12 +28,12 @@ impl Display for Key {
 
 impl Into<Key> for &str {
     fn into(self) -> Key {
-        Key::new([self])
+        Key::new(self.split('.'))
     }
 }
 
 impl Into<Key> for String {
     fn into(self) -> Key {
-        Key::new([self])
+        Key::new(self.split('.'))
     }
 }

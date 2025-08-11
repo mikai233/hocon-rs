@@ -1,4 +1,4 @@
-use crate::parser::{hocon_horizontal_multi_space0, R};
+use crate::parser::{hocon_multi_space0, R};
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag};
 use nom::character::complete::line_ending;
@@ -16,7 +16,7 @@ fn comment_content(input: &str) -> R<'_, &str> {
 
 pub(crate) fn parse_comment(input: &str) -> R<'_, &str> {
     preceded(
-        hocon_horizontal_multi_space0,
+        hocon_multi_space0,
         terminated(
             preceded(comment_separator, comment_content),
             opt(line_ending),

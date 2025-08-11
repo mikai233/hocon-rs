@@ -8,9 +8,11 @@ mod comment;
 mod int;
 mod float;
 mod substitution;
+mod config_parse_options;
 
 use crate::parser::array::parse_array;
 use crate::parser::boolean::parse_boolean;
+use crate::parser::config_parse_options::ConfigParseOptions;
 use crate::parser::float::parse_float;
 use crate::parser::int::parse_int;
 use crate::parser::null::parse_null;
@@ -28,8 +30,13 @@ use nom::multi::{many1, many_m_n};
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 use nom_language::error::VerboseError;
+use std::cell::RefCell;
 
 type R<'a, T> = IResult<&'a str, T, VerboseError<&'a str>>;
+
+thread_local! {
+    pub(crate) static CONFIG: RefCell<ConfigParseOptions> = RefCell::new(ConfigParseOptions::default());
+}
 
 pub fn parse(input: &str) -> R<'_, RawObject> {
     all_consuming(
@@ -44,10 +51,6 @@ pub fn parse(input: &str) -> R<'_, RawObject> {
         )
     )
         .parse_complete(input)
-}
-
-fn empty_content(input: &str) -> R<'_, RawObject> {
-    value(RawObject::default(), all_consuming(hocon_multi_space0)).parse(input)
 }
 
 fn is_hocon_whitespace(c: char) -> bool {

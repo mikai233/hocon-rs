@@ -8,15 +8,15 @@ impl ConfigFactory {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub struct ConfigOptions {
-    pub include_depth: u8,
-}
-
-impl Default for ConfigOptions {
-    fn default() -> Self {
-        Self {
-            include_depth: 50,
-        }
-    }
-}
+// #[derive(Debug, Eq, PartialEq)]
+// pub struct ConfigOptions {
+//     pub include_depth: u8,
+// }
+// 
+// impl Default for ConfigOptions {
+//     fn default() -> Self {
+//         Self {
+//             include_depth: 50,
+//         }
+//     }
+// }

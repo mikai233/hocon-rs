@@ -1,5 +1,5 @@
 use crate::parser::string::parse_quoted_string;
-use crate::parser::{hocon_horizontal_multi_space0, R};
+use crate::parser::{hocon_horizontal_multi_space0, parse, R};
 use crate::raw::include::{Inclusion, Location};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
@@ -27,7 +27,7 @@ fn parse_with_location(input: &str) -> R<'_, Inclusion> {
             char(')'),
         )
     ).parse_complete(input)?;
-    let inclusion = Inclusion::new(0, path, false, Some(location), None);
+    let inclusion = Inclusion::new(path, false, Some(location), None);
     Ok((remainder, inclusion))
 }
 
@@ -43,7 +43,7 @@ fn parse_with_required(input: &str) -> R<'_, Inclusion> {
                         inclusion
                     }),
                     parse_quoted_string.map(|path| {
-                        Inclusion::new(0, path, true, None, None)
+                        Inclusion::new(path, true, None, None)
                     })
                 )
             ),
@@ -54,7 +54,7 @@ fn parse_with_required(input: &str) -> R<'_, Inclusion> {
 }
 
 pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
-    preceded(
+    let (remainder, mut inclusion) = preceded(
         tag("include"),
         preceded(
             hocon_horizontal_multi_space0,
@@ -63,12 +63,45 @@ pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
                     parse_with_required,
                     parse_with_location,
                     parse_quoted_string.map(|path| {
-                        Inclusion::new(0, path, false, None, None)
+                        Inclusion::new(path, false, None, None)
                     }),
                 )
             ),
         ),
-    ).parse_complete(input)
+    ).parse_complete(input)?;
+    parse_inclusion(&mut inclusion);
+    Ok((remainder, inclusion))
+}
+
+fn parse_inclusion(inclusion: &mut Inclusion) {
+    match inclusion.location {
+        None => {
+            todo!()
+        }
+        Some(location) => {
+            match location {
+                Location::File => {
+                    if inclusion.path.ends_with(".conf") {
+                        match std::fs::read_to_string(&inclusion.path) {
+                            Ok(data) => {
+                                let (_, object) = parse(&data).unwrap();
+                                inclusion.val = Some(object.into());
+                            }
+                            Err(_) => {
+                                if inclusion.required {
+                                    panic!("required file not found");
+                                }
+                            }
+                        }
+                    } else {
+                        todo!()
+                    }
+                }
+                Location::Url => {}
+                Location::Classpath => {}
+            }
+        }
+    }
 }
 
 #[cfg(test)]

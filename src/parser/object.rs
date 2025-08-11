@@ -8,40 +8,41 @@ use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::{anychar, char};
-use nom::combinator::{map, opt, peek, value, verify};
+use nom::character::complete::char;
+use nom::combinator::{map, peek, value};
 use nom::error::context;
 use nom::multi::many0;
 use nom::sequence::delimited;
 use nom::Parser;
 
 pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
-    let (remainder, (object, )) = (
-        delimited(
+    let (remainder, object) = delimited(
+        (
             char('{'),
-            map(many0(object_element), RawObject::new),
-            char('}'),
+            hocon_multi_space0,
         ),
-    ).parse_complete(input)?;
+        map(many0(object_element), RawObject::new),
+        (
+            hocon_multi_space0,
+            char('}')
+        ),
+    )
+        .parse_complete(input)?;
     Ok((remainder, object))
 }
 
 pub(crate) fn parse_root_object(input: &str) -> R<'_, RawObject> {
-    let (remainder, (_, object, _)) = (
+    delimited(
         hocon_multi_space0,
         map(many0(object_element), RawObject::new),
         hocon_multi_space0,
-    ).parse_complete(input)?;
-    Ok((remainder, object))
-}
-
-fn a(input: &str) -> R<'_, char> {
-    peek(verify(anychar, |&c| c != ',')).parse_complete(input)
+    ).parse_complete(input)
 }
 
 fn object_element(input: &str) -> R<'_, ObjectField> {
-    let (remainder, (_, field, _, _)) = (
+    let (remainder, (_, _, field, _, _)) = (
         hocon_multi_space0,
+        many0(parse_comment),
         alt(
             (
                 map(parse_include, ObjectField::Inclusion),
@@ -50,7 +51,7 @@ fn object_element(input: &str) -> R<'_, ObjectField> {
             )
         ),
         next_element_whitespace,
-        opt(parse_comment),
+        many0(parse_comment),
     ).parse_complete(input)?;
     Ok((remainder, field))
 }
@@ -155,6 +156,7 @@ mod tests {
         let conf = load_conf("object3")?;
         let (remainder, object) = parse(conf.as_str()).unwrap();
         assert_eq!(remainder, "");
+        println!("{:?}", object);
         Ok(())
     }
 }
