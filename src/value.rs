@@ -1,22 +1,22 @@
-use crate::object::Object;
+use ahash::HashMap;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use serde_json::Number;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    Object(Object),
+    Object(HashMap<String, Value>),
     Array(Vec<Value>),
     Boolean(bool),
     Null,
     String(String),
-    Float(f64),
-    Int(i64),
+    Number(Number),
 }
 
 impl Value {
     pub fn new_object() -> Value {
-        Value::Object(Object::new())
+        Value::Object(Default::default())
     }
 
     pub fn with_object<K, I>(values: I) -> Value
@@ -25,7 +25,7 @@ impl Value {
         I: IntoIterator<Item=(K, Value)>,
     {
         let values = values.into_iter().map(|(k, v)| (k.into(), v));
-        Value::Object(Object::with_kvs(values))
+        Value::Object(HashMap::from_iter(values))
     }
 
     pub fn new_array() -> Value {
@@ -50,25 +50,17 @@ impl Value {
     pub fn new_string(string: impl Into<String>) -> Value {
         Value::String(string.into())
     }
-
-    pub fn new_float(float: f64) -> Value {
-        Value::Float(float)
-    }
-
-    pub fn new_int(int: i64) -> Value {
-        Value::Int(int)
-    }
 }
 
 impl Value {
-    pub fn as_object(&self) -> Option<&Object> {
+    pub fn as_object(&self) -> Option<&HashMap<String, Value>> {
         match self {
             Value::Object(object) => Some(object),
             _ => None
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut Object> {
+    pub fn as_object_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
         match self {
             Value::Object(object) => Some(object),
             _ => None
@@ -117,30 +109,16 @@ impl Value {
         }
     }
 
-    pub fn as_float(&self) -> Option<f64> {
+    pub fn as_f64(&mut self) -> Option<f64> {
         match self {
-            Value::Float(float) => Some(*float),
+            Value::Number(number) => number.as_f64(),
             _ => None
         }
     }
 
-    pub fn as_float_mut(&mut self) -> Option<&mut f64> {
+    pub fn as_i64(&self) -> Option<i64> {
         match self {
-            Value::Float(float) => Some(float),
-            _ => None
-        }
-    }
-
-    pub fn as_int(&self) -> Option<i64> {
-        match self {
-            Value::Int(int) => Some(*int),
-            _ => None
-        }
-    }
-
-    pub fn as_int_mut(&mut self) -> Option<i64> {
-        match self {
-            Value::Int(int) => Some(*int),
+            Value::Number(number) => number.as_i64(),
             _ => None
         }
     }
@@ -156,12 +134,11 @@ impl Value {
             Value::Boolean(_) => "Boolean",
             Value::Null => "Null",
             Value::String(_) => "String",
-            Value::Float(_) => "Float",
-            Value::Int(_) => "Int"
+            Value::Number(_) => "Number",
         }
     }
 
-    pub fn into_object(self) -> Option<Object> {
+    pub fn into_object(self) -> Option<HashMap<String, Value>> {
         match self {
             Value::Object(object) => Some(object),
             _ => None,
@@ -188,20 +165,6 @@ impl Value {
             _ => None,
         }
     }
-
-    pub fn into_float(self) -> Option<f64> {
-        match self {
-            Value::Float(float) => Some(float),
-            _ => None,
-        }
-    }
-
-    pub fn into_int(self) -> Option<i64> {
-        match self {
-            Value::Int(int) => Some(int),
-            _ => None,
-        }
-    }
 }
 
 impl Value {
@@ -218,7 +181,16 @@ impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Object(object) => {
-                write!(f, "{}", object)
+                write!(f, "{{")?;
+                let last_index = object.len() - 1;
+                for (index, (k, v)) in object.iter().enumerate() {
+                    write!(f, "{} = {}", k, v)?;
+                    if index != last_index {
+                        write!(f, ", ")?;
+                    }
+                }
+                write!(f, "}}")?;
+                Ok(())
             }
             Value::Array(array) => {
                 write!(f, "[{}]", array.iter().join(", "))
@@ -232,11 +204,8 @@ impl Display for Value {
             Value::String(string) => {
                 write!(f, "{}", string)
             }
-            Value::Float(float) => {
-                write!(f, "{}", float)
-            }
-            Value::Int(int) => {
-                write!(f, "{}", int)
+            Value::Number(number) => {
+                write!(f, "{}", number)
             }
         }
     }

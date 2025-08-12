@@ -1,7 +1,7 @@
 use crate::key::Key;
-use crate::object::Object;
 use crate::raw::raw_object::RawObject;
 use crate::value::Value;
+use ahash::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
@@ -53,8 +53,8 @@ impl Into<Value> for Config {
     }
 }
 
-impl From<Object> for Config {
-    fn from(value: Object) -> Self {
+impl From<HashMap<String, Value>> for Config {
+    fn from(value: HashMap<String, Value>) -> Self {
         todo!()
     }
 }
@@ -85,19 +85,18 @@ impl From<RawObject> for Config {
 #[cfg(test)]
 mod tests {
     use crate::config::Config;
-    use crate::extension::StringValueExt;
     use crate::value::Value;
 
     #[test]
     fn test_path_expression_get() -> crate::Result<()> {
         let value1 = Value::with_object([("a", Value::new_string("hello")), ("b", Value::new_string("world"))]);
-        let value2 = Value::with_array([Value::new_int(1), Value::new_int(2)]);
+        let value2 = Value::with_array([Value::Number(1.into()), Value::Number(2.into())]);
         let value2 = Value::with_object([("a", value1), ("b", value2)]);
         let value3 = Value::with_object([("a", value2)]);
         let object = value3.into_object().unwrap();
         let config = Config::from(object);
         let v = config.get("a.a.b")?.unwrap();
-        assert_eq!(v, "world".v());
+        assert_eq!(v, "world".into());
         Ok(())
     }
 }

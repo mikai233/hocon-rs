@@ -1,6 +1,7 @@
 use crate::parser::string::parse_quoted_string;
 use crate::parser::{hocon_horizontal_multi_space0, parse, R};
 use crate::raw::include::{Inclusion, Location};
+use crate::raw::raw_object::RawObject;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
@@ -13,6 +14,7 @@ fn parse_with_location(input: &str) -> R<'_, Inclusion> {
         alt(
             (
                 value(Location::File, tag("file")),
+                #[cfg(feature = "url")]
                 value(Location::Url, tag("url")),
                 value(Location::Classpath, tag("classpath"))
             )
@@ -97,12 +99,23 @@ fn parse_inclusion(inclusion: &mut Inclusion) {
                         todo!()
                     }
                 }
+                #[cfg(feature = "url")]
                 Location::Url => {}
                 Location::Classpath => {}
             }
         }
     }
 }
+
+trait IncludeResolver {
+    fn resolve(&self) -> crate::Result<RawObject>;
+}
+
+#[derive(Debug)]
+struct JsonIncludeResolver<'a> {
+    json_string: &'a str,
+}
+
 
 #[cfg(test)]
 mod tests {

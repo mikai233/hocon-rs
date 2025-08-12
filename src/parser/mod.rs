@@ -5,17 +5,15 @@ mod array;
 mod boolean;
 mod null;
 mod comment;
-mod int;
-mod float;
 mod substitution;
 mod config_parse_options;
+mod number;
 
 use crate::parser::array::parse_array;
 use crate::parser::boolean::parse_boolean;
 use crate::parser::config_parse_options::ConfigParseOptions;
-use crate::parser::float::parse_float;
-use crate::parser::int::parse_int;
 use crate::parser::null::parse_null;
+use crate::parser::number::parse_number;
 use crate::parser::object::{parse_object, parse_root_object};
 use crate::parser::string::parse_string;
 use crate::parser::substitution::parse_substitution;
@@ -93,8 +91,7 @@ fn parse_value(input: &str) -> R<'_, RawValue> {
                         (
                             context("parse_boolean", parse_boolean.map(RawValue::boolean)),
                             context("parse_null", parse_null.map(|_| RawValue::null())),
-                            context("parse_int", parse_int.map(RawValue::int)),
-                            context("parse_float", parse_float.map(RawValue::float)),
+                            context("parse_number", parse_number.map(RawValue::number)),
                             context("parse_substitution", parse_substitution.map(RawValue::substitution)),
                             context("parse_string", parse_string.map(RawValue::String)),
                             context("parse_array", parse_array.map(RawValue::Array)),
@@ -114,19 +111,6 @@ fn parse_value(input: &str) -> R<'_, RawValue> {
         ),
     ).parse_complete(input)?;
     Ok((remainder, value))
-}
-
-fn parse_simple_value(input: &str) -> R<'_, RawValue> {
-    alt(
-        (
-            parse_boolean.map(RawValue::boolean),
-            parse_null.map(|_| RawValue::null()),
-            parse_int.map(RawValue::int),
-            parse_float.map(RawValue::float),
-            parse_substitution.map(RawValue::substitution),
-            parse_string.map(RawValue::String),
-        ),
-    ).parse_complete(input)
 }
 
 fn next_element_whitespace(input: &str) -> R<'_, ()> {

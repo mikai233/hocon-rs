@@ -7,6 +7,7 @@ use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::substitution::Substitution;
 use itertools::Itertools;
+use serde_json::Number;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16,8 +17,7 @@ pub enum RawValue {
     Boolean(bool),
     Null,
     String(RawString),
-    Float(f64),
-    Int(i64),
+    Number(Number),
     Inclusion(Inclusion),
     Substitution(Substitution),
     Concat(Concat),
@@ -32,8 +32,7 @@ impl RawValue {
             RawValue::Boolean(_) => "boolean",
             RawValue::Null => "null",
             RawValue::String(s) => s.ty(),
-            RawValue::Float(_) => "float",
-            RawValue::Int(_) => "int",
+            RawValue::Number(_) => "number",
             RawValue::Inclusion(_) => "inclusion",
             RawValue::Substitution(_) => "substitution",
             RawValue::Concat(_) => "concat",
@@ -88,12 +87,8 @@ impl RawValue {
         RawValue::String(RawString::concat(iter))
     }
 
-    pub fn float(f: f64) -> RawValue {
-        RawValue::Float(f)
-    }
-
-    pub fn int(i: i64) -> RawValue {
-        RawValue::Int(i)
+    pub fn number(n: impl Into<Number>) -> RawValue {
+        RawValue::Number(n.into())
     }
 
     pub fn inclusion(incl: Inclusion) -> RawValue {
@@ -124,8 +119,7 @@ impl Display for RawValue {
             RawValue::Boolean(boolean) => write!(f, "{}", boolean),
             RawValue::Null => write!(f, "null"),
             RawValue::String(string) => write!(f, "{}", string),
-            RawValue::Float(float) => write!(f, "{}", float),
-            RawValue::Int(int) => write!(f, "{}", int),
+            RawValue::Number(number) => write!(f, "{}", number),
             RawValue::Inclusion(inclusion) => write!(f, "{}", inclusion),
             RawValue::Substitution(substitution) => write!(f, "{}", substitution),
             RawValue::Concat(concat) => write!(f, "{}", concat),
