@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 nom = "8.0.0"
 nom-language = "0.1.0"
-nom_locate = "5.0.0"
 ahash = "0.8.12"
 thiserror = "2.0.12"
 serde = { version = "1.0.219" }

@@ -33,11 +33,28 @@ impl ConcatString {
         }
         result
     }
+
+    pub fn merge(self) -> crate::Result<RawString> {
+        Ok(RawString::quoted(self.to_string()))
+    }
 }
 
 impl Display for ConcatString {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.synthetic())
+        let last_index = self.len() - 1;
+        for (index, (string, space)) in self.iter().enumerate() {
+            write!(f, "{}", string)?;
+            if index != last_index && let Some(space) = space {
+                write!(f, " {}", space)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Into<RawString> for &str {
+    fn into(self) -> RawString {
+        RawString::quoted(self)
     }
 }
 

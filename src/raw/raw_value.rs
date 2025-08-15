@@ -1,3 +1,4 @@
+use crate::path::Path;
 use crate::raw::add_assign::AddAssign;
 use crate::raw::concat::Concat;
 use crate::raw::field::ObjectField;
@@ -18,7 +19,6 @@ pub enum RawValue {
     Null,
     String(RawString),
     Number(Number),
-    Inclusion(Inclusion),
     Substitution(Substitution),
     Concat(Concat),
     AddAssign(AddAssign),
@@ -33,23 +33,26 @@ impl RawValue {
             RawValue::Null => "null",
             RawValue::String(s) => s.ty(),
             RawValue::Number(_) => "number",
-            RawValue::Inclusion(_) => "inclusion",
             RawValue::Substitution(_) => "substitution",
             RawValue::Concat(_) => "concat",
             RawValue::AddAssign(_) => "add_assign",
         }
     }
 
-    pub fn object_i(inclusion: Inclusion) -> RawValue {
-        let field = ObjectField::Inclusion(inclusion);
+    pub fn is_simple_value(&self) -> bool {
+        matches!(self, RawValue::Boolean(_) | RawValue::Null | RawValue::String(_) | RawValue::Number(_)) || matches!(self, RawValue::AddAssign(r) if r.is_simple_value())
+    }
+
+    pub fn inclusion(inclusion: Inclusion) -> RawValue {
+        let field = ObjectField::inclusion(inclusion);
         RawValue::Object(RawObject::new(vec![field]))
     }
 
-    pub fn object_kv<I>(iter: I) -> RawValue
+    pub fn key_value<I>(fields: I) -> RawValue
     where
         I: IntoIterator<Item=(RawString, RawValue)>,
     {
-        RawValue::Object(RawObject::kv(iter))
+        RawValue::Object(RawObject::key_value(fields))
     }
 
     pub fn array<I>(iter: I) -> RawValue
@@ -91,10 +94,6 @@ impl RawValue {
         RawValue::Number(n.into())
     }
 
-    pub fn inclusion(incl: Inclusion) -> RawValue {
-        RawValue::Inclusion(incl)
-    }
-
     pub fn substitution(s: Substitution) -> RawValue {
         RawValue::Substitution(s)
     }
@@ -103,11 +102,19 @@ impl RawValue {
     where
         I: IntoIterator<Item=RawValue>,
     {
-        RawValue::Concat(Concat::new(iter.into_iter().collect_vec()))
+        RawValue::Concat(Concat::new(iter.into_iter().collect_vec()).unwrap())
     }
 
     pub fn add_assign(v: RawValue) -> RawValue {
         RawValue::AddAssign(AddAssign::new(v.into()))
+    }
+
+    fn merge_value(path: &Path, mut v1: RawValue, mut v2: RawValue) -> RawValue {
+        unimplemented!()
+    }
+
+    pub fn merge(self, path: &Path) -> RawValue {
+        unimplemented!()
     }
 }
 
@@ -120,10 +127,37 @@ impl Display for RawValue {
             RawValue::Null => write!(f, "null"),
             RawValue::String(string) => write!(f, "{}", string),
             RawValue::Number(number) => write!(f, "{}", number),
-            RawValue::Inclusion(inclusion) => write!(f, "{}", inclusion),
             RawValue::Substitution(substitution) => write!(f, "{}", substitution),
             RawValue::Concat(concat) => write!(f, "{}", concat),
             RawValue::AddAssign(add_assign) => write!(f, "{}", add_assign),
+        }
+    }
+}
+
+impl TryInto<RawArray> for RawValue {
+    type Error = crate::error::Error;
+
+    fn try_into(self) -> Result<RawArray, Self::Error> {
+        match self {
+            RawValue::Array(a) => Ok(a),
+            other => Err(crate::error::Error::InvalidConversion {
+                from: other.ty(),
+                to: "array",
+            })
+        }
+    }
+}
+
+impl TryInto<RawObject> for RawValue {
+    type Error = crate::error::Error;
+
+    fn try_into(self) -> Result<RawObject, Self::Error> {
+        match self {
+            RawValue::Object(o) => Ok(o),
+            other => Err(crate::error::Error::InvalidConversion {
+                from: other.ty(),
+                to: "object",
+            })
         }
     }
 }

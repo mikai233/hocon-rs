@@ -1,6 +1,7 @@
 use ahash::HashMap;
 use itertools::Itertools;
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Serialize, Serializer};
 use serde_json::Number;
 use std::fmt::{Display, Formatter};
 
@@ -168,12 +169,20 @@ impl Value {
 }
 
 impl Value {
-    fn serialize<T: Serialize>(&self) -> T {
-        todo!()
+    pub fn deserialize<T>(self) -> crate::Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        unimplemented!()
     }
+}
 
-    fn deserialize<'a, T: Deserialize<'a>>(&'a self) -> T {
-        todo!()
+impl Serialize for Value {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        unimplemented!()
     }
 }
 

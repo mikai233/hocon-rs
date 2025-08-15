@@ -16,3 +16,9 @@ impl Display for AddAssign {
         write!(f, "{}", self.0)
     }
 }
+
+impl Into<RawValue> for AddAssign {
+    fn into(self) -> RawValue {
+        *self.0
+    }
+}

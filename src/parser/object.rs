@@ -1,7 +1,8 @@
 use crate::parser::comment::parse_comment;
 use crate::parser::include::parse_include;
 use crate::parser::string::parse_key;
-use crate::parser::{hocon_multi_space0, next_element_whitespace, parse_value, R};
+use crate::parser::{hocon_horizontal_multi_space0, hocon_multi_space0, parse_value, R};
+use crate::raw::comment::Comment;
 use crate::raw::field::ObjectField;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
@@ -9,9 +10,9 @@ use crate::raw::raw_value::RawValue;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
-use nom::combinator::{map, peek, value};
+use nom::combinator::{map, opt, peek, value};
 use nom::error::context;
-use nom::multi::many0;
+use nom::multi::{many0, many_m_n};
 use nom::sequence::delimited;
 use nom::Parser;
 
@@ -21,7 +22,9 @@ pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
             char('{'),
             hocon_multi_space0,
         ),
-        map(many0(object_element), RawObject::new),
+        map(many0(object_element), |fields| {
+            RawObject::new(fields.into_iter().flatten())
+        }),
         (
             hocon_multi_space0,
             char('}')
@@ -34,29 +37,70 @@ pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
 pub(crate) fn parse_root_object(input: &str) -> R<'_, RawObject> {
     delimited(
         hocon_multi_space0,
-        map(many0(object_element), RawObject::new),
+        map(many0(object_element), |fields| {
+            RawObject::new(fields.into_iter().flatten())
+        }),
         hocon_multi_space0,
     ).parse_complete(input)
 }
 
-fn object_element(input: &str) -> R<'_, ObjectField> {
-    let (remainder, (_, _, field, _, _)) = (
-        hocon_multi_space0,
-        many0(parse_comment),
+fn object_element(input: &str) -> R<'_, Vec<ObjectField>> {
+    fn newline_comments(input: &str) -> R<'_, Vec<ObjectField>> {
+        many0(
+            delimited(
+                hocon_multi_space0,
+                parse_comment.map(|(ty, content)| {
+                    ObjectField::newline_comment(Comment::new(content.to_string(), ty))
+                }),
+                hocon_multi_space0,
+            )
+        ).parse_complete(input)
+    }
+
+    fn current_line_comment(input: &str) -> R<'_, Comment> {
+        parse_comment.map(|(ty, content)| {
+            Comment::new(content.to_string(), ty)
+        }).parse_complete(input)
+    }
+
+    fn object_field(input: &str) -> R<'_, ObjectField> {
         alt(
             (
-                map(parse_include, ObjectField::Inclusion),
-                map(parse_key_value, |(k, v)| ObjectField::KeyValue(k, v)),
-                map(parse_add_assign, |(k, v)| ObjectField::KeyValue(k, v)),
+                map(parse_include, ObjectField::inclusion),
+                map(parse_key_value, |(k, v)| ObjectField::key_value(k, v)),
+                map(parse_add_assign, |(k, v)| ObjectField::key_value(k, v)),
             )
-        ),
-        next_element_whitespace,
-        many0(parse_comment),
+        ).parse_complete(input)
+    }
+
+    fn separator(input: &str) -> R<'_, ()> {
+        value(
+            (),
+            (hocon_horizontal_multi_space0, many_m_n(0, 1, char(','))),
+        ).parse_complete(input)
+    }
+
+    let (remainder, (newline_comments_before, mut field, _, current_line_comment, newline_comments_after)) = (
+        newline_comments,
+        object_field,
+        separator,
+        opt(current_line_comment),
+        newline_comments,
     ).parse_complete(input)?;
-    Ok((remainder, field))
+    if let Some(c) = current_line_comment {
+        field.set_comment(c);
+    }
+    let mut fields = newline_comments_before;
+    fields.push(field);
+    fields.extend(newline_comments_after);
+    Ok((remainder, fields))
 }
 
 fn parse_key_value(input: &str) -> R<'_, (RawString, RawValue)> {
+    fn separator(input: &str) -> R<'_, ()> {
+        value((), alt((char(':'), char('='), peek(char('{'))))).parse_complete(input)
+    }
+
     let (remainder, (_, key, _, _, _, value)) = context(
         "parse_key_value",
         (
@@ -72,7 +116,7 @@ fn parse_key_value(input: &str) -> R<'_, (RawString, RawValue)> {
 }
 
 fn parse_add_assign(input: &str) -> R<'_, (RawString, RawValue)> {
-    let (remainder, (_, key, _, _, _, value, _)) = context(
+    let (remainder, (_, key, _, _, _, value)) = context(
         "parse_add_assign",
         (
             hocon_multi_space0,
@@ -81,14 +125,9 @@ fn parse_add_assign(input: &str) -> R<'_, (RawString, RawValue)> {
             tag("+="),
             hocon_multi_space0,
             parse_value.map(RawValue::add_assign),
-            next_element_whitespace,
         ),
     ).parse_complete(input)?;
     Ok((remainder, (key, value)))
-}
-
-fn separator(input: &str) -> R<'_, ()> {
-    value((), alt((char(':'), char('='), peek(char('{'))))).parse_complete(input)
 }
 
 #[cfg(test)]
@@ -112,7 +151,7 @@ mod tests {
     #[test]
     fn test_object_element() {
         let (r, o) = object_element("b = ${b},, // test comment").unwrap();
-        println!("{} {}", r, o);
+        println!("{} {:?}", r, o);
     }
 
     #[test]

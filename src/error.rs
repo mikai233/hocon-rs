@@ -20,5 +20,10 @@ pub enum Error {
     ConcatenationDifferentType {
         ty1: &'static str,
         ty2: &'static str,
-    }
+    },
+    #[error("{val} is not allowed in {ty}")]
+    InvalidValue {
+        val: &'static str,
+        ty: &'static str,
+    },
 }

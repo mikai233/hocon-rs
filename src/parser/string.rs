@@ -291,6 +291,7 @@ mod tests {
 
     #[test]
     fn test_quoted_string() {
+        parse_quoted_string("\"\"").unwrap();
         let (remainder, result) = parse_quoted_string("\"world\"").unwrap();
         assert_eq!(remainder, "");
         assert_eq!(result, "world");

@@ -8,3 +8,4 @@ pub mod add_assign;
 pub mod field;
 pub mod macros;
 pub mod raw_string;
+pub mod comment;

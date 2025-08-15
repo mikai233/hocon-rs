@@ -10,7 +10,7 @@ use std::fmt::{Display, Formatter};
     derive_more::DerefMut,
     derive_more::Constructor
 )]
-pub struct RawArray(Vec<RawValue>);
+pub struct RawArray(pub Vec<RawValue>);
 
 impl Display for RawArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
