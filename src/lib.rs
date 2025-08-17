@@ -1,18 +1,25 @@
-extern crate core;
-
-pub mod value;
 pub mod config;
-pub mod error;
-pub mod transform;
-pub mod object;
-pub mod syntax;
-pub mod raw;
-pub mod factory;
-pub(crate) mod path;
-pub mod parser;
-mod key;
 mod config_options;
-pub mod serde;
+pub mod error;
+pub mod factory;
+mod key;
 pub mod macros;
+pub mod object;
+pub mod parser;
+pub(crate) mod path;
+pub mod raw;
+pub mod serde;
+pub mod syntax;
+pub mod transform;
+pub mod value;
+mod merge {
+    mod add_assign;
+    mod array;
+    mod concat;
+    mod delay_merge;
+    mod inclusion;
+    mod object;
+    mod vlaue;
+}
 
 pub type Result<T> = std::result::Result<T, error::Error>;

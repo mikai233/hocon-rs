@@ -2,69 +2,36 @@ use crate::path::Path;
 use crate::raw::field::ObjectField;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
+use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
-use std::ops::{Deref, DerefMut};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum RawObject {
-    Merged(Vec<ObjectField>),
-    Unmerged(Vec<ObjectField>),
-    MergedSubstitution {
-        path: Vec<Path>,
-        fields: Vec<ObjectField>,
-    },
-    UnmergedSubstitution {
-        path: Vec<Path>,
-        fields: Vec<ObjectField>,
-    },
-}
+#[derive(Debug, Clone, PartialEq, Default, Deref, DerefMut, Constructor)]
+pub struct RawObject(pub Vec<ObjectField>);
 
 impl RawObject {
-    pub fn new<I>(fields: I) -> Self
+    pub fn from_iter<I>(fields: I) -> Self
     where
-        I: IntoIterator<Item=ObjectField>,
+        I: IntoIterator<Item = ObjectField>,
     {
-        Self::Unmerged(fields.into_iter().collect())
+        Self(fields.into_iter().collect())
     }
 
     pub fn key_value<I>(fields: I) -> Self
     where
-        I: IntoIterator<Item=(RawString, RawValue)>,
+        I: IntoIterator<Item = (RawString, RawValue)>,
     {
         let kvs = fields
             .into_iter()
-            .map(|(k, v)| ObjectField::key_value(k, v))
-            .collect();
-        Self::Unmerged(kvs)
+            .map(|(k, v)| ObjectField::key_value(k, v));
+        Self::from_iter(kvs)
+    }
+
+    pub fn merge(self, _path: &Path) -> RawObject {
+        unimplemented!()
     }
 
     pub fn merge_object(o1: Self, o2: Self, path: &Path) -> Self {
-        let mut substitutions = vec![];
-        let mut fields = Vec::with_capacity(o1.len() + o2.len());
-        let mut extract = |o: RawObject| {
-            match o {
-                RawObject::Merged(v) |
-                RawObject::Unmerged(v) => {
-                    fields.extend(v);
-                }
-                RawObject::MergedSubstitution { path, fields: f } |
-                RawObject::UnmergedSubstitution { path, fields: f } => {
-                    substitutions.extend(path);
-                    fields.extend(f);
-                }
-            }
-        };
-        extract(o1);
-        extract(o2);
-        let object = RawObject::UnmergedSubstitution {
-            path: substitutions,
-            fields,
-        };
-        object.merge(path)
-    }
-
-    pub fn merge(self, path: &Path) -> RawObject {
         unimplemented!()
     }
 
@@ -85,8 +52,10 @@ impl RawObject {
                                 remove_index = Some(index);
                                 break;
                             }
-                            Some(sub_path) => if let RawValue::Object(obj) = value {
-                                return obj.remove_by_path(sub_path)
+                            Some(sub_path) => {
+                                if let RawValue::Object(obj) = value {
+                                    return obj.remove_by_path(sub_path);
+                                }
                             }
                         }
                     }
@@ -96,9 +65,7 @@ impl RawObject {
         }
         match remove_index {
             None => None,
-            Some(index) => {
-                Some(self.remove(index))
-            }
+            Some(index) => Some(self.remove(index)),
         }
     }
 
@@ -121,8 +88,10 @@ impl RawObject {
                             None => {
                                 remove_indices.push(index);
                             }
-                            Some(sub_path) => if let RawValue::Object(obj) = value {
-                                results.extend(obj.remove_all_by_path(sub_path));
+                            Some(sub_path) => {
+                                if let RawValue::Object(obj) = value {
+                                    results.extend(obj.remove_all_by_path(sub_path));
+                                }
                             }
                         }
                     }
@@ -148,11 +117,11 @@ impl RawObject {
                     let k = &key.as_path();
                     if path.starts_with1(k) {
                         match path.sub_path(k.len()) {
-                            None => {
-                                return Some(value)
-                            }
-                            Some(sub_path) => if let RawValue::Object(obj) = value {
-                                return obj.get_by_path(sub_path)
+                            None => return Some(value),
+                            Some(sub_path) => {
+                                if let RawValue::Object(obj) = value {
+                                    return obj.get_by_path(sub_path);
+                                }
                             }
                         }
                     }
@@ -175,11 +144,11 @@ impl RawObject {
                     let k = &key.as_path();
                     if path.starts_with1(k) {
                         match path.sub_path(k.len()) {
-                            None => {
-                                return Some(value)
-                            }
-                            Some(sub_path) => if let RawValue::Object(obj) = value {
-                                return obj.get_by_path_mut(sub_path)
+                            None => return Some(value),
+                            Some(sub_path) => {
+                                if let RawValue::Object(obj) = value {
+                                    return obj.get_by_path_mut(sub_path);
+                                }
                             }
                         }
                     }
@@ -189,91 +158,11 @@ impl RawObject {
         }
         None
     }
-
-    pub fn to_merged(self) -> Self {
-        match self {
-            RawObject::Merged(v) |
-            RawObject::Unmerged(v) => RawObject::Merged(v),
-            RawObject::MergedSubstitution { path, fields } |
-            RawObject::UnmergedSubstitution { path, fields } => RawObject::MergedSubstitution { path, fields },
-        }
-    }
-
-    pub fn to_unmerged(self) -> Self {
-        match self {
-            RawObject::Merged(v) |
-            RawObject::Unmerged(v) => RawObject::Unmerged(v),
-            RawObject::MergedSubstitution { path, fields } |
-            RawObject::UnmergedSubstitution { path, fields } => RawObject::UnmergedSubstitution { path, fields },
-        }
-    }
-
-    pub fn to_substitution(self) -> Self {
-        match self {
-            RawObject::Merged(v) => RawObject::MergedSubstitution {
-                path: vec![],
-                fields: v,
-            },
-            RawObject::Unmerged(v) => RawObject::UnmergedSubstitution {
-                path: vec![],
-                fields: v,
-            },
-            _ => self,
-        }
-    }
-
-    pub fn is_merged(&self) -> bool {
-        matches!(self, RawObject::Merged(_))
-    }
-
-    pub fn is_unmerged(&self) -> bool {
-        matches!(self, RawObject::Unmerged(_))
-    }
-
-    pub fn is_merged_substitution(&self) -> bool {
-        matches!(self, RawObject::MergedSubstitution{..})
-    }
-
-    pub fn is_unmerged_substitution(&self) -> bool {
-        matches!(self, RawObject::UnmergedSubstitution{..})
-    }
-}
-
-impl Default for RawObject {
-    fn default() -> Self {
-        RawObject::Unmerged(vec![])
-    }
-}
-
-impl Deref for RawObject {
-    type Target = Vec<ObjectField>;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            RawObject::Merged(o) |
-            RawObject::Unmerged(o) |
-            RawObject::MergedSubstitution { fields: o, .. } |
-            RawObject::UnmergedSubstitution { fields: o, .. } => o,
-        }
-    }
-}
-
-impl DerefMut for RawObject {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            RawObject::Merged(o) |
-            RawObject::Unmerged(o) |
-            RawObject::MergedSubstitution { fields: o, .. } |
-            RawObject::UnmergedSubstitution { fields: o, .. } => o,
-        }
-    }
 }
 
 impl Display for RawObject {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let joined = self.iter()
-            .map(|v| format!("{}", v))
-            .join(", ");
+        let joined = self.iter().map(|v| format!("{}", v)).join(", ");
         write!(f, "{{{}}}", joined)
     }
 }
@@ -281,7 +170,9 @@ impl Display for RawObject {
 // TODO make sure the key is valid
 impl From<Vec<(String, RawValue)>> for RawObject {
     fn from(value: Vec<(String, RawValue)>) -> Self {
-        let fields = value.into_iter().map(|(k, v)| ObjectField::key_value(RawString::QuotedString(k), v)).collect();
-        Self::Unmerged(fields)
+        let fields = value
+            .into_iter()
+            .map(|(k, v)| ObjectField::key_value(RawString::QuotedString(k), v));
+        Self::from_iter(fields)
     }
 }

@@ -23,7 +23,7 @@ impl Value {
     pub fn with_object<K, I>(values: I) -> Value
     where
         K: Into<String>,
-        I: IntoIterator<Item=(K, Value)>,
+        I: IntoIterator<Item = (K, Value)>,
     {
         let values = values.into_iter().map(|(k, v)| (k.into(), v));
         Value::Object(HashMap::from_iter(values))
@@ -35,7 +35,7 @@ impl Value {
 
     pub fn with_array<I>(values: I) -> Value
     where
-        I: IntoIterator<Item=Value>,
+        I: IntoIterator<Item = Value>,
     {
         Value::Array(values.into_iter().collect())
     }
@@ -57,70 +57,70 @@ impl Value {
     pub fn as_object(&self) -> Option<&HashMap<String, Value>> {
         match self {
             Value::Object(object) => Some(object),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_object_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
         match self {
             Value::Object(object) => Some(object),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_array(&self) -> Option<&Vec<Value>> {
         match self {
             Value::Array(array) => Some(array),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
         match self {
             Value::Array(array) => Some(array),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_boolean(&self) -> Option<bool> {
         match self {
             Value::Boolean(boolean) => Some(*boolean),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_boolean_mut(&mut self) -> Option<&mut bool> {
         match self {
             Value::Boolean(boolean) => Some(boolean),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(string) => Some(string),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_str_mut(&mut self) -> Option<&mut String> {
         match self {
             Value::String(string) => Some(string),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_f64(&mut self) -> Option<f64> {
         match self {
             Value::Number(number) => number.as_f64(),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Number(number) => number.as_i64(),
-            _ => None
+            _ => None,
         }
     }
 
@@ -165,6 +165,47 @@ impl Value {
             Value::String(string) => Some(string),
             _ => None,
         }
+    }
+
+    /// Get value from the given path and returns `None` if it's invalid.
+    ///
+    /// A path is considered invalid if:
+    /// - It is empty
+    /// - Contains leading or trailing `.` or `..` components
+    pub fn get_by_path<'a>(&self, paths: impl AsRef<[&'a str]>) -> Option<&Value> {
+        let paths = paths.as_ref();
+        if paths.is_empty() {
+            return None;
+        }
+        let mut current = self;
+        for &path in paths {
+            if let Value::Object(obj) = current {
+                if let Some(val) = obj.get(path) {
+                    current = val;
+                } else {
+                    return None;
+                }
+            }
+        }
+        Some(current)
+    }
+
+    pub fn get_by_path_mut<'a>(&mut self, paths: impl AsRef<[&'a str]>) -> Option<&mut Value> {
+        let paths = paths.as_ref();
+        if paths.is_empty() {
+            return None;
+        }
+        let mut current = self;
+        for &path in paths {
+            if let Value::Object(obj) = current {
+                if let Some(val) = obj.get_mut(path) {
+                    current = val;
+                } else {
+                    return None;
+                }
+            }
+        }
+        Some(current)
     }
 }
 

@@ -6,12 +6,12 @@ use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut)]
-pub struct Concat(Vec<RawValue>);
+pub struct Concat(pub(crate) Vec<RawValue>);
 
 impl Concat {
     pub fn new<I>(values: I) -> crate::Result<Self>
     where
-        I: IntoIterator<Item=RawValue>,
+        I: IntoIterator<Item = RawValue>,
     {
         let concat = Self(values.into_iter().collect());
         for v in &concat.0 {
@@ -33,21 +33,19 @@ impl Concat {
                 None => {
                     curr = Some(v2);
                 }
-                Some(v1) => {
-                    match Self::merge_concat(v1, v2, path) {
-                        Ok(v) => {
-                            curr = Some(v);
-                        }
-                        Err((a, b)) => {
-                            assert!(matches!(a, RawValue::AddAssign(_)));
-                            assert!(matches!(a, RawValue::Concat(_)));
-                            assert!(matches!(b, RawValue::AddAssign(_)));
-                            assert!(matches!(b, RawValue::Concat(_)));
-                            curr = Some(b);
-                            results.push(a.merge(path));
-                        }
+                Some(v1) => match Self::merge_concat(v1, v2, path) {
+                    Ok(v) => {
+                        curr = Some(v);
                     }
-                }
+                    Err((a, b)) => {
+                        assert!(matches!(a, RawValue::AddAssign(_)));
+                        assert!(matches!(a, RawValue::Concat(_)));
+                        assert!(matches!(b, RawValue::AddAssign(_)));
+                        assert!(matches!(b, RawValue::Concat(_)));
+                        curr = Some(b);
+                        results.push(a.merge(path));
+                    }
+                },
             }
         }
         if let Some(v) = curr {
@@ -60,9 +58,13 @@ impl Concat {
         }
     }
 
-    fn merge_concat(v1: RawValue, v2: RawValue, path: &Path) -> Result<RawValue, (RawValue, RawValue)> {
+    fn merge_concat(
+        v1: RawValue,
+        v2: RawValue,
+        path: &Path,
+    ) -> Result<RawValue, (RawValue, RawValue)> {
         if v1.is_simple_value() && v2.is_simple_value() {
-            return Ok(RawValue::quoted_string(format!("{v1}{v2}")))
+            return Ok(RawValue::quoted_string(format!("{v1}{v2}")));
         }
         match (v1, v2) {
             (RawValue::Object(o1), RawValue::Object(o2)) => {
@@ -72,9 +74,7 @@ impl Concat {
                 a1.extend(a2.0);
                 Ok(RawValue::Array(a1))
             }
-            (v1, v2) => {
-                Err((v1, v2))
-            }
+            (v1, v2) => Err((v1, v2)),
         }
     }
 }
