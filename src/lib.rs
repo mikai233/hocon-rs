@@ -19,6 +19,7 @@ mod merge {
     mod delay_merge;
     mod inclusion;
     mod object;
+    mod substitution;
     mod vlaue;
 }
 

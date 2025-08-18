@@ -3,10 +3,10 @@ use derive_more::Constructor;
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Constructor)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Constructor)]
 pub struct Path {
-    first: String,
-    remainder: Option<Box<Path>>,
+    pub first: String,
+    pub remainder: Option<Box<Path>>,
 }
 
 impl Path {
@@ -16,21 +16,36 @@ impl Path {
             return Err(Error::InvalidPathExpression("path is empty"));
         }
         if trimmed.starts_with('.') {
-            return Err(Error::InvalidPathExpression("leading period '.' not allowed"));
+            return Err(Error::InvalidPathExpression(
+                "leading period '.' not allowed",
+            ));
         }
         if trimmed.ends_with('.') {
-            return Err(Error::InvalidPathExpression("trailing period '.' not allowed"));
+            return Err(Error::InvalidPathExpression(
+                "trailing period '.' not allowed",
+            ));
         }
         if trimmed.contains("..") {
-            return Err(Error::InvalidPathExpression("adjacent periods '..' not allowed"));
+            return Err(Error::InvalidPathExpression(
+                "adjacent periods '..' not allowed",
+            ));
         }
+        Ok(Self::from_iter(trimmed.split('.')))
+    }
+
+    pub fn from_iter<I, V>(paths: I) -> Option<Path>
+    where
+        I: Iterator<Item = V>,
+        V: AsRef<str>,
+    {
         let mut dummy = Path::new("".to_string(), None);
         let mut curr = &mut dummy;
-        for p in trimmed.split('.') {
+        for p in paths {
+            let p = p.as_ref();
             curr.remainder = Some(Path::new(p.to_string(), None).into());
             curr = curr.remainder.as_mut().unwrap();
         }
-        Ok(dummy.remainder.map(|p| *p))
+        dummy.remainder.map(|p| *p)
     }
 
     pub fn len(&self) -> usize {
@@ -45,15 +60,38 @@ impl Path {
 
     pub fn sub_path(&self, mut remove_from_fron: usize) -> Option<&Path> {
         let mut curr = Some(self);
-        while let Some(p) = curr && remove_from_fron > 0 {
+        while let Some(p) = curr
+            && remove_from_fron > 0
+        {
             remove_from_fron -= 1;
             curr = p.remainder.as_ref().map(|p| &**p);
         }
         curr
     }
 
-    pub fn pop_front(&self) -> Option<&Path> {
+    pub fn next(&self) -> Option<&Path> {
         self.remainder.as_ref().map(|p| &**p)
+    }
+
+    pub fn push_back(&mut self, path: Path) {
+        let tail = self.tail_mut();
+        tail.remainder = Some(Box::new(path));
+    }
+
+    pub fn tail(&self) -> &Path {
+        let mut tail = self;
+        while let Some(next) = tail.remainder.as_ref() {
+            tail = &*next;
+        }
+        tail
+    }
+
+    pub fn tail_mut(&mut self) -> &mut Path {
+        let mut tail = self;
+        while tail.remainder.is_some() {
+            tail = tail.remainder.as_mut().unwrap();
+        }
+        tail
     }
 
     pub fn starts_with0(&self, other: &Path) -> bool {
@@ -107,5 +145,28 @@ impl Display for Path {
             remainder = &p.remainder;
         }
         write!(f, "{}", paths.iter().join("."))
+    }
+}
+
+pub struct Iter<'a> {
+    next: Option<&'a Path>,
+}
+
+impl Path {
+    pub fn iter(&self) -> Iter<'_> {
+        Iter { next: Some(self) }
+    }
+}
+
+impl<'a> Iterator for Iter<'a> {
+    type Item = &'a Path;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(node) = self.next {
+            self.next = node.remainder.as_deref(); // `Box<Path>` -> `&Path`
+            Some(node)
+        } else {
+            None
+        }
     }
 }

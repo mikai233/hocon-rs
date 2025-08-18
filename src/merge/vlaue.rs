@@ -1,9 +1,11 @@
+use std::fmt::Display;
+
 use crate::{
     merge::{
         add_assign::AddAssign, array::Array, concat::Concat, delay_merge::DelayMerge,
-        object::Object,
+        object::Object, substitution::Substitution,
     },
-    raw::{raw_string::RawString, substitution::Substitution},
+    path::Path,
 };
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -13,7 +15,7 @@ pub(crate) enum Value {
     Boolean(bool),
     #[default]
     Null,
-    String(RawString),
+    String(String),
     Number(serde_json::Number),
     Substitution(Substitution),
     Concat(Concat),
@@ -30,7 +32,7 @@ impl Value {
         Value::Array(a.into())
     }
 
-    pub(crate) fn string(s: impl Into<RawString>) -> Value {
+    pub(crate) fn string(s: impl Into<String>) -> Value {
         Value::String(s.into())
     }
 
@@ -142,6 +144,112 @@ impl Value {
         };
         Ok(new_val)
     }
+
+    pub(crate) fn concatenate(left: Value, right: Value) -> crate::Result<Value> {
+        let val = match left {
+            Value::Object(mut left_obj) => match right {
+                Value::Null => Value::object(left_obj),
+                Value::Object(right_obj) => {
+                    left_obj.merge(right_obj)?;
+                    Value::object(left_obj)
+                }
+                Value::Array(_) | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
+                    return Err(crate::error::Error::ConcatenationDifferentType {
+                        ty1: "object",
+                        ty2: right.ty(),
+                    });
+                }
+                Value::Substitution(_) => {
+                    let left = Value::object(left_obj);
+                    Value::delay_merge(vec![left, right])
+                }
+                Value::Concat(concat) => {
+                    let left = Value::object(left_obj);
+                    let right = concat.reslove()?;
+                    Self::concatenate(left, right)?
+                }
+                Value::AddAssign(_) => {
+                    return Err(crate::error::Error::ConcatenationDifferentType {
+                        ty1: "object",
+                        ty2: right.ty(),
+                    });
+                }
+                Value::DelayMerge(_) => {
+                    let left = Value::object(left_obj);
+                    Value::delay_merge(vec![left, right])
+                }
+            },
+            Value::Array(mut left_array) => {
+                if let Value::Array(right_array) = right {
+                    left_array.extend(right_array.0);
+                    Value::array(left_array)
+                } else {
+                    return Err(crate::error::Error::ConcatenationDifferentType {
+                        ty1: "array",
+                        ty2: right.ty(),
+                    });
+                }
+            }
+            Value::Null => right,
+            Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
+                if matches!(
+                    right,
+                    Value::Boolean(_) | Value::String(_) | Value::Number(_)
+                ) {
+                    Value::string(format!("{left}{right}"))
+                } else {
+                    return Err(crate::error::Error::ConcatenationDifferentType {
+                        ty1: left.ty(),
+                        ty2: right.ty(),
+                    });
+                }
+            }
+            Value::Substitution(_) => Value::delay_merge(vec![left, right]),
+            Value::Concat(concat) => {
+                let left = concat.reslove()?;
+                Self::concatenate(left, right)?
+            }
+            Value::AddAssign(_) => {
+                return Err(crate::error::Error::ConcatenationDifferentType {
+                    ty1: left.ty(),
+                    ty2: right.ty(),
+                });
+            }
+            Value::DelayMerge(_) => Value::delay_merge(vec![left, right]),
+        };
+        Ok(val)
+    }
+
+    pub(crate) fn is_merged(&self) -> bool {
+        match self {
+            Value::Object(object) => matches!(object, Object::Merged(_)),
+            Value::Array(array) => array.is_merged(),
+            Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => true,
+            Value::Substitution(_)
+            | Value::Concat(_)
+            | Value::AddAssign(_)
+            | Value::DelayMerge(_) => false,
+        }
+    }
+
+    pub(crate) fn get_by_path(&self, path: Option<&Path>) -> Option<&Value> {
+        match path {
+            Some(path) => {
+                if let Value::Object(obj) = self {
+                    match obj.get(&path.first) {
+                        Some(val) => {
+                           let v= val.borrow().get_by_path(path.remainder.as_deref());
+                            todo!()
+                        }
+                        None => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            None => Some(self),
+        }
+    }
 }
 
 impl From<crate::raw::raw_value::RawValue> for Value {
@@ -151,7 +259,9 @@ impl From<crate::raw::raw_value::RawValue> for Value {
             crate::raw::raw_value::RawValue::Array(raw_array) => Value::array(raw_array),
             crate::raw::raw_value::RawValue::Boolean(b) => Value::Boolean(b),
             crate::raw::raw_value::RawValue::Null => Value::Null,
-            crate::raw::raw_value::RawValue::String(raw_string) => Value::string(raw_string),
+            crate::raw::raw_value::RawValue::String(raw_string) => {
+                Value::string(raw_string.to_string())
+            }
             crate::raw::raw_value::RawValue::Number(number) => Value::number(number),
             crate::raw::raw_value::RawValue::Substitution(substitution) => {
                 Value::substitution(substitution)
@@ -159,5 +269,11 @@ impl From<crate::raw::raw_value::RawValue> for Value {
             crate::raw::raw_value::RawValue::Concat(concat) => Value::concat(concat),
             crate::raw::raw_value::RawValue::AddAssign(add_assign) => Value::add_assign(add_assign),
         }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        todo!()
     }
 }

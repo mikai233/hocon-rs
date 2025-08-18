@@ -10,15 +10,23 @@ pub(crate) struct Inclusion {
     pub(crate) val: Option<Box<Object>>,
 }
 
-impl From<crate::raw::include::Inclusion> for Inclusion {
-    fn from(value: crate::raw::include::Inclusion) -> Self {
+impl TryFrom<crate::raw::include::Inclusion> for Inclusion {
+    type Error = crate::error::Error;
+
+    fn try_from(value: crate::raw::include::Inclusion) -> Result<Self, Self::Error> {
         let crate::raw::include::Inclusion {
             path,
             required,
             location,
             val,
         } = value;
-        let val: Option<Box<Object>> = val.map(|v| (*v).into()).map(|v| Box::new(v));
-        Self::new(path, required, location, val)
+        let val = match val {
+            Some(val) => {
+                let val: Object = (*val).try_into()?;
+                Some(Box::new(val))
+            }
+            None => None,
+        };
+        Ok(Self::new(path, required, location, val))
     }
 }

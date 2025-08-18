@@ -2,6 +2,8 @@ use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
+use crate::path::Path;
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RawString {
     QuotedString(String),
@@ -27,7 +29,9 @@ impl ConcatString {
                     result.push_str(other.synthetic().as_str());
                 }
             }
-            if index != last_index && let Some(space) = space {
+            if index != last_index
+                && let Some(space) = space
+            {
                 result.push_str(space);
             }
         }
@@ -44,7 +48,9 @@ impl Display for ConcatString {
         let last_index = self.len() - 1;
         for (index, (string, space)) in self.iter().enumerate() {
             write!(f, "{}", string)?;
-            if index != last_index && let Some(space) = space {
+            if index != last_index
+                && let Some(space) = space
+            {
                 write!(f, " {}", space)?;
             }
         }
@@ -93,11 +99,26 @@ impl RawString {
 
     pub fn as_path(&self) -> Vec<&str> {
         match self {
-            RawString::QuotedString(s) |
-            RawString::UnquotedString(s) |
-            RawString::MultilineString(s) => vec![s],
+            RawString::QuotedString(s)
+            | RawString::UnquotedString(s)
+            | RawString::MultilineString(s) => vec![s],
+            RawString::ConcatString(c) => c.iter().flat_map(|(s, _)| s.as_path()).collect(),
+        }
+    }
+
+    pub fn into_path(self) -> Path {
+        match self {
+            RawString::QuotedString(s)
+            | RawString::UnquotedString(s)
+            | RawString::MultilineString(s) => Path::new(s, None),
             RawString::ConcatString(c) => {
-                c.iter().flat_map(|(s, _)| s.as_path()).collect()
+                let mut dummy = Path::new("".to_string(), None);
+                c.0.into_iter().fold(&mut dummy, |tail, next| {
+                    let path = next.0.into_path();
+                    tail.remainder = Some(Box::new(path));
+                    tail
+                });
+                *dummy.remainder.expect("empty path found")
             }
         }
     }
@@ -116,10 +137,13 @@ impl RawString {
 
     pub fn concat<I, S>(iter: I) -> Self
     where
-        I: IntoIterator<Item=(RawString, Option<S>)>,
+        I: IntoIterator<Item = (RawString, Option<S>)>,
         S: Into<String>,
     {
-        let strings = iter.into_iter().map(|(t, u)| (t, u.map(|u| u.into()))).collect_vec();
+        let strings = iter
+            .into_iter()
+            .map(|(t, u)| (t, u.map(|u| u.into())))
+            .collect_vec();
         Self::ConcatString(ConcatString::new(strings))
     }
 }

@@ -7,6 +7,14 @@ use crate::merge::vlaue::Value;
 #[derive(Debug, Clone, Deref, DerefMut, Constructor, PartialEq)]
 pub(crate) struct Concat(pub(crate) VecDeque<Value>);
 
+impl Concat {
+    pub(crate) fn reslove(self) -> crate::Result<Value> {
+        self.0
+            .into_iter()
+            .try_fold(Value::Null, |left, right| Value::concatenate(left, right))
+    }
+}
+
 impl From<crate::raw::concat::Concat> for Concat {
     fn from(value: crate::raw::concat::Concat) -> Self {
         Self::new(value.0.into_iter().map(|v| v.into()).collect())
