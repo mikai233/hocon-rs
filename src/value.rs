@@ -4,6 +4,7 @@ use serde::de::DeserializeOwned;
 use serde::{Serialize, Serializer};
 use serde_json::Number;
 use std::fmt::{Display, Formatter};
+use log::info;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -232,7 +233,7 @@ impl Display for Value {
         match self {
             Value::Object(object) => {
                 write!(f, "{{")?;
-                let last_index = object.len() - 1;
+                let last_index = object.len().saturating_sub(1);
                 for (index, (k, v)) in object.iter().enumerate() {
                     write!(f, "{} = {}", k, v)?;
                     if index != last_index {
