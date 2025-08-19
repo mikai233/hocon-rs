@@ -24,3 +24,19 @@ mod merge {
 }
 
 pub type Result<T> = std::result::Result<T, error::Error>;
+
+#[cfg(test)]
+mod test {
+    use tracing::level_filters::LevelFilter;
+    use tracing_subscriber::fmt::time::LocalTime;
+
+    #[ctor::ctor]
+    fn init_tracing() {
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .pretty()
+            .with_max_level(LevelFilter::TRACE)
+            .with_timer(LocalTime::rfc_3339())
+            .try_init();
+    }
+}

@@ -1,8 +1,9 @@
+use tracing::{debug, instrument, trace};
+
 use crate::merge::{
     add_assign::AddAssign, array::Array, concat::Concat, delay_merge::DelayMerge, object::Object,
     substitution::Substitution,
 };
-use log::debug;
 use std::{cell::RefCell, fmt::Display};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -119,6 +120,7 @@ impl Value {
     /// Replaces left value to right value if they are simple values.
     /// TODO if right is add_asign and left is not array, should return error.
     pub(crate) fn replacement(left: Value, right: Value) -> crate::Result<Value> {
+        trace!("replacement: {} <- {}", left, right);
         let new_val = match left {
             Value::Object(mut obj_left) => match right {
                 Value::Object(right) => {
@@ -188,11 +190,12 @@ impl Value {
                 Value::delay_merge(vec![left,right])
             }
         };
+        trace!("replacement result: {}", new_val);
         Ok(new_val)
     }
 
     pub(crate) fn concatenate(left: Value, right: Value) -> crate::Result<Value> {
-        debug!("concatenate: {} <- {}", left, right);
+        trace!("concatenate: {} <- {}", left, right);
         let val = match left {
             Value::Object(mut left_obj) => match right {
                 Value::Null => Value::object(left_obj),
@@ -285,13 +288,13 @@ impl Value {
                 Value::concat(Concat::from_iter(vec![left, right]))
             }
         };
-        debug!("concatenate result: {val}");
+        trace!("concatenate result: {val}");
         Ok(val)
     }
 
     pub(crate) fn is_merged(&self) -> bool {
         match self {
-            Value::Object(object) => matches!(object, Object::Merged(_)),
+            Value::Object(object) => object.is_merged(),
             Value::Array(array) => array.is_merged(),
             Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => true,
             Value::Substitution(_)
@@ -301,127 +304,8 @@ impl Value {
         }
     }
 
-    pub(crate) fn substitute(root: &Object, value: &RefCell<Value>) -> crate::Result<()> {
-        let borrowed = value.borrow();
-        match &*borrowed {
-            Value::Object(object) => {
-                if object.is_unmerged() {
-                    for val in object.values() {
-                        Self::substitute(root, val)?;
-                    }
-                }
-                drop(borrowed);
-                value.borrow_mut().try_become_merged();
-            }
-            Value::Array(array) => {
-                for ele in array.iter() {
-                    Self::substitute(root, ele)?;
-                }
-                drop(borrowed);
-                // value.borrow_mut().try_become_merged();
-            }
-            Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {}
-            Value::Substitution(substitution) => {
-                // TODO maybe we should remove it first to avoid cycle substitue?
-                debug!("substitute: {}", substitution);
-                root.invoke_on_target_path(&substitution.path, |target| {
-                    debug!("find substitution: {} of {}", target.borrow(), substitution.path);
-                    if target.borrow().is_merged() {
-                        *value.borrow_mut() = target.borrow().clone();
-                    } else {
-                        Self::substitute(root, target)?;
-                    }
-                    Ok(())
-                })?;
-                // TODO fetch from env
-            }
-            Value::Concat(_) => {
-                drop(borrowed);
-                let mut current: Option<Value> = None;
-                loop {
-                    let v = {
-                        let mut borrowed = value.borrow_mut();
-                        let concat = borrowed.as_concat_mut();
-                        debug!("substitute pop concat {}", concat);
-                        concat.pop_back()
-                    };
-                    match v {
-                        None => {
-                            break;
-                        }
-                        Some(v) => {
-                            if !v.borrow().is_merged() {
-                                Self::substitute(root, &v)?;
-                            }
-                            match current {
-                                None => {
-                                    current = Some(v.into_inner());
-                                }
-                                Some(c) => {
-                                    let n = Value::concatenate(v.into_inner(), c)?;
-                                    current = Some(n);
-                                }
-                            }
-                        }
-                    }
-                }
-                match current {
-                    None => {
-                        *value.borrow_mut() = Value::Null;
-                    }
-                    Some(mut c) => {
-                        c.try_become_merged();
-                        *value.borrow_mut() = c;
-                    }
-                }
-            }
-            Value::AddAssign(_) => {
-                drop(borrowed);
-                let add_assign = std::mem::take(value.borrow_mut().as_add_assign_mut());
-                let v: RefCell<Value> = RefCell::new(add_assign.into());
-                Self::substitute(root, &v)?;
-                let mut v = v.into_inner();
-                v.try_become_merged();
-                let add_assign = AddAssign::new(Box::new(v));
-                *value.borrow_mut() = Value::add_assign(add_assign);
-            }
-            Value::DelayMerge(_) => {
-                drop(borrowed);
-                let mut current: Option<Value> = None;
-                loop {
-                    let v = value.borrow_mut().as_delay_merge_mut().pop_back();
-                    match v {
-                        None => {
-                            break;
-                        }
-                        Some(v) => {
-                            if !v.borrow().is_merged() {
-                                Self::substitute(root, &v)?;
-                            }
-                            match current {
-                                Some(c) => {
-                                    let n = Value::replacement(v.into_inner(), c)?;
-                                    current = Some(n);
-                                }
-                                None => {
-                                    current = Some(v.into_inner());
-                                }
-                            }
-                        }
-                    }
-                }
-                match current {
-                    Some(mut c) => {
-                        c.try_become_merged();
-                        *value.borrow_mut() = c;
-                    }
-                    None => {
-                        *value.borrow_mut() = Value::Null;
-                    }
-                }
-            }
-        }
-        Ok(())
+    pub(crate) fn is_unmerged(&self) -> bool {
+        !self.is_merged()
     }
 }
 
