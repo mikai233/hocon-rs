@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::VecDeque, fmt::Display};
 
 use derive_more::{Constructor, Deref, DerefMut};
 
-use crate::merge::vlaue::Value;
+use crate::merge::value::Value;
 
 /// There are some some substitutions during the replacement operation,
 /// we can not known them at this time, so we construct a `DelayMerge`
@@ -10,9 +10,9 @@ use crate::merge::vlaue::Value;
 /// We don't know the merge result, because we don't no whether the substitutions
 /// is simple value or object value.
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor)]
-pub(crate) struct DelayMerge(pub(crate) VecDeque<RefCell<Value>>);
+pub(crate) struct DelayReplacement(pub(crate) VecDeque<RefCell<Value>>);
 
-impl DelayMerge {
+impl DelayReplacement {
     pub(crate) fn from_iter<I>(value: I) -> Self
     where
         I: IntoIterator<Item = Value>,
@@ -25,11 +25,24 @@ impl DelayMerge {
     }
 }
 
-impl DelayMerge {}
+impl DelayReplacement {
+    pub(crate) fn flatten(self) -> Self {
+        let mut values = VecDeque::new();
+        for val in self.into_values() {
+            let val = val.into_inner();
+            if let Value::DelayReplacement(de) = val {
+                values.extend(de.flatten().into_values());
+            } else {
+                values.push_back(RefCell::new(val));
+            }
+        }
+        Self::new(values)
+    }
+}
 
-impl Display for DelayMerge {
+impl Display for DelayReplacement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "DelayMerge(")?;
+        write!(f, "DelayReplacement(")?;
         let last_index = self.len().saturating_sub(1);
         for (index, ele) in self.iter().enumerate() {
             write!(f, "{}", ele.borrow())?;

@@ -1,8 +1,9 @@
+use serde::Serialize;
 use tracing::{debug, instrument, trace};
 
 use crate::merge::{
-    add_assign::AddAssign, array::Array, concat::Concat, delay_merge::DelayMerge, object::Object,
-    substitution::Substitution,
+    add_assign::AddAssign, array::Array, concat::Concat, delay_replacement::DelayReplacement,
+    object::Object, substitution::Substitution,
 };
 use std::{cell::RefCell, fmt::Display};
 
@@ -18,7 +19,7 @@ pub(crate) enum Value {
     Substitution(Substitution),
     Concat(Concat),
     AddAssign(AddAssign),
-    DelayMerge(DelayMerge),
+    DelayReplacement(DelayReplacement),
 }
 
 impl Value {
@@ -50,12 +51,12 @@ impl Value {
         Value::AddAssign(a.into())
     }
 
-    pub(crate) fn delay_merge<I>(value: I) -> Value
+    pub(crate) fn delay_replacement<I>(value: I) -> Value
     where
         I: IntoIterator<Item = Value>,
     {
-        let m = DelayMerge::from_iter(value);
-        Value::DelayMerge(m)
+        let d = DelayReplacement::from_iter(value);
+        Value::DelayReplacement(d.flatten())
     }
 
     pub(crate) fn ty(&self) -> &'static str {
@@ -69,31 +70,31 @@ impl Value {
             Value::Substitution(_) => "substitution",
             Value::Concat(_) => "concat",
             Value::AddAssign(_) => "add_assign",
-            Value::DelayMerge(_) => "delay_merge",
+            Value::DelayReplacement(_) => "delay_replacement",
         }
     }
 
-    pub(crate) fn as_delay_merge_mut(&mut self) -> &mut DelayMerge {
-        if let Value::DelayMerge(delay_merge) = self {
-            return delay_merge;
+    pub(crate) fn as_delay_replacement_mut(&mut self) -> &mut DelayReplacement {
+        if let Value::DelayReplacement(delay_replacement) = self {
+            return delay_replacement;
         } else {
-            panic!("value should be DelayMerge")
+            panic!("value should be DelayReplacement got {}", self.ty())
         }
     }
 
     pub(crate) fn as_concat_mut(&mut self) -> &mut Concat {
         if let Value::Concat(concat) = self {
-            return concat;
+            concat
         } else {
-            panic!("value should be Concat")
+            panic!("value should be Concat got {}", self.ty())
         }
     }
 
     pub(crate) fn as_add_assign_mut(&mut self) -> &mut AddAssign {
         if let Value::AddAssign(add_assign) = self {
-            return add_assign;
+            return add_assign
         } else {
-            panic!("value should be Concat")
+            panic!("value should be AddAssign got {}", self.ty())
         }
     }
 
@@ -101,7 +102,7 @@ impl Value {
         if let Value::Array(array) = self {
             return array;
         } else {
-            panic!("value should be array")
+            panic!("value should be Array got {}", self.ty())
         }
     }
 
@@ -113,7 +114,7 @@ impl Value {
             Value::Substitution(_)
             | Value::Concat(_)
             | Value::AddAssign(_)
-            | Value::DelayMerge(_) => false,
+            | Value::DelayReplacement(_) => false,
         }
     }
 
@@ -135,7 +136,7 @@ impl Value {
                 | Value::Number(_) => right,
                 Value::Substitution(_) => {
                     let left = Value::object(obj_left);
-                    Value::delay_merge(vec![left, right])
+                    Value::delay_replacement(vec![left, right])
                 }
                 Value::Concat(mut concat) => {
                     if concat
@@ -159,10 +160,10 @@ impl Value {
                         ty2: "array",
                     });
                 }
-                Value::DelayMerge(mut delay_merge) => {
+                Value::DelayReplacement(mut delay_merge) => {
                     let left = Value::object(obj_left);
                     delay_merge.push_front(RefCell::new(left));
-                    Value::DelayMerge(delay_merge)
+                    Value::DelayReplacement(delay_merge)
                 }
             },
             Value::Array(mut array) => {
@@ -179,15 +180,15 @@ impl Value {
             | Value::Number(_)
             | Value::AddAssign(_) => match right {
                 Value::Substitution(_) => {
-                    Value::delay_merge(vec![left, right])
+                    Value::delay_replacement(vec![left, right])
                 }
                 other => other,
             },
             Value::Substitution(_) |
             // FIXME Is there could be another DelayMerge here?
             Value::Concat(_) |
-            Value::DelayMerge(_) => {
-                Value::delay_merge(vec![left,right])
+            Value::DelayReplacement(_) => {
+                Value::delay_replacement(vec![left, right])
             }
         };
         trace!("replacement result: {}", new_val);
@@ -231,7 +232,7 @@ impl Value {
                         ty2: right.ty(),
                     });
                 }
-                Value::DelayMerge(_) => {
+                Value::DelayReplacement(_) => {
                     let left = Value::object(left_obj);
                     // Value::delay_merge(vec![left, right])
                     Value::concat(Concat::from_iter(vec![left, right]))
@@ -283,7 +284,7 @@ impl Value {
                     ty2: right.ty(),
                 });
             }
-            Value::DelayMerge(_) => {
+            Value::DelayReplacement(_) => {
                 // Value::delay_merge(vec![left, right]),
                 Value::concat(Concat::from_iter(vec![left, right]))
             }
@@ -300,7 +301,7 @@ impl Value {
             Value::Substitution(_)
             | Value::Concat(_)
             | Value::AddAssign(_)
-            | Value::DelayMerge(_) => false,
+            | Value::DelayReplacement(_) => false,
         }
     }
 
@@ -356,7 +357,7 @@ impl Display for Value {
             Value::Substitution(substitution) => write!(f, "{substitution}"),
             Value::Concat(concat) => write!(f, "{concat}"),
             Value::AddAssign(add_assign) => write!(f, "{add_assign}"),
-            Value::DelayMerge(delay_merge) => write!(f, "{delay_merge}"),
+            Value::DelayReplacement(delay_merge) => write!(f, "{delay_merge}"),
         }
     }
 }

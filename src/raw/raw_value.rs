@@ -40,7 +40,10 @@ impl RawValue {
     }
 
     pub fn is_simple_value(&self) -> bool {
-        matches!(self, RawValue::Boolean(_) | RawValue::Null | RawValue::String(_) | RawValue::Number(_)) || matches!(self, RawValue::AddAssign(r) if r.is_simple_value())
+        matches!(
+            self,
+            RawValue::Boolean(_) | RawValue::Null | RawValue::String(_) | RawValue::Number(_)
+        ) || matches!(self, RawValue::AddAssign(r) if r.is_simple_value())
     }
 
     pub fn inclusion(inclusion: Inclusion) -> RawValue {
@@ -50,14 +53,18 @@ impl RawValue {
 
     pub fn key_value<I>(fields: I) -> RawValue
     where
-        I: IntoIterator<Item=(RawString, RawValue)>,
+        I: IntoIterator<Item = (RawString, RawValue)>,
     {
         RawValue::Object(RawObject::key_value(fields))
     }
 
+    pub fn object(object: impl Into<RawObject>) -> RawValue {
+        RawValue::Object(object.into())
+    }
+
     pub fn array<I>(iter: I) -> RawValue
     where
-        I: IntoIterator<Item=RawValue>,
+        I: IntoIterator<Item = RawValue>,
     {
         RawValue::Array(RawArray::new(iter.into_iter().collect()))
     }
@@ -84,7 +91,7 @@ impl RawValue {
 
     pub fn concat_string<I, S>(iter: I) -> RawValue
     where
-        I: IntoIterator<Item=(RawString, Option<String>)>,
+        I: IntoIterator<Item = (RawString, Option<String>)>,
         S: Into<String>,
     {
         RawValue::String(RawString::concat(iter))
@@ -100,21 +107,13 @@ impl RawValue {
 
     pub fn concat<I>(iter: I) -> RawValue
     where
-        I: IntoIterator<Item=RawValue>,
+        I: IntoIterator<Item = RawValue>,
     {
         RawValue::Concat(Concat::new(iter.into_iter().collect_vec()).unwrap())
     }
 
     pub fn add_assign(v: RawValue) -> RawValue {
         RawValue::AddAssign(AddAssign::new(v.into()))
-    }
-
-    fn merge_value(path: &Path, mut v1: RawValue, mut v2: RawValue) -> RawValue {
-        unimplemented!()
-    }
-
-    pub fn merge(self, path: &Path) -> RawValue {
-        unimplemented!()
     }
 }
 
@@ -143,7 +142,7 @@ impl TryInto<RawArray> for RawValue {
             other => Err(crate::error::Error::InvalidConversion {
                 from: other.ty(),
                 to: "array",
-            })
+            }),
         }
     }
 }
@@ -157,7 +156,7 @@ impl TryInto<RawObject> for RawValue {
             other => Err(crate::error::Error::InvalidConversion {
                 from: other.ty(),
                 to: "object",
-            })
+            }),
         }
     }
 }

@@ -1,7 +1,8 @@
-use crate::path::Path;
 use crate::raw::field::ObjectField;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
+use crate::{path::Path, value::Value};
+use ahash::HashMap;
 use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
@@ -174,5 +175,35 @@ impl From<Vec<(String, RawValue)>> for RawObject {
             .into_iter()
             .map(|(k, v)| ObjectField::key_value(RawString::QuotedString(k), v));
         Self::from_iter(fields)
+    }
+}
+
+impl Into<RawValue> for Value {
+    fn into(self) -> RawValue {
+        match self {
+            Value::Object(object) => {
+                let len = object.len();
+                let fields =
+                    object
+                        .into_iter()
+                        .fold(Vec::with_capacity(len), |mut acc, (key, value)| {
+                            let field = ObjectField::key_value(key, value);
+                            acc.push(field);
+                            acc
+                        });
+                RawValue::Object(RawObject::new(fields))
+            }
+            Value::Array(array) => RawValue::array(array.into_iter().map(Into::into)),
+            Value::Boolean(boolean) => RawValue::Boolean(boolean),
+            Value::Null => RawValue::Null,
+            Value::String(string) => {
+                if string.chars().any(|c| c == '\n') {
+                    RawValue::multiline_string(string)
+                } else {
+                    RawValue::quoted_string(string)
+                }
+            }
+            Value::Number(number) => RawValue::Number(number),
+        }
     }
 }

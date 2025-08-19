@@ -60,7 +60,21 @@ impl Display for ConcatString {
 
 impl Into<RawString> for &str {
     fn into(self) -> RawString {
-        RawString::quoted(self)
+        if self.chars().any(|c| c == '\n') {
+            RawString::multiline(self)
+        } else {
+            RawString::quoted(self)
+        }
+    }
+}
+
+impl Into<RawString> for String {
+    fn into(self) -> RawString {
+        if self.chars().any(|c| c == '\n') {
+            RawString::multiline(self)
+        } else {
+            RawString::quoted(self)
+        }
     }
 }
 

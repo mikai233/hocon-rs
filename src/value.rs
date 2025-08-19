@@ -1,9 +1,10 @@
-use ahash::HashMap;
+use ahash::{HashMap, HashMapExt};
 use itertools::Itertools;
-use serde::de::DeserializeOwned;
-use serde::{Serialize, Serializer};
+use serde::de::{Error, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
-use std::fmt::{Display, Formatter};
+use std::collections::BTreeMap;
+use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -209,24 +210,6 @@ impl Value {
     }
 }
 
-impl Value {
-    pub fn deserialize<T>(self) -> crate::Result<T>
-    where
-        T: DeserializeOwned,
-    {
-        unimplemented!()
-    }
-}
-
-impl Serialize for Value {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        unimplemented!()
-    }
-}
-
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -258,5 +241,141 @@ impl Display for Value {
                 write!(f, "{}", number)
             }
         }
+    }
+}
+
+impl TryFrom<crate::merge::value::Value> for Value {
+    type Error = crate::error::Error;
+
+    fn try_from(value: crate::merge::value::Value) -> Result<Self, Self::Error> {
+        fn from_object(object: crate::merge::object::Object) -> crate::Result<Value> {
+            let inner: BTreeMap<_, _> = object.into();
+            let mut object = HashMap::with_capacity(inner.len());
+            for (k, v) in inner.into_iter() {
+                let v = v.into_inner();
+                let v: Value = v.try_into()?;
+                object.insert(k, v);
+            }
+            Ok(Value::Object(object))
+        }
+
+        fn from_array(array: crate::merge::array::Array) -> crate::Result<Value> {
+            let mut result = Vec::with_capacity(array.len());
+            for ele in array.0.into_iter() {
+                let v = ele.into_inner();
+                let v: Value = v.try_into()?;
+                result.push(v);
+            }
+            Ok(Value::Array(result))
+        }
+        let value = match value {
+            crate::merge::value::Value::Object(object) => from_object(object)?,
+            crate::merge::value::Value::Array(array) => from_array(array)?,
+            crate::merge::value::Value::Boolean(boolean) => Value::Boolean(boolean),
+            crate::merge::value::Value::Null => Value::Null,
+            crate::merge::value::Value::String(string) => Value::String(string),
+            crate::merge::value::Value::Number(number) => Value::Number(number),
+            crate::merge::value::Value::Substitution(_)
+            | crate::merge::value::Value::Concat(_)
+            | crate::merge::value::Value::AddAssign(_)
+            | crate::merge::value::Value::DelayReplacement(_) => {
+                return Err(crate::error::Error::SubstitutionNotComplete);
+            }
+        };
+        Ok(value)
+    }
+}
+
+impl Serialize for Value {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Value::Object(map) => map.serialize(serializer),
+            Value::Array(arr) => arr.serialize(serializer),
+            Value::Boolean(b) => b.serialize(serializer),
+            Value::Null => serializer.serialize_none(),
+            Value::String(s) => s.serialize(serializer),
+            Value::Number(num) => num.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Value {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ValueVisitor;
+
+        impl<'de> Visitor<'de> for ValueVisitor {
+            type Value = Value;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("any valid HOCON value")
+            }
+
+            fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
+                Ok(Value::Boolean(v))
+            }
+
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E> {
+                Ok(Value::Number(Number::from(v)))
+            }
+
+            fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E> {
+                Ok(Value::Number(Number::from(v)))
+            }
+
+            fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+            where
+                E: Error,
+            {
+                Number::from_f64(v)
+                    .map(Value::Number)
+                    .ok_or_else(|| Error::custom("invalid f64 value"))
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> {
+                Ok(Value::String(v.to_owned()))
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E> {
+                Ok(Value::String(v))
+            }
+
+            fn visit_none<E>(self) -> Result<Self::Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E> {
+                Ok(Value::Null)
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut vec = Vec::new();
+                while let Some(elem) = seq.next_element()? {
+                    vec.push(elem);
+                }
+                Ok(Value::Array(vec))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let mut values = HashMap::new();
+                while let Some((k, v)) = map.next_entry()? {
+                    values.insert(k, v);
+                }
+                Ok(Value::Object(values))
+            }
+        }
+
+        deserializer.deserialize_any(ValueVisitor)
     }
 }

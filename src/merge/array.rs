@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt::Display};
 use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 
-use crate::merge::vlaue::Value;
+use crate::merge::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor)]
 pub(crate) struct Array(pub(crate) Vec<RefCell<Value>>);

@@ -1,4 +1,7 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    rc::Rc,
+};
 
 use derive_more::Constructor;
 
@@ -6,8 +9,18 @@ use crate::path::Path;
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Constructor)]
 pub(crate) struct Substitution {
-    pub(crate) path: Path,
+    pub(crate) path: Rc<Path>,
     pub(crate) optional: bool,
+}
+
+impl Substitution {
+    pub(crate) fn full_path(&self) -> String {
+        self.path.iter().fold(String::new(), |mut acc, next| {
+            acc.push_str(&next.first);
+            acc.push('.');
+            acc
+        })
+    }
 }
 
 impl Display for Substitution {
@@ -24,6 +37,7 @@ impl Display for Substitution {
 
 impl From<crate::raw::substitution::Substitution> for Substitution {
     fn from(value: crate::raw::substitution::Substitution) -> Self {
-        Self::new(value.path.into_path(), value.optional)
+        let path = value.path.into_path().into();
+        Self::new(path, value.optional)
     }
 }

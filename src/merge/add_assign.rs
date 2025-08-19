@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use derive_more::{Constructor, Deref, DerefMut};
 
-use crate::{merge::vlaue::Value, raw::raw_value::RawValue};
+use crate::{merge::value::Value, raw::raw_value::RawValue};
 
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor, Default)]
 pub(crate) struct AddAssign(pub(crate) Box<Value>);

@@ -1,3 +1,7 @@
+use ::serde::de::DeserializeOwned;
+
+use crate::value::Value;
+
 pub mod config;
 mod config_options;
 pub mod error;
@@ -13,17 +17,31 @@ pub mod syntax;
 pub mod transform;
 pub mod value;
 mod merge {
-    mod add_assign;
-    mod array;
-    mod concat;
-    mod delay_merge;
-    mod inclusion;
-    mod object;
-    mod substitution;
-    mod vlaue;
+    pub(crate) mod add_assign;
+    pub(crate) mod array;
+    pub(crate) mod concat;
+    pub(crate) mod delay_replacement;
+    pub(crate) mod inclusion;
+    pub(crate) mod object;
+    pub(crate) mod substitution;
+    pub(crate) mod value;
 }
 
 pub type Result<T> = std::result::Result<T, error::Error>;
+
+// pub fn to_value<T>(value: T) -> crate::Result<Value>
+// where
+//     T: Serialize,
+// {
+//     value.serialize(serializer)
+// }
+
+pub fn from_value<T>(value: Value) -> crate::Result<T>
+where
+    T: DeserializeOwned,
+{
+    T::deserialize(value)
+}
 
 #[cfg(test)]
 mod test {
