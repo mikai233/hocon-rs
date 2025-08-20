@@ -11,11 +11,12 @@ thiserror = "2.0.12"
 serde = { version = "1.0.219" }
 serde_json = { version = "1.0.142" }
 itertools = "0.14.0"
-reqwest = { version = "0.12.22", optional = true, default-features = false, features = [
+reqwest = { version = "0.12.22", optional = false, default-features = true, features = [
     "blocking",
     "rustls-tls",
     "rustls-tls-native-roots",
 ] }
+url = "2.5"
 java-properties = "2.0.0"
 derive_more = { version = "2.0.1", features = [
     "deref",
@@ -30,5 +31,5 @@ ctor = "0.5.0"
 serde = { version = "1.0.219", features = ["derive"] }
 
 [features]
-url = ["reqwest"]
+# url = ["reqwest"]
 num_arbitrary_precision = ["serde_json/arbitrary_precision"]

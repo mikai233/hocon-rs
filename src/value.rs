@@ -4,6 +4,7 @@ use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
 use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -207,6 +208,51 @@ impl Value {
             }
         }
         Some(current)
+    }
+
+    /// Merge this `Value` with a fallback `Value`, following HOCON's `withFallback` semantics.
+    ///
+    /// - If both `self` and `fallback` are `Object`s, they are merged key by key:
+    ///   - If a key exists in both objects:
+    ///     - If both values are objects, merge them recursively.
+    ///     - Otherwise, keep the value from `self` (ignore the fallback).
+    ///   - If a key exists only in the fallback, insert it into `self`.
+    /// - For all other cases (non-object values), `self` takes precedence
+    ///   and the fallback is ignored.
+    pub fn with_fallback(self, fallback: Value) -> Value {
+        match (self, fallback) {
+            // Case 1: Both values are objects -> perform deep merge
+            (Value::Object(mut obj), Value::Object(fb_obj)) => {
+                for (k, fb_val) in fb_obj {
+                    match obj.entry(k) {
+                        // If key already exists in `self`
+                        Entry::Occupied(mut occupied_entry) => {
+                            let existing_val = occupied_entry.get_mut();
+
+                            // If both values are objects -> merge recursively
+                            if let (Value::Object(_), Value::Object(_)) = (&existing_val, &fb_val) {
+                                // Temporarily move out the existing value to avoid borrow conflicts
+                                let mut temp = Value::Null;
+                                std::mem::swap(&mut temp, existing_val);
+
+                                // Recursively merge and store back
+                                *existing_val = temp.with_fallback(fb_val);
+                            }
+                            // Otherwise: keep `self`'s value, ignore fallback
+                        }
+
+                        // If key is missing in `self` -> insert fallback value
+                        Entry::Vacant(vacant_entry) => {
+                            vacant_entry.insert(fb_val);
+                        }
+                    }
+                }
+                Value::Object(obj)
+            }
+
+            // Case 2: Non-object values -> always prefer `self`
+            (other, _) => other,
+        }
     }
 }
 

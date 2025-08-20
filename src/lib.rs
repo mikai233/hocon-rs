@@ -5,7 +5,6 @@ use crate::value::Value;
 pub mod config;
 mod config_options;
 pub mod error;
-pub mod factory;
 mod key;
 pub mod macros;
 pub mod object;

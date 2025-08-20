@@ -1,4 +1,4 @@
-use crate::value::Value;
+use crate::{raw::raw_value::RawValue, value::Value};
 use ahash::HashMap;
 use serde_json::Number;
 use std::iter::once;
@@ -79,5 +79,40 @@ impl From<Vec<Value>> for Value {
 impl From<Number> for Value {
     fn from(value: Number) -> Self {
         Value::Number(value)
+    }
+}
+
+impl Into<Value> for serde_json::Value {
+    fn into(self) -> Value {
+        match self {
+            serde_json::Value::Null => Value::Null,
+            serde_json::Value::Bool(boolean) => Value::Boolean(boolean),
+            serde_json::Value::Number(number) => Value::Number(number),
+            serde_json::Value::String(string) => Value::String(string),
+            serde_json::Value::Array(array) => Value::with_array(array.into_iter().map(Into::into)),
+            serde_json::Value::Object(object) => {
+                Value::with_object(object.into_iter().map(|(key, value)| (key, value.into())))
+            }
+        }
+    }
+}
+
+impl Into<serde_json::Value> for Value {
+    fn into(self) -> serde_json::Value {
+        match self {
+            Value::Object(object) => {
+                let map = serde_json::Map::from_iter(
+                    object.into_iter().map(|(key, value)| (key, value.into())),
+                );
+                serde_json::Value::Object(map)
+            }
+            Value::Array(array) => {
+                serde_json::Value::Array(array.into_iter().map(Into::into).collect())
+            }
+            Value::Boolean(boolean) => serde_json::Value::Bool(boolean),
+            Value::Null => serde_json::Value::Null,
+            Value::String(string) => serde_json::Value::String(string),
+            Value::Number(number) => serde_json::Value::Number(number),
+        }
     }
 }

@@ -2,7 +2,6 @@ use crate::raw::field::ObjectField;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use crate::{path::Path, value::Value};
-use ahash::HashMap;
 use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
@@ -26,14 +25,6 @@ impl RawObject {
             .into_iter()
             .map(|(k, v)| ObjectField::key_value(k, v));
         Self::from_iter(kvs)
-    }
-
-    pub fn merge(self, _path: &Path) -> RawObject {
-        unimplemented!()
-    }
-
-    pub fn merge_object(o1: Self, o2: Self, path: &Path) -> Self {
-        unimplemented!()
     }
 
     fn remove_by_path(&mut self, path: &Path) -> Option<ObjectField> {
@@ -159,6 +150,11 @@ impl RawObject {
         }
         None
     }
+
+    pub(crate) fn merge(mut left: Self, right: Self) -> Self {
+        left.0.extend(right.0);
+        left
+    }
 }
 
 impl Display for RawObject {
@@ -196,13 +192,7 @@ impl Into<RawValue> for Value {
             Value::Array(array) => RawValue::array(array.into_iter().map(Into::into)),
             Value::Boolean(boolean) => RawValue::Boolean(boolean),
             Value::Null => RawValue::Null,
-            Value::String(string) => {
-                if string.chars().any(|c| c == '\n') {
-                    RawValue::multiline_string(string)
-                } else {
-                    RawValue::quoted_string(string)
-                }
-            }
+            Value::String(string) => RawValue::String(string.into()),
             Value::Number(number) => RawValue::Number(number),
         }
     }

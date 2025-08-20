@@ -6,4 +6,5 @@ use derive_more::Constructor;
 pub struct ConfigParseOptions {
     pub options: ConfigOptions,
     pub includes: HashMap<String, u8>,
+    pub classpath: Vec<String>,
 }

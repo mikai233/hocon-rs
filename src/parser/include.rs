@@ -1,24 +1,24 @@
+use std::str::FromStr;
+
+use crate::parser::loader::{load_from_file, load_from_url};
 use crate::parser::string::parse_quoted_string;
-use crate::parser::{hocon_horizontal_multi_space0, parse, R};
+use crate::parser::{R, hocon_horizontal_multi_space0};
 use crate::raw::include::{Inclusion, Location};
-use crate::raw::raw_object::RawObject;
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::value;
 use nom::sequence::{delimited, preceded};
-use nom::Parser;
 
 fn parse_with_location(input: &str) -> R<'_, Inclusion> {
     let (remainder, (location, path)) = (
-        alt(
-            (
-                value(Location::File, tag("file")),
-                #[cfg(feature = "url")]
-                value(Location::Url, tag("url")),
-                value(Location::Classpath, tag("classpath"))
-            )
-        ),
+        alt((
+            value(Location::File, tag("file")),
+            #[cfg(feature = "url")]
+            value(Location::Url, tag("url")),
+            value(Location::Classpath, tag("classpath")),
+        )),
         delimited(
             char('('),
             delimited(
@@ -27,8 +27,9 @@ fn parse_with_location(input: &str) -> R<'_, Inclusion> {
                 hocon_horizontal_multi_space0,
             ),
             char(')'),
-        )
-    ).parse_complete(input)?;
+        ),
+    )
+        .parse_complete(input)?;
     let inclusion = Inclusion::new(path, false, Some(location), None);
     Ok((remainder, inclusion))
 }
@@ -38,21 +39,18 @@ fn parse_with_required(input: &str) -> R<'_, Inclusion> {
         tag("required("),
         delimited(
             hocon_horizontal_multi_space0,
-            alt(
-                (
-                    parse_with_location.map(|mut inclusion| {
-                        inclusion.required = true;
-                        inclusion
-                    }),
-                    parse_quoted_string.map(|path| {
-                        Inclusion::new(path, true, None, None)
-                    })
-                )
-            ),
+            alt((
+                parse_with_location.map(|mut inclusion| {
+                    inclusion.required = true;
+                    inclusion
+                }),
+                parse_quoted_string.map(|path| Inclusion::new(path, true, None, None)),
+            )),
             hocon_horizontal_multi_space0,
         ),
         tag(")"),
-    ).parse_complete(input)
+    )
+    .parse_complete(input)
 }
 
 pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
@@ -60,62 +58,70 @@ pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
         tag("include"),
         preceded(
             hocon_horizontal_multi_space0,
-            alt(
-                (
-                    parse_with_required,
-                    parse_with_location,
-                    parse_quoted_string.map(|path| {
-                        Inclusion::new(path, false, None, None)
-                    }),
-                )
-            ),
+            alt((
+                parse_with_required,
+                parse_with_location,
+                parse_quoted_string.map(|path| Inclusion::new(path, false, None, None)),
+            )),
         ),
-    ).parse_complete(input)?;
-    parse_inclusion(&mut inclusion);
+    )
+    .parse_complete(input)?;
+    parse_inclusion(&mut inclusion).unwrap();
     Ok((remainder, inclusion))
 }
 
-fn parse_inclusion(inclusion: &mut Inclusion) {
-    match inclusion.location {
-        None => {
-            todo!()
+fn inclusion_from_file(inclusion: &mut Inclusion) -> crate::Result<()> {
+    match load_from_file(&inclusion.path, None) {
+        Ok(object) => {
+            inclusion.val = Some(object.into());
         }
-        Some(location) => {
-            match location {
-                Location::File => {
-                    if inclusion.path.ends_with(".conf") {
-                        match std::fs::read_to_string(&inclusion.path) {
-                            Ok(data) => {
-                                let (_, object) = parse(&data).unwrap();
-                                inclusion.val = Some(object.into());
-                            }
-                            Err(_) => {
-                                if inclusion.required {
-                                    panic!("required file not found");
-                                }
-                            }
-                        }
-                    } else {
-                        todo!()
-                    }
-                }
-                #[cfg(feature = "url")]
-                Location::Url => {}
-                Location::Classpath => {}
+        Err(error) => {
+            if inclusion.required {
+                panic!("required file not found");
+            } else {
+                return Err(error);
             }
         }
     }
+    Ok(())
 }
 
-trait IncludeResolver {
-    fn resolve(&self) -> crate::Result<RawObject>;
+fn inclusion_from_url(inclusion: &mut Inclusion) -> crate::Result<()> {
+    let url = url::Url::from_str(&inclusion.path)?;
+    match load_from_url(url, None) {
+        Ok(object) => {
+            inclusion.val = Some(object.into());
+        }
+        Err(error) => {
+            if inclusion.required {
+                panic!("required url not found");
+            } else {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
 }
 
-#[derive(Debug)]
-struct JsonIncludeResolver<'a> {
-    json_string: &'a str,
+fn parse_inclusion(inclusion: &mut Inclusion) -> crate::Result<()> {
+    match inclusion.location {
+        None => {
+            let url = url::Url::from_str(&inclusion.path)?;
+            if url.scheme() == "file" {
+                inclusion_from_file(inclusion)?;
+            } else {
+                inclusion_from_url(inclusion)?;
+            }
+        }
+        Some(location) => match location {
+            Location::File => inclusion_from_file(inclusion)?,
+            #[cfg(feature = "url")]
+            Location::Url => inclusion_from_url(inclusion)?,
+            Location::Classpath => {}
+        },
+    }
+    Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

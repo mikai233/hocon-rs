@@ -1,37 +1,31 @@
 use crate::parser::{hocon_horizontal_multi_space0, R};
 use crate::raw::comment::CommentType;
 use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag};
+use nom::bytes::complete::{tag, take_while};
 use nom::character::complete::line_ending;
 use nom::combinator::{opt, value};
 use nom::sequence::{preceded, terminated};
 use nom::Parser;
 
 fn comment_separator(input: &str) -> R<'_, CommentType> {
-    alt(
-        (
-            value(CommentType::DoubleSlash, tag("//")),
-            value(CommentType::Hash, tag("#")),
-        )
-    ).parse_complete(input)
+    alt((
+        value(CommentType::DoubleSlash, tag("//")),
+        value(CommentType::Hash, tag("#")),
+    ))
+        .parse_complete(input)
 }
 
 fn comment_content(input: &str) -> R<'_, &str> {
-    is_not("\n\r")(input)
+    take_while(|c| c != '\n' && c != '\r').parse_complete(input)
 }
 
 //TODO line ending
 pub(crate) fn parse_comment(input: &str) -> R<'_, (CommentType, &str)> {
     preceded(
         hocon_horizontal_multi_space0,
-        terminated(
-            (
-                comment_separator,
-                comment_content,
-            ),
-            opt(line_ending),
-        ),
-    ).parse_complete(input)
+        terminated((comment_separator, comment_content), opt(line_ending)),
+    )
+        .parse_complete(input)
 }
 
 #[cfg(test)]

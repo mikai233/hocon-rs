@@ -18,6 +18,8 @@ pub enum Error {
     ParseError(String),
     #[error("io error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("serde_json error: {0}")]
+    SerdeJsonError(#[from] serde_json::Error),
     #[error("cannot concatenation different type: {ty1} {ty2}")]
     ConcatenationDifferentType {
         ty1: &'static str,
@@ -31,8 +33,18 @@ pub enum Error {
         "Substitution incomplete. This should never happen outside this library. If you see this, it's a bug."
     )]
     SubstitutionNotComplete,
+    #[error("A cycle substitution found at {0}")]
+    CycleSubstitution(String),
     #[error("Deserialize error: {0}")]
     DeserializeError(String),
+    #[error("{0}")]
+    ConfigNotFound(String),
+    #[error("{0}")]
+    PropertiesParseError(#[from] java_properties::PropertiesError),
+    #[error("{0}")]
+    ReqwestError(#[from] reqwest::Error),
+    #[error("{0}")]
+    UrlParseError(#[from] url::ParseError),
 }
 
 impl serde::de::Error for Error {

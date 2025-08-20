@@ -2,7 +2,13 @@ use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
-use crate::path::Path;
+use crate::{
+    path::Path,
+    raw::raw_value::{
+        RAW_CONCAT_STRING_TYPE, RAW_MULTILINE_STRING_TYPE, RAW_QUOTED_STRING_TYPE,
+        RAW_UNQUOTED_STRING_TYPE,
+    },
+};
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RawString {
@@ -81,10 +87,10 @@ impl Into<RawString> for String {
 impl RawString {
     pub fn ty(&self) -> &'static str {
         match self {
-            RawString::QuotedString(_) => "quoted_string",
-            RawString::UnquotedString(_) => "unquoted_string",
-            RawString::MultilineString(_) => "multiline_string",
-            RawString::ConcatString(_) => "concat_string",
+            RawString::QuotedString(_) => RAW_QUOTED_STRING_TYPE,
+            RawString::UnquotedString(_) => RAW_UNQUOTED_STRING_TYPE,
+            RawString::MultilineString(_) => RAW_MULTILINE_STRING_TYPE,
+            RawString::ConcatString(_) => RAW_CONCAT_STRING_TYPE,
         }
     }
 
@@ -127,11 +133,11 @@ impl RawString {
             | RawString::MultilineString(s) => Path::new(s, None),
             RawString::ConcatString(c) => {
                 let mut dummy = Path::new("".to_string(), None);
-                c.0.into_iter().fold(&mut dummy, |tail, next| {
-                    let path = next.0.into_path();
-                    tail.remainder = Some(Box::new(path));
-                    tail
-                });
+                let mut curr = &mut dummy;
+                for (path, _) in c.0.into_iter() {
+                    curr.remainder = Some(Box::new(path.into_path()));
+                    curr = curr.remainder.as_mut().unwrap();
+                }
                 *dummy.remainder.expect("empty path found")
             }
         }

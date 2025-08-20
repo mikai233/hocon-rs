@@ -1,5 +1,4 @@
-use serde::Serialize;
-use tracing::{debug, instrument, trace};
+use tracing::trace;
 
 use crate::merge::{
     add_assign::AddAssign, array::Array, concat::Concat, delay_replacement::DelayReplacement,
@@ -92,7 +91,7 @@ impl Value {
 
     pub(crate) fn as_add_assign_mut(&mut self) -> &mut AddAssign {
         if let Value::AddAssign(add_assign) = self {
-            return add_assign
+            return add_assign;
         } else {
             panic!("value should be AddAssign got {}", self.ty())
         }
@@ -149,7 +148,7 @@ impl Value {
                         concat.push_front(RefCell::new(left));
                         Value::concat(concat)
                     } else {
-                        // the concat result must be a quoted string or a array, it will override the left value
+                        // the concat result must be a quoted string or an array, it will override the left value
                         Value::concat(concat)
                     }
                     // if there is any bug here, for safety's side, jsut push the left value into the front

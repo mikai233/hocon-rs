@@ -26,7 +26,10 @@ impl ObjectField {
         }
     }
 
-    pub fn inclusion_with_comment(inclusion: Inclusion, comment: impl Into<Comment>) -> ObjectField {
+    pub fn inclusion_with_comment(
+        inclusion: Inclusion,
+        comment: impl Into<Comment>,
+    ) -> ObjectField {
         ObjectField::Inclusion {
             inclusion,
             comment: Some(comment.into()),
@@ -41,7 +44,11 @@ impl ObjectField {
         }
     }
 
-    pub fn key_value_with_comment(key: impl Into<RawString>, value: impl Into<RawValue>, comment: impl Into<Comment>) -> ObjectField {
+    pub fn key_value_with_comment(
+        key: impl Into<RawString>,
+        value: impl Into<RawValue>,
+        comment: impl Into<Comment>,
+    ) -> ObjectField {
         ObjectField::KeyValue {
             key: key.into(),
             value: value.into(),
@@ -55,8 +62,8 @@ impl ObjectField {
 
     pub fn set_comment(&mut self, comment: Comment) {
         match self {
-            ObjectField::Inclusion { comment: c, .. } |
-            ObjectField::KeyValue { comment: c, .. } => *c = Some(comment),
+            ObjectField::Inclusion { comment: c, .. }
+            | ObjectField::KeyValue { comment: c, .. } => *c = Some(comment),
             ObjectField::NewlineComment(c) => *c = comment,
         }
     }
@@ -71,7 +78,11 @@ impl Display for ObjectField {
                     write!(f, " {}", comment)?;
                 }
             }
-            ObjectField::KeyValue { key, value, comment } => {
+            ObjectField::KeyValue {
+                key,
+                value,
+                comment,
+            } => {
                 write!(f, "{}: {}", key, value)?;
                 if let Some(comment) = comment {
                     write!(f, " {}", comment)?;

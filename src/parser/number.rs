@@ -1,41 +1,31 @@
-use crate::parser::{hocon_horizontal_multi_space0, R};
+use crate::parser::{R, hocon_horizontal_multi_space0};
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::tag;
 use nom::character::complete::{char, digit1, line_ending};
 use nom::combinator::{eof, opt, peek, recognize};
 use nom::error::ParseError;
 use nom::sequence::{pair, terminated};
-use nom::Parser;
 use serde_json::Number;
 use std::str::FromStr;
 
 fn number_str(input: &str) -> R<'_, &str> {
-    recognize(
-        (
-            opt(char('-')),
-            alt(
-                (
-                    // 小数
-                    recognize(
-                        (
-                            digit1,
-                            opt(pair(char('.'), digit1))
-                        ),
-                    ),
-                    // 只含小数点的情况：.123
-                    recognize(pair(char('.'), digit1)),
-                ),
-            ),
-            // 科学计数法部分
-            opt(
-                (
-                    alt((char('e'), char('E'))),
-                    opt(alt((char('+'), char('-')))),
-                    digit1
-                ),
-            )
-        ),
-    ).parse_complete(input)
+    recognize((
+        opt(char('-')),
+        alt((
+            // 小数
+            recognize((digit1, opt(pair(char('.'), digit1)))),
+            // 只含小数点的情况：.123
+            recognize(pair(char('.'), digit1)),
+        )),
+        // 科学计数法部分
+        opt((
+            alt((char('e'), char('E'))),
+            opt(alt((char('+'), char('-')))),
+            digit1,
+        )),
+    ))
+    .parse_complete(input)
 }
 
 pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
@@ -43,21 +33,17 @@ pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
         number_str,
         pair(
             hocon_horizontal_multi_space0,
-            alt(
-                (
-                    peek(tag(",")),
-                    peek(line_ending),
-                    peek(eof),
-                ),
-            ),
+            alt((peek(tag(",")), peek(line_ending), peek(eof))),
         ),
-    ).parse_complete(input)?;
+    )
+    .parse_complete(input)?;
     match Number::from_str(num_str) {
-        Ok(number) => {
-            Ok((remainder, number))
-        }
+        Ok(number) => Ok((remainder, number)),
         Err(_) => {
-            let err = nom_language::error::VerboseError::from_error_kind(input, nom::error::ErrorKind::Digit);
+            let err = nom_language::error::VerboseError::from_error_kind(
+                input,
+                nom::error::ErrorKind::Digit,
+            );
             Err(nom::Err::Error(err))
         }
     }

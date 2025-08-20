@@ -281,6 +281,17 @@ impl Object {
             Value::Substitution(substitution) => {
                 let span = span!(Level::TRACE, "Substitution");
                 let _enter = span.enter();
+                if &substitution.path.first == key {
+                    return if substitution.optional {
+                        drop(borrowed);
+                        *value.borrow_mut() = Value::Null;
+                        Ok(())
+                    } else {
+                        Err(crate::error::Error::CycleSubstitution(
+                            substitution.to_string(),
+                        ))
+                    };
+                }
                 let substitution = substitution.clone();
                 drop(borrowed);
                 // TODO maybe we should remove it first to avoid cycle substitue?
@@ -562,6 +573,19 @@ mod tests {
         let v: crate::value::Value = crate::merge::value::Value::Object(obj).try_into()?;
         let v: Test = from_value(v)?;
         info!("done:{v:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn test_object7() -> crate::Result<()> {
+        let conf = load_conf("object7")?;
+        let (remainder, object) = parse(conf.as_str()).unwrap();
+        info!("raw:{object}");
+        let mut obj = Object::new(object)?;
+        info!("before:{obj}");
+        obj.substitute()?;
+        info!("after:{obj}");
+        let v: crate::value::Value = crate::merge::value::Value::Object(obj).try_into()?;
         Ok(())
     }
 }

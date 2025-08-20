@@ -1,11 +1,11 @@
 use crate::parser::string::parse_path_expression;
-use crate::parser::{hocon_horizontal_multi_space0, R};
+use crate::parser::{R, hocon_horizontal_multi_space0};
 use crate::raw::substitution::Substitution;
+use nom::Parser;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::{map, opt};
 use nom::sequence::delimited;
-use nom::Parser;
 
 pub(crate) fn parse_substitution(input: &str) -> R<'_, Substitution> {
     delimited(
@@ -17,13 +17,11 @@ pub(crate) fn parse_substitution(input: &str) -> R<'_, Substitution> {
                 parse_path_expression,
                 hocon_horizontal_multi_space0,
             ),
-            |(optional, _, path, _)| {
-                Substitution::new(path, optional.is_some())
-            },
+            |(optional, _, path, _)| Substitution::new(path, optional.is_some()),
         ),
         tag("}"),
     )
-        .parse_complete(input)
+    .parse_complete(input)
 }
 
 #[cfg(test)]

@@ -1,4 +1,3 @@
-use crate::path::Path;
 use crate::raw::add_assign::AddAssign;
 use crate::raw::concat::Concat;
 use crate::raw::field::ObjectField;
@@ -10,6 +9,19 @@ use crate::raw::substitution::Substitution;
 use itertools::Itertools;
 use serde_json::Number;
 use std::fmt::{Display, Formatter};
+
+pub const RAW_OBJECT_TYPE: &'static str = "object";
+pub const RAW_ARRAY_TYPE: &'static str = "array";
+pub const RAW_BOOLEAN_TYPE: &'static str = "boolean";
+pub const RAW_NULL_TYPE: &'static str = "null";
+pub const RAW_QUOTED_STRING_TYPE: &'static str = "quoted_string";
+pub const RAW_UNQUOTED_STRING_TYPE: &'static str = "unquoted_string";
+pub const RAW_MULTILINE_STRING_TYPE: &'static str = "multiline_string";
+pub const RAW_CONCAT_STRING_TYPE: &'static str = "concat_string";
+pub const RAW_NUMBER_TYPE: &'static str = "number";
+pub const RAW_SUBSTITUTION_TYPE: &'static str = "substitution";
+pub const RAW_CONCAT_TYPE: &'static str = "concat";
+pub const RAW_ADD_ASSIGN_TYPE: &'static str = "add_assign";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum RawValue {
@@ -27,15 +39,15 @@ pub enum RawValue {
 impl RawValue {
     pub fn ty(&self) -> &'static str {
         match self {
-            RawValue::Object(_) => "object",
-            RawValue::Array(_) => "array",
-            RawValue::Boolean(_) => "boolean",
-            RawValue::Null => "null",
+            RawValue::Object(_) => RAW_OBJECT_TYPE,
+            RawValue::Array(_) => RAW_ARRAY_TYPE,
+            RawValue::Boolean(_) => RAW_BOOLEAN_TYPE,
+            RawValue::Null => RAW_NULL_TYPE,
             RawValue::String(s) => s.ty(),
-            RawValue::Number(_) => "number",
-            RawValue::Substitution(_) => "substitution",
-            RawValue::Concat(_) => "concat",
-            RawValue::AddAssign(_) => "add_assign",
+            RawValue::Number(_) => RAW_NUMBER_TYPE,
+            RawValue::Substitution(_) => RAW_SUBSTITUTION_TYPE,
+            RawValue::Concat(_) => RAW_CONCAT_TYPE,
+            RawValue::AddAssign(_) => RAW_ADD_ASSIGN_TYPE,
         }
     }
 
@@ -141,7 +153,7 @@ impl TryInto<RawArray> for RawValue {
             RawValue::Array(a) => Ok(a),
             other => Err(crate::error::Error::InvalidConversion {
                 from: other.ty(),
-                to: "array",
+                to: RAW_ARRAY_TYPE,
             }),
         }
     }
@@ -155,8 +167,28 @@ impl TryInto<RawObject> for RawValue {
             RawValue::Object(o) => Ok(o),
             other => Err(crate::error::Error::InvalidConversion {
                 from: other.ty(),
-                to: "object",
+                to: RAW_OBJECT_TYPE,
             }),
+        }
+    }
+}
+
+impl Into<RawValue> for serde_json::Value {
+    fn into(self) -> RawValue {
+        match self {
+            serde_json::Value::Null => RawValue::Null,
+            serde_json::Value::Bool(boolean) => RawValue::Boolean(boolean),
+            serde_json::Value::Number(number) => RawValue::Number(number),
+            serde_json::Value::String(string) => RawValue::String(string.into()),
+            serde_json::Value::Array(values) => RawValue::array(values.into_iter().map(Into::into)),
+            serde_json::Value::Object(map) => {
+                let fields = map
+                    .into_iter()
+                    .map(|(key, value)| ObjectField::key_value(key, value))
+                    .collect();
+                let raw_object = RawObject::new(fields);
+                RawValue::Object(raw_object)
+            }
         }
     }
 }

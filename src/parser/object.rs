@@ -15,6 +15,7 @@ use nom::combinator::{map, opt, peek, value};
 use nom::error::context;
 use nom::multi::{many_m_n, many0};
 use nom::sequence::delimited;
+use tracing::info;
 
 pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
     let (remainder, object) = delimited(
