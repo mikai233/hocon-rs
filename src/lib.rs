@@ -22,6 +22,7 @@ mod merge {
     pub(crate) mod delay_replacement;
     pub(crate) mod inclusion;
     pub(crate) mod object;
+    pub(crate) mod path;
     pub(crate) mod substitution;
     pub(crate) mod value;
 }

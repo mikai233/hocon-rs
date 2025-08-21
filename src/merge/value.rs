@@ -2,7 +2,7 @@ use tracing::trace;
 
 use crate::merge::{
     add_assign::AddAssign, array::Array, concat::Concat, delay_replacement::DelayReplacement,
-    object::Object, substitution::Substitution,
+    object::Object, path::RefPath, substitution::Substitution,
 };
 use std::{cell::RefCell, fmt::Display};
 
@@ -119,13 +119,13 @@ impl Value {
 
     /// Replaces left value to right value if they are simple values.
     /// TODO if right is add_asign and left is not array, should return error.
-    pub(crate) fn replacement(left: Value, right: Value) -> crate::Result<Value> {
-        trace!("replacement: {} <- {}", left, right);
+    pub(crate) fn replacement(path: &RefPath, left: Value, right: Value) -> crate::Result<Value> {
+        trace!("replacement: `{}`: `{}` <- `{}`", path, left, right);
         let new_val = match left {
             Value::Object(mut obj_left) => match right {
                 Value::Object(right) => {
                     // merge two objects
-                    obj_left.merge(right)?;
+                    obj_left.merge(right, Some(path))?;
                     Value::object(obj_left)
                 }
                 Value::Array(_)
@@ -166,41 +166,63 @@ impl Value {
                 }
             },
             Value::Array(mut array) => {
-                if let Value::AddAssign(add_assign) = right {
-                    array.push(RefCell::new(add_assign.into()));
-                    Value::array(array)
-                } else {
-                    right
+                match right {
+                    Value::Substitution(_) |
+                    Value::DelayReplacement(_) => {
+                        Value::delay_replacement(vec![Value::array(array), right])
+                    }
+                    Value::AddAssign(add_assign) => {
+                        array.push(RefCell::new(add_assign.into()));
+                        Value::array(array)
+                    }
+                    right => right
+                }
+                // if let Value::AddAssign(add_assign) = right {
+                //     array.push(RefCell::new(add_assign.into()));
+                //     Value::array(array)
+                // } else {
+                //     right
+                // }
+            }
+            Value::Null => {
+                match right {
+                    Value::AddAssign(add_assign) => {
+                        let array = Array::new(vec![RefCell::new(*add_assign.0)]);
+                        Value::Array(array)
+                    }
+                    other => other,
                 }
             }
             Value::Boolean(_)
-            | Value::Null
             | Value::String(_)
-            | Value::Number(_)
-            | Value::AddAssign(_) => match right {
+            | Value::Number(_) => match right {
+                // the substitution expression might refer to the previous value
                 Value::Substitution(_) => {
                     Value::delay_replacement(vec![left, right])
                 }
                 other => other,
             },
+            Value::AddAssign(_) => {
+                todo!()
+            }
             Value::Substitution(_) |
-            // FIXME Is there could be another DelayMerge here?
+            // FIXME Is there could be another DelayReplacement here?
             Value::Concat(_) |
             Value::DelayReplacement(_) => {
                 Value::delay_replacement(vec![left, right])
             }
         };
-        trace!("replacement result: {}", new_val);
+        trace!("replacement result: `{path}`=`{new_val}`");
         Ok(new_val)
     }
 
-    pub(crate) fn concatenate(left: Value, right: Value) -> crate::Result<Value> {
-        trace!("concatenate: {} <- {}", left, right);
+    pub(crate) fn concatenate(path: &RefPath, left: Value, right: Value) -> crate::Result<Value> {
+        trace!("concatenate: `{}`: `{}` <- `{}`", path, left, right);
         let val = match left {
             Value::Object(mut left_obj) => match right {
                 Value::Null => Value::object(left_obj),
                 Value::Object(right_obj) => {
-                    left_obj.merge(right_obj)?;
+                    left_obj.merge(right_obj, Some(path))?;
                     Value::object(left_obj)
                 }
                 Value::Array(_) | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
@@ -218,12 +240,6 @@ impl Value {
                     let left = Value::object(left_obj);
                     concat.push_front(RefCell::new(left));
                     Value::concat(concat)
-                    // let right = concat.reslove()?;
-                    // Self::concatenate(left, right)?
-                    // return Err(crate::error::Error::ConcatenationDifferentType {
-                    //     ty1: "object",
-                    //     ty2: right.ty(),
-                    // });
                 }
                 Value::AddAssign(_) => {
                     return Err(crate::error::Error::ConcatenationDifferentType {
@@ -288,7 +304,7 @@ impl Value {
                 Value::concat(Concat::from_iter(vec![left, right]))
             }
         };
-        trace!("concatenate result: {val}");
+        trace!("concatenate result: `{path}`=`{val}`");
         Ok(val)
     }
 
@@ -307,19 +323,18 @@ impl Value {
     pub(crate) fn is_unmerged(&self) -> bool {
         !self.is_merged()
     }
-}
 
-impl TryFrom<crate::raw::raw_value::RawValue> for Value {
-    type Error = crate::error::Error;
-
-    fn try_from(value: crate::raw::raw_value::RawValue) -> Result<Self, Self::Error> {
-        let value = match value {
+    pub(crate) fn from_raw(
+        parent: Option<&RefPath>,
+        raw: crate::raw::raw_value::RawValue,
+    ) -> crate::Result<Self> {
+        let value = match raw {
             crate::raw::raw_value::RawValue::Object(raw_object) => {
-                let object: Object = raw_object.try_into()?;
+                let object = Object::from_raw(parent, raw_object)?;
                 Value::object(object)
             }
             crate::raw::raw_value::RawValue::Array(raw_array) => {
-                let array: Array = raw_array.try_into()?;
+                let array = Array::from_raw(parent, raw_array)?;
                 Value::array(array)
             }
             crate::raw::raw_value::RawValue::Boolean(b) => Value::Boolean(b),
@@ -332,11 +347,11 @@ impl TryFrom<crate::raw::raw_value::RawValue> for Value {
                 Value::substitution(substitution)
             }
             crate::raw::raw_value::RawValue::Concat(concat) => {
-                let concat: Concat = concat.try_into()?;
+                let concat = Concat::from_raw(parent, concat)?;
                 Value::concat(concat)
             }
             crate::raw::raw_value::RawValue::AddAssign(add_assign) => {
-                let add_assign: AddAssign = add_assign.try_into()?;
+                let add_assign = AddAssign::from_raw(parent, add_assign)?;
                 Value::add_assign(add_assign)
             }
         };

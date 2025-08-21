@@ -315,7 +315,12 @@ impl TryFrom<crate::merge::value::Value> for Value {
             Ok(Value::Array(result))
         }
         let value = match value {
-            crate::merge::value::Value::Object(object) => from_object(object)?,
+            crate::merge::value::Value::Object(object) => {
+                if object.is_unmerged() {
+                    return Err(crate::error::Error::SubstitutionNotComplete);
+                }
+                from_object(object)?
+            }
             crate::merge::value::Value::Array(array) => from_array(array)?,
             crate::merge::value::Value::Boolean(boolean) => Value::Boolean(boolean),
             crate::merge::value::Value::Null => Value::Null,

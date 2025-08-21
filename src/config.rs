@@ -29,8 +29,8 @@ impl Config {
         path: impl AsRef<std::path::Path>,
         options: Option<ConfigOptions>,
     ) -> crate::Result<Value> {
-        let object = load_from_file(path, None)?;
-        let object: MObject = object.try_into()?;
+        let raw = load_from_file(path, None)?;
+        let object = MObject::from_raw(None, raw)?;
         object.substitute()?;
         let value: Value = MValue::Object(object).try_into()?;
         Ok(value)
@@ -70,7 +70,7 @@ impl Config {
     }
 
     pub fn resolve(self) -> crate::Result<Value> {
-        let object = crate::merge::object::Object::new(self.object)?;
+        let object = crate::merge::object::Object::from_raw(None, self.object)?;
         object.substitute()?;
         let value: Value = crate::merge::value::Value::object(object).try_into()?;
         Ok(value)

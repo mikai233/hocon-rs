@@ -17,7 +17,9 @@ impl Substitution {
     pub(crate) fn full_path(&self) -> String {
         self.path.iter().fold(String::new(), |mut acc, next| {
             acc.push_str(&next.first);
-            acc.push('.');
+            if next.remainder.is_some() {
+                acc.push('.');
+            }
             acc
         })
     }

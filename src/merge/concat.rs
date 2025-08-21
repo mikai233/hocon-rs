@@ -2,39 +2,29 @@ use std::{cell::RefCell, collections::VecDeque, fmt::Display};
 
 use derive_more::{Constructor, Deref, DerefMut};
 
-use crate::merge::value::Value;
+use crate::merge::{path::RefPath, value::Value};
 
 #[derive(Debug, Clone, Deref, DerefMut, Constructor, PartialEq, Default)]
 pub(crate) struct Concat(pub(crate) VecDeque<RefCell<Value>>);
 
 impl Concat {
-    pub(crate) fn reslove(self) -> crate::Result<Value> {
-        self.0.into_iter().try_fold(Value::Null, |left, right| {
-            Value::concatenate(left, right.into_inner())
-        })
-    }
-
     pub(crate) fn from_iter<I>(values: I) -> Self
     where
-        I: IntoIterator<Item=Value>,
+        I: IntoIterator<Item = Value>,
     {
         let queue = VecDeque::from_iter(values.into_iter().map(RefCell::new));
         Self::new(queue)
     }
-}
 
-impl TryFrom<crate::raw::concat::Concat> for Concat {
-    type Error = crate::error::Error;
-
-    fn try_from(value: crate::raw::concat::Concat) -> Result<Self, Self::Error> {
-        let values = value
-            .0
-            .into_iter()
-            .map(|v| v.try_into())
-            .collect::<crate::Result<VecDeque<Value>>>()?
-            .into_iter()
-            .map(|v| RefCell::new(v))
-            .collect();
+    pub(crate) fn from_raw(
+        parent: Option<&RefPath>,
+        raw: crate::raw::concat::Concat,
+    ) -> crate::Result<Self> {
+        let mut values = VecDeque::with_capacity(raw.len());
+        for val in raw.0 {
+            let val = Value::from_raw(parent, val)?;
+            values.push_back(RefCell::new(val));
+        }
         Ok(Self::new(values))
     }
 }

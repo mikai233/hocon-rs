@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt::Display};
 use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 
-use crate::merge::value::Value;
+use crate::merge::{path::RefPath, value::Value};
 
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor)]
 pub(crate) struct Array(pub(crate) Vec<RefCell<Value>>);
@@ -12,20 +12,16 @@ impl Array {
     pub(crate) fn is_merged(&self) -> bool {
         self.iter().all(|v| v.borrow().is_merged())
     }
-}
 
-impl TryFrom<crate::raw::raw_array::RawArray> for Array {
-    type Error = crate::error::Error;
-
-    fn try_from(value: crate::raw::raw_array::RawArray) -> Result<Self, Self::Error> {
-        let values = value
-            .0
-            .into_iter()
-            .map(|v| v.try_into())
-            .collect::<crate::Result<Vec<Value>>>()?
-            .into_iter()
-            .map(|v| RefCell::new(v))
-            .collect();
+    pub(crate) fn from_raw(
+        parent: Option<&RefPath>,
+        raw: crate::raw::raw_array::RawArray,
+    ) -> crate::Result<Self> {
+        let mut values = Vec::with_capacity(raw.len());
+        for val in raw.0 {
+            let val = Value::from_raw(parent, val)?;
+            values.push(RefCell::new(val));
+        }
         Ok(Self::new(values))
     }
 }

@@ -1,6 +1,9 @@
 use derive_more::Constructor;
 
-use crate::{merge::object::Object, raw::include::Location};
+use crate::{
+    merge::{object::Object, path::RefPath},
+    raw::include::Location,
+};
 
 #[derive(Debug, PartialEq, Clone, Constructor)]
 pub(crate) struct Inclusion {
@@ -10,19 +13,20 @@ pub(crate) struct Inclusion {
     pub(crate) val: Option<Box<Object>>,
 }
 
-impl TryFrom<crate::raw::include::Inclusion> for Inclusion {
-    type Error = crate::error::Error;
-
-    fn try_from(value: crate::raw::include::Inclusion) -> Result<Self, Self::Error> {
+impl Inclusion {
+    pub(crate) fn from_raw(
+        parent: Option<&RefPath>,
+        raw: crate::raw::include::Inclusion,
+    ) -> crate::Result<Self> {
         let crate::raw::include::Inclusion {
             path,
             required,
             location,
             val,
-        } = value;
+        } = raw;
         let val = match val {
             Some(val) => {
-                let val: Object = (*val).try_into()?;
+                let val = Object::from_raw(parent, *val)?;
                 Some(Box::new(val))
             }
             None => None,

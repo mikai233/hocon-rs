@@ -1,7 +1,7 @@
 use crate::error::Error;
 use derive_more::Constructor;
 use itertools::Itertools;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Constructor)]
 pub struct Path {
@@ -10,7 +10,7 @@ pub struct Path {
 }
 
 impl Path {
-    pub fn with_paths(paths: impl AsRef<str>) -> crate::Result<Option<Self>> {
+    pub fn from_str(paths: impl AsRef<str>) -> crate::Result<Self> {
         let trimmed = paths.as_ref().trim();
         if trimmed.is_empty() {
             return Err(Error::InvalidPathExpression("path is empty"));
@@ -30,10 +30,10 @@ impl Path {
                 "adjacent periods '..' not allowed",
             ));
         }
-        Ok(Self::from_iter(trimmed.split('.')))
+        Self::from_iter(trimmed.split('.'))
     }
 
-    pub fn from_iter<I, V>(paths: I) -> Option<Path>
+    pub fn from_iter<I, V>(paths: I) -> crate::Result<Path>
     where
         I: Iterator<Item = V>,
         V: AsRef<str>,
@@ -45,7 +45,10 @@ impl Path {
             curr.remainder = Some(Path::new(p.to_string(), None).into());
             curr = curr.remainder.as_mut().unwrap();
         }
-        dummy.remainder.map(|p| *p)
+        match dummy.remainder {
+            Some(path) => Ok(*path),
+            None => Err(crate::error::Error::InvalidPathExpression("path is empty")),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -137,7 +140,7 @@ impl Path {
 }
 
 impl Display for Path {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut paths = vec![&self.first];
         let mut remainder = &self.remainder;
         while let Some(p) = remainder {
