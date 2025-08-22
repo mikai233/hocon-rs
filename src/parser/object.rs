@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn test_object1() -> crate::Result<()> {
         let conf = load_conf("object1")?;
-        let (r, o) = parse(conf.as_str()).unwrap();
+        let (r, o) = parse(conf.as_str(), None).unwrap();
         println!("remainder:{r}");
         println!("result:{o}");
         // assert!(r.is_empty());
@@ -193,7 +193,7 @@ mod tests {
     #[test]
     fn test_object3() -> crate::Result<()> {
         let conf = load_conf("object3")?;
-        let (remainder, object) = parse(conf.as_str()).unwrap();
+        let (remainder, object) = parse(conf.as_str(), None).unwrap();
         assert_eq!(remainder, "");
         println!("{:?}", object);
         Ok(())

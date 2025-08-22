@@ -8,6 +8,7 @@ pub struct ConfigOptions {
     pub max_include_depth: u8,
     pub use_system_environment: bool,
     pub override_options: OverrideOptions,
+    pub classpath: Vec<String>,
 }
 
 impl Default for ConfigOptions {
@@ -16,6 +17,7 @@ impl Default for ConfigOptions {
             max_include_depth: 50,
             use_system_environment: true,
             override_options: OverrideOptions::default(),
+            classpath: Default::default(),
         }
     }
 }

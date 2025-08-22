@@ -4,7 +4,7 @@ use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ObjectField {
     Inclusion {
         inclusion: Inclusion,

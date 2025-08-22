@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Object(HashMap<String, Value>),
     Array(Vec<Value>),
@@ -317,7 +317,7 @@ impl TryFrom<crate::merge::value::Value> for Value {
         let value = match value {
             crate::merge::value::Value::Object(object) => {
                 if object.is_unmerged() {
-                    return Err(crate::error::Error::SubstitutionNotComplete);
+                    return Err(crate::error::Error::ResolveNotComplete);
                 }
                 from_object(object)?
             }
@@ -330,7 +330,7 @@ impl TryFrom<crate::merge::value::Value> for Value {
             | crate::merge::value::Value::Concat(_)
             | crate::merge::value::Value::AddAssign(_)
             | crate::merge::value::Value::DelayReplacement(_) => {
-                return Err(crate::error::Error::SubstitutionNotComplete);
+                return Err(crate::error::Error::ResolveNotComplete);
             }
         };
         Ok(value)

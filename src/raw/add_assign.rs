@@ -1,14 +1,9 @@
+use derive_more::{Constructor, Deref, DerefMut};
+
 use crate::raw::raw_value::RawValue;
 use std::fmt::{Display, Formatter};
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    derive_more::Deref,
-    derive_more::DerefMut,
-    derive_more::Constructor
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deref, DerefMut, Constructor)]
 pub struct AddAssign(Box<RawValue>);
 
 impl Display for AddAssign {

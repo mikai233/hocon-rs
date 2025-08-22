@@ -324,6 +324,24 @@ impl Value {
         !self.is_merged()
     }
 
+    pub(crate) fn resolve_add_assign(&mut self) {
+        if let Value::Object(object) = self {
+            object.resolve_add_assign();
+        } else if let Value::AddAssign(add_assign) = self {
+            let val = std::mem::take(&mut add_assign.0);
+            *self = Value::Array(Array::new(vec![RefCell::new(*val)]));
+            self.try_become_merged();
+        }
+    }
+
+    pub(crate) fn resolve(&mut self) -> crate::Result<()> {
+        if let Value::Object(object) = self {
+            object.substitute()?;
+        }
+        self.resolve_add_assign();
+        Ok(())
+    }
+
     pub(crate) fn from_raw(
         parent: Option<&RefPath>,
         raw: crate::raw::raw_value::RawValue,

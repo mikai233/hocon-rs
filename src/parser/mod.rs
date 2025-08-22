@@ -1,7 +1,10 @@
+mod arena_input;
 mod array;
 mod boolean;
 mod comment;
-mod config_parse_options;
+pub mod config_parse_options;
+mod demo;
+mod error;
 mod include;
 pub(crate) mod loader;
 mod null;
@@ -37,7 +40,15 @@ thread_local! {
     pub(crate) static CONFIG: RefCell<ConfigParseOptions> = RefCell::new(ConfigParseOptions::default());
 }
 
-pub fn parse(input: &str) -> R<'_, RawObject> {
+pub fn parse(input: &str, options: Option<ConfigParseOptions>) -> R<'_, RawObject> {
+    match options {
+        Some(options) => {
+            CONFIG.set(options);
+        }
+        None => {
+            CONFIG.set(ConfigParseOptions::default());
+        }
+    }
     all_consuming(preceded(
         hocon_multi_space0,
         alt((parse_object, parse_root_object)),

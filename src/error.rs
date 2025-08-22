@@ -2,37 +2,38 @@ use std::fmt::Display;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("cannot convert `{from}` to `{to}`")]
+    #[error("Cannot convert `{from}` to `{to}`")]
     InvalidConversion {
         from: &'static str,
         to: &'static str,
     },
-    #[error("cannot convert `{from}` to `{to}`")]
-    PrecisionLoss {
-        from: &'static str,
-        to: &'static str,
-    },
-    #[error("invalid path expression: {0}")]
+    #[error("Invalid path expression: {0}")]
     InvalidPathExpression(&'static str),
-    #[error("parse error: {0}")]
+    #[error("Parse error: {0}")]
     ParseError(String),
-    #[error("io error: {0}")]
+    #[error("{0}")]
     IoError(#[from] std::io::Error),
-    #[error("serde_json error: {0}")]
+    #[error("{0}")]
     SerdeJsonError(#[from] serde_json::Error),
-    #[error("cannot concatenation different type: {ty1} {ty2}")]
+    #[error("Cannot concatenation different type: {ty1} {ty2}")]
     ConcatenationDifferentType {
         ty1: &'static str,
         ty2: &'static str,
     },
     #[error("{val} is not allowed in {ty}")]
     InvalidValue { val: &'static str, ty: &'static str },
-    #[error("substitution {0} not found")]
+    #[error("Substitution {0} not found")]
     SubstitutionNotFound(String),
     #[error(
-        "Substitution incomplete. This should never happen outside this library. If you see this, it's a bug."
+        "Resolve incomplete. This should never happen outside this library. If you see this, it's a bug."
     )]
-    SubstitutionNotComplete,
+    ResolveNotComplete,
+    #[error(
+        "Maximum inclusion depth reached for {0}. An inclusion cycle might have occurred. If not, try increasing `max_include_depth` in `ConfigOptions`."
+    )]
+    InclusionCycle(String),
+    #[error("Inclusion not found: {0}")]
+    InclusionNotFound(String),
     #[error("A cycle substitution found at {0}")]
     CycleSubstitution(String),
     #[error("Deserialize error: {0}")]

@@ -1,7 +1,9 @@
-use crate::raw::raw_object::RawObject;
-use std::fmt::{Display, Formatter};
+use derive_more::Constructor;
 
-#[derive(Debug, PartialEq, Clone, derive_more::Constructor)]
+use crate::raw::raw_object::RawObject;
+use std::fmt::Display;
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Constructor)]
 pub struct Inclusion {
     pub path: String,
     pub required: bool,
@@ -18,7 +20,7 @@ pub enum Location {
 }
 
 impl Display for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Location::File => write!(f, "file"),
             #[cfg(feature = "url")]
@@ -29,7 +31,7 @@ impl Display for Location {
 }
 
 impl Display for Inclusion {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "include ")?;
         if self.required {
             write!(f, "required(")?;

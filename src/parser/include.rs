@@ -1,8 +1,9 @@
 use std::str::FromStr;
 
+use crate::parser::config_parse_options::ConfigParseOptions;
 use crate::parser::loader::{load_from_file, load_from_url};
 use crate::parser::string::parse_quoted_string;
-use crate::parser::{R, hocon_horizontal_multi_space0};
+use crate::parser::{CONFIG, R, hocon_horizontal_multi_space0};
 use crate::raw::include::{Inclusion, Location};
 use nom::Parser;
 use nom::branch::alt;
@@ -70,14 +71,22 @@ pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
     Ok((remainder, inclusion))
 }
 
-fn inclusion_from_file(inclusion: &mut Inclusion) -> crate::Result<()> {
-    match load_from_file(&inclusion.path, None) {
+fn inclusion_from_file(
+    inclusion: &mut Inclusion,
+    options: Option<ConfigParseOptions>,
+) -> crate::Result<()> {
+    match load_from_file(&inclusion.path, options, None) {
         Ok(object) => {
             inclusion.val = Some(object.into());
         }
         Err(error) => {
-            if inclusion.required {
-                panic!("required file not found");
+            if let crate::error::Error::IoError(io_error) = &error
+                && io_error.kind() == std::io::ErrorKind::NotFound
+                && inclusion.required
+            {
+                return Err(crate::error::Error::InclusionNotFound(
+                    inclusion.path.clone(),
+                ));
             } else {
                 return Err(error);
             }
@@ -86,9 +95,12 @@ fn inclusion_from_file(inclusion: &mut Inclusion) -> crate::Result<()> {
     Ok(())
 }
 
-fn inclusion_from_url(inclusion: &mut Inclusion) -> crate::Result<()> {
+fn inclusion_from_url(
+    inclusion: &mut Inclusion,
+    options: Option<ConfigParseOptions>,
+) -> crate::Result<()> {
     let url = url::Url::from_str(&inclusion.path)?;
-    match load_from_url(url, None) {
+    match load_from_url(url, options, None) {
         Ok(object) => {
             inclusion.val = Some(object.into());
         }
@@ -104,17 +116,26 @@ fn inclusion_from_url(inclusion: &mut Inclusion) -> crate::Result<()> {
 }
 
 fn parse_inclusion(inclusion: &mut Inclusion) -> crate::Result<()> {
+    let mut parse_options = CONFIG.take();
+    if let Some(includes) = parse_options.includes.get_mut(&inclusion.path) {
+        *includes += 1;
+        if *includes > parse_options.options.max_include_depth {
+            return Err(crate::error::Error::InclusionCycle(inclusion.path.clone()));
+        }
+    } else {
+        parse_options.includes.insert(inclusion.path.clone(), 1);
+    }
     match inclusion.location {
         None => {
             let url = url::Url::from_str(&inclusion.path)?;
             if url.scheme() == "file" {
-                inclusion_from_file(inclusion)?;
+                inclusion_from_file(inclusion, Some(parse_options))?;
             } else {
-                inclusion_from_url(inclusion)?;
+                inclusion_from_url(inclusion, Some(parse_options))?;
             }
         }
         Some(location) => match location {
-            Location::File => inclusion_from_file(inclusion)?,
+            Location::File => inclusion_from_file(inclusion, Some(parse_options))?,
             #[cfg(feature = "url")]
             Location::Url => inclusion_from_url(inclusion)?,
             Location::Classpath => {}

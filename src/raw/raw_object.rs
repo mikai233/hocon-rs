@@ -6,7 +6,7 @@ use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Default, Deref, DerefMut, Constructor)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Deref, DerefMut, Constructor)]
 pub struct RawObject(pub Vec<ObjectField>);
 
 impl RawObject {

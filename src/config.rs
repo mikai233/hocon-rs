@@ -1,6 +1,7 @@
 use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
+use crate::parser::config_parse_options::ConfigParseOptions;
 use crate::parser::loader::load_from_file;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
@@ -29,10 +30,15 @@ impl Config {
         path: impl AsRef<std::path::Path>,
         options: Option<ConfigOptions>,
     ) -> crate::Result<Value> {
-        let raw = load_from_file(path, None)?;
+        let parse_options: Option<ConfigParseOptions> = options.map(Into::into);
+        let raw = load_from_file(path, parse_options, None)?;
         let object = MObject::from_raw(None, raw)?;
-        object.substitute()?;
-        let value: Value = MValue::Object(object).try_into()?;
+        let mut value = MValue::Object(object);
+        if value.is_unmerged() {
+            return Err(crate::error::Error::ResolveNotComplete);
+        }
+        value.resolve()?;
+        let value = value.try_into()?;
         Ok(value)
     }
 

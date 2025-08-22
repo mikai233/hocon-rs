@@ -1,10 +1,11 @@
-use tracing::{enabled, instrument, span, trace, Level};
+use tracing::{Level, enabled, instrument, span, trace};
 
 use crate::{
     merge::{add_assign::AddAssign, path::RefPath, value::Value},
     path::Path,
     raw::{field::ObjectField, raw_object::RawObject, raw_string::RawString, raw_value::RawValue},
 };
+use std::cell::Ref;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -65,7 +66,7 @@ impl Object {
     pub(crate) fn merge(&mut self, other: Self, parent: Option<&RefPath>) -> crate::Result<()> {
         let both_merged = self.is_merged() && other.is_merged();
         let other: BTreeMap<String, V> = other.into();
-        for (k, v_right) in other {
+        for (k, mut v_right) in other {
             let sub_path = match parent {
                 None => RefPath::new(&k, None),
                 Some(parent_path) => parent_path.join(RefPath::new(&k, None)),
@@ -80,18 +81,18 @@ impl Object {
                         // Even if the value ends up merged after replacement,
                         // we still treat it as unmerged, to avoid complicating the merge-check logic.
                         *l = Value::replacement(&sub_path, left, r)?;
+                        if let Value::Object(obj) = l {
+                            obj.resolve_add_assign();
+                        }
                     }
                 },
                 None => {
-                    let v_right = Value::replacement(&sub_path, Value::Null, v_right.into_inner())?;
+                    let mut v_right =
+                        Value::replacement(&sub_path, Value::Null, v_right.into_inner())?;
+                    if let Value::Object(obj) = &mut v_right {
+                        obj.resolve_add_assign();
+                    }
                     self.insert(k, RefCell::new(v_right));
-                    // if let Value::Object(v_right_obj) = v_right {
-                    //     let mut obj = Object::default();
-                    //     obj.merge(v_right_obj, parent)?;
-                    //     self.insert(k, RefCell::new(Value::Object(obj)));
-                    // } else {
-                    //     self.insert(k, RefCell::new(v_right));
-                    // }
                 }
             }
         }
@@ -101,6 +102,15 @@ impl Object {
             self.try_become_merged();
         }
         Ok(())
+    }
+
+    pub(crate) fn resolve_add_assign(&mut self) {
+        if self.is_merged() {
+            return;
+        }
+        for v in self.values_mut() {
+            v.get_mut().resolve_add_assign();
+        }
     }
 
     pub(crate) fn try_become_merged(&mut self) -> bool {
@@ -153,7 +163,11 @@ impl Object {
 
     fn new_obj_from_path(path: &[&str], value: Value) -> crate::Result<Object> {
         if enabled!(Level::TRACE) {
-            trace!("create object from path: `{}` value: `{}`", path.join("."), value);
+            trace!(
+                "create object from path: `{}` value: `{}`",
+                path.join("."),
+                value
+            );
         }
         if path.is_empty() {
             return Err(crate::error::Error::InvalidPathExpression("empty"));
@@ -223,7 +237,7 @@ impl Object {
     where
         F: FnOnce(&RefCell<Value>) -> crate::Result<()>,
     {
-        fn inner<C>(root: &RefCell<Value>, path: Option<&Path>, callback: C) -> crate::Result<bool>
+        fn get<C>(root: &RefCell<Value>, path: Option<&Path>, callback: C) -> crate::Result<bool>
         where
             C: FnOnce(&RefCell<Value>) -> crate::Result<()>,
         {
@@ -232,7 +246,7 @@ impl Object {
                 Some(path) => match &*root.borrow() {
                     Value::Object(object) => {
                         if let Some(root) = object.get(&path.first) {
-                            success = inner(root, path.next(), callback)?;
+                            success = get(root, path.next(), callback)?;
                         }
                     }
                     _ => {
@@ -247,7 +261,7 @@ impl Object {
             Ok(success)
         }
         if let Some(value) = self.get(&path.first) {
-            inner(value, path.next(), callback)
+            get(value, path.next(), callback)
         } else {
             Ok(false)
         }
@@ -274,7 +288,11 @@ impl Object {
                     self.substitute_value(&sub_path, val)?;
                 }
                 drop(borrowed);
-                value.borrow_mut().try_become_merged();
+                // TODO
+                if let Ok(mut value) = value.try_borrow_mut() {
+                    value.try_become_merged();
+                }
+                // value.borrow_mut().try_become_merged();
             }
             Value::Array(array) => {
                 let span = span!(Level::TRACE, "Array");
@@ -573,7 +591,7 @@ mod tests {
     #[test]
     fn test_sub() -> crate::Result<()> {
         let conf = load_conf("object6")?;
-        let (remainder, object) = parse(conf.as_str()).unwrap();
+        let (remainder, object) = parse(conf.as_str(), None).unwrap();
         info!("raw:{object}");
         let mut obj = Object::from_raw(None, object)?;
         info!("before:{obj}");
@@ -588,11 +606,11 @@ mod tests {
     #[test]
     fn test_object7() -> crate::Result<()> {
         let conf = load_conf("object7")?;
-        let (remainder, object) = parse(conf.as_str()).unwrap();
+        let (remainder, object) = parse(conf.as_str(), None).unwrap();
         info!("raw:{object}");
         let mut obj = Object::from_raw(None, object)?;
         info!("before:{obj}");
-        // obj.substitute()?;
+        obj.substitute()?;
         info!("after:{obj}");
         // let v: crate::value::Value = crate::merge::value::Value::Object(obj).try_into()?;
         Ok(())

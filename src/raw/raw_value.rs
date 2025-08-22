@@ -23,7 +23,7 @@ pub const RAW_SUBSTITUTION_TYPE: &'static str = "substitution";
 pub const RAW_CONCAT_TYPE: &'static str = "concat";
 pub const RAW_ADD_ASSIGN_TYPE: &'static str = "add_assign";
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RawValue {
     Object(RawObject),
     Array(RawArray),

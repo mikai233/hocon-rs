@@ -1,9 +1,9 @@
 use crate::raw::raw_value::RawValue;
 use derive_more::{Deref, DerefMut};
 use itertools::Itertools;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
-#[derive(Debug, Clone, PartialEq, Deref, DerefMut)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deref, DerefMut)]
 pub struct Concat(pub(crate) Vec<RawValue>);
 
 impl Concat {
@@ -25,7 +25,7 @@ impl Concat {
 }
 
 impl Display for Concat {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.iter().join(" "))
     }
 }
