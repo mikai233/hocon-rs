@@ -1,9 +1,7 @@
-mod arena_input;
 mod array;
 mod boolean;
 mod comment;
 pub mod config_parse_options;
-mod demo;
 mod error;
 mod include;
 pub(crate) mod loader;
@@ -16,6 +14,7 @@ mod substitution;
 use crate::parser::array::parse_array;
 use crate::parser::boolean::parse_boolean;
 use crate::parser::config_parse_options::ConfigParseOptions;
+use crate::parser::error::HoconParseError;
 use crate::parser::null::parse_null;
 use crate::parser::number::parse_number;
 use crate::parser::object::{parse_object, parse_root_object};
@@ -31,10 +30,9 @@ use nom::error::context;
 use nom::multi::{many_m_n, many1};
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
-use nom_language::error::VerboseError;
 use std::cell::RefCell;
 
-type R<'a, T> = IResult<&'a str, T, VerboseError<&'a str>>;
+type R<'a, T> = IResult<&'a str, T, HoconParseError<'a>>;
 
 thread_local! {
     pub(crate) static CONFIG: RefCell<ConfigParseOptions> = RefCell::new(ConfigParseOptions::default());
@@ -146,7 +144,7 @@ mod tests {
             Some(e) => match e {
                 Err::Incomplete(_) => {}
                 Err::Error(e) => {
-                    println!("e:{}", convert_error("world", e));
+                    // println!("e:{}", convert_error("world", e));
                 }
                 Err::Failure(_) => {}
             },

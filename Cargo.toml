@@ -7,7 +7,6 @@ edition = "2024"
 nom = "8.0.0"
 nom-language = "0.1.0"
 ahash = "0.8.12"
-bumpalo = "3.19.0"
 thiserror = "2.0.12"
 serde = { version = "1.0.219" }
 serde_json = { version = "1.0.142" }

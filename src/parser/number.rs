@@ -9,16 +9,53 @@ use nom::sequence::{pair, terminated};
 use serde_json::Number;
 use std::str::FromStr;
 
+/// Parses a numeric literal in HOCON, including integers, decimals,
+/// and numbers in scientific notation.
+///
+/// The parser does not convert the value to a numeric type; instead it returns
+/// the original string slice that matches the number.
+///
+/// It supports:
+/// - An optional leading minus sign (`-`)
+/// - Digits before and/or after a decimal point (`.`)
+/// - Numbers starting with a decimal point (e.g., `.123`)
+/// - An optional scientific exponent part (`e` or `E`), with optional sign
+///
+/// # Parameters
+///
+/// * `input` - The input string slice to be parsed
+///
+/// # Returns
+///
+/// An [`IResult`] with:
+/// - `Ok((remaining, number_str))` if a number was successfully parsed
+///   where `number_str` is the matched substring
+/// - `Err(HoconParseError)` if the input is not a valid number
+///
+/// # Examples
+///
+/// ```rust
+/// use your_crate::number_str; // adjust path
+///
+/// assert_eq!(number_str("123"), Ok(("", "123")));
+/// assert_eq!(number_str("-45.67e+2"), Ok(("", "-45.67e+2")));
+/// assert_eq!(number_str(".5 rest"), Ok((" rest", ".5")));
+/// assert!(number_str("abc").is_err());
+/// ```
+///
+/// [`IResult`]: nom::IResult
 fn number_str(input: &str) -> R<'_, &str> {
     recognize((
+        // Optional minus sign.
         opt(char('-')),
+        // Either a standard decimal or a number starting with a decimal point.
         alt((
-            // 小数
+            // Case 1: Standard decimal like `123` or `123.45`.
             recognize((digit1, opt(pair(char('.'), digit1)))),
-            // 只含小数点的情况：.123
+            // Case 2: Starting with `.`, like `.123`.
             recognize(pair(char('.'), digit1)),
         )),
-        // 科学计数法部分
+        // Optional exponent part.
         opt((
             alt((char('e'), char('E'))),
             opt(alt((char('+'), char('-')))),
@@ -40,11 +77,12 @@ pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
     match Number::from_str(num_str) {
         Ok(number) => Ok((remainder, number)),
         Err(_) => {
+            //TODO Error
             let err = nom_language::error::VerboseError::from_error_kind(
                 input,
                 nom::error::ErrorKind::Digit,
             );
-            Err(nom::Err::Error(err))
+            Err(nom::Err::Error(crate::parser::HoconParseError::Nom(err)))
         }
     }
 }

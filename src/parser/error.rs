@@ -2,37 +2,17 @@ use nom::error::{ContextError, FromExternalError};
 use nom_language::error::VerboseError;
 use thiserror::Error;
 
-use crate::parser::arena_input::ArenaInput;
-
 #[derive(Debug, Error)]
-pub enum ParseError<'a> {
+pub enum HoconParseError<'a> {
     #[error("{0}")]
-    IoError(#[from] std::io::Error),
+    Nom(VerboseError<&'a str>),
     #[error("{0}")]
-    SerdeJsonError(#[from] serde_json::Error),
-    #[error(
-        "Maximum inclusion depth reached for {0}. An inclusion cycle might have occurred. If not, try increasing `max_include_depth` in `ConfigOptions`."
-    )]
-    InclusionCycle(String),
-    #[error("Inclusion not found: {0}")]
-    InclusionNotFound(String),
-    #[error("A cycle substitution found at {0}")]
-    CycleSubstitution(String),
-    #[error("{0}")]
-    ConfigNotFound(String),
-    #[error("{0}")]
-    PropertiesParseError(#[from] java_properties::PropertiesError),
-    #[error("{0}")]
-    ReqwestError(#[from] reqwest::Error),
-    #[error("{0}")]
-    UrlParseError(#[from] url::ParseError),
-    #[error("{0}")]
-    NomError(VerboseError<ArenaInput<'a>>),
+    Other(#[from] crate::error::Error)
 }
 
-impl<'a> ParseError<'a> {
-    pub fn as_nom_error_mut(&mut self) -> Option<&mut VerboseError<ArenaInput<'a>>> {
-        if let ParseError::NomError(v) = self {
+impl<'a> HoconParseError<'a> {
+    pub fn as_nom_error_mut(&mut self) -> Option<&mut VerboseError<&'a str>> {
+        if let HoconParseError::Nom(v) = self {
             Some(v)
         } else {
             None
@@ -40,15 +20,15 @@ impl<'a> ParseError<'a> {
     }
 }
 
-impl<'a> nom::error::ParseError<ArenaInput<'a>> for ParseError<'a> {
-    fn from_error_kind(input: ArenaInput<'a>, kind: nom::error::ErrorKind) -> Self {
+impl<'a> nom::error::ParseError<&'a str> for HoconParseError<'a> {
+    fn from_error_kind(input: &'a str, kind: nom::error::ErrorKind) -> Self {
         let verbose_error = VerboseError {
             errors: vec![(input, nom_language::error::VerboseErrorKind::Nom(kind))],
         };
-        Self::NomError(verbose_error)
+        Self::Nom(verbose_error)
     }
 
-    fn append(input: ArenaInput<'a>, kind: nom::error::ErrorKind, mut other: Self) -> Self {
+    fn append(input: &'a str, kind: nom::error::ErrorKind, mut other: Self) -> Self {
         if let Some(e) = other.as_nom_error_mut() {
             e.errors
                 .push((input, nom_language::error::VerboseErrorKind::Nom(kind)));
@@ -56,16 +36,16 @@ impl<'a> nom::error::ParseError<ArenaInput<'a>> for ParseError<'a> {
         other
     }
 
-    fn from_char(input: ArenaInput<'a>, c: char) -> Self {
+    fn from_char(input: &'a str, c: char) -> Self {
         let verbose_error = VerboseError {
             errors: vec![(input, nom_language::error::VerboseErrorKind::Char(c))],
         };
-        Self::NomError(verbose_error)
+        Self::Nom(verbose_error)
     }
 }
 
-impl<'a> ContextError<ArenaInput<'a>> for ParseError<'a> {
-    fn add_context(input: ArenaInput<'a>, ctx: &'static str, mut other: Self) -> Self {
+impl<'a> ContextError<&'a str> for HoconParseError<'a> {
+    fn add_context(input: &'a str, ctx: &'static str, mut other: Self) -> Self {
         if let Some(e) = other.as_nom_error_mut() {
             e.errors
                 .push((input, nom_language::error::VerboseErrorKind::Context(ctx)));
@@ -74,8 +54,8 @@ impl<'a> ContextError<ArenaInput<'a>> for ParseError<'a> {
     }
 }
 
-impl<'a, E> FromExternalError<ArenaInput<'a>, E> for ParseError<'a> {
-    fn from_external_error(input: ArenaInput<'a>, kind: nom::error::ErrorKind, _e: E) -> Self {
-        <Self as nom::error::ParseError<ArenaInput>>::from_error_kind(input, kind)
+impl<'a, E> FromExternalError<&'a str, E> for HoconParseError<'a> {
+    fn from_external_error(input: &'a str, kind: nom::error::ErrorKind, _e: E) -> Self {
+        <Self as nom::error::ParseError<&'a str>>::from_error_kind(input, kind)
     }
 }

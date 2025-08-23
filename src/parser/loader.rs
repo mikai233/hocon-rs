@@ -1,12 +1,14 @@
 use std::path::Path;
 
-use itertools::Itertools;
-
+use crate::parser::error::HoconParseError;
 use crate::{
     parser::{config_parse_options::ConfigParseOptions, parse},
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
     syntax::Syntax,
 };
+use itertools::Itertools;
+use nom::Needed;
+use nom_language::error::convert_error;
 
 // If no syntax is specified and the file has no clear extension,
 // this function will attempt to load all supported config formats.
@@ -124,7 +126,11 @@ pub(crate) fn load_from_url(
     }
 }
 
-pub(crate) fn load_from_classpath() -> crate::Result<RawObject> {
+pub(crate) fn load_from_classpath(
+    path: impl AsRef<Path>,
+    options: Option<ConfigParseOptions>,
+    mut syntax: Option<Syntax>,
+) -> crate::Result<RawObject> {
     unimplemented!()
 }
 
@@ -145,7 +151,31 @@ where
 }
 
 fn load_hocon(s: &str, options: Option<ConfigParseOptions>) -> crate::Result<RawObject> {
-    let (_, raw_object) = parse(s, options).unwrap();
+    // let (_, raw_object) = parse(s, options).unwrap();
+    let raw_object = match parse(s, options) {
+        Ok((_, raw)) => raw,
+        Err(error) => {
+            return match error {
+                nom::Err::Incomplete(i) => {
+                    let size = match i {
+                        Needed::Unknown => "Unknown".to_string(),
+                        Needed::Size(s) => s.get().to_string(),
+                    };
+                    Err(crate::error::Error::ParseError(format!(
+                        "Incomplete parse: {}",
+                        size
+                    )))
+                }
+                nom::Err::Error(e) | nom::Err::Failure(e) => match e {
+                    HoconParseError::Nom(e) => {
+                        let err_msg = convert_error(s, e);
+                        Err(crate::error::Error::ParseError(err_msg))
+                    }
+                    HoconParseError::Other(error) => Err(error),
+                },
+            };
+        }
+    };
     Ok(raw_object)
 }
 

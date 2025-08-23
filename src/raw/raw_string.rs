@@ -10,18 +10,38 @@ use crate::{
     },
 };
 
+/// Represents the different types of string values in a HOCON configuration.
+///
+/// This enum covers the three standard HOCON string types, plus an additional variant
+/// to handle string concatenations and path expressions.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RawString {
+    /// A string literal enclosed in double quotes.
     QuotedString(String),
+    /// A simple string without quotes.
     UnquotedString(String),
+    /// A multiline string enclosed in three double quotes.
     MultilineString(String),
+    /// Represents a sequence of strings that are implicitly concatenated.
+    /// This is also used to represent path expressions.
     ConcatString(ConcatString),
 }
 
+/// A structure to handle string concatenations and path expressions.
+///
+/// It holds a vector of string fragments and optional separators.
+/// This allows the parser to represent `HOCON`'s string concatenation
+/// (`"hello" "world"`) and path expressions (`a.b.c`) in a unified way,
+/// preserving the individual segments.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Constructor, Deref, DerefMut)]
 pub struct ConcatString(Vec<(RawString, Option<String>)>);
 
 impl ConcatString {
+    /// Synthesizes the concatenated string fragments into a single `String`.
+    ///
+    /// This method recursively processes any nested `ConcatString`s and
+    /// joins the fragments, inserting separators (like a dot in a path)
+    /// if they exist.
     pub fn synthetic(&self) -> String {
         let mut result = String::new();
         let iter = self.iter();
@@ -44,6 +64,10 @@ impl ConcatString {
         result
     }
 
+    /// Merges the `ConcatString` into a single `RawString::QuotedString`.
+    ///
+    /// This is the final step in resolving a concatenated string, providing a simple,
+    /// single-value representation for further use.
     pub fn merge(self) -> crate::Result<RawString> {
         Ok(RawString::quoted(self.to_string()))
     }

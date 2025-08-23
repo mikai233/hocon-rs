@@ -177,7 +177,7 @@ mod tests {
         match e {
             Err::Incomplete(_) => {}
             Err::Error(e) => {
-                println!("{}", convert_error(conf.as_str(), e));
+                // println!("{}", convert_error(conf.as_str(), e));
             }
             Err::Failure(_) => {}
         }

@@ -3,14 +3,14 @@ use std::str::FromStr;
 use crate::parser::config_parse_options::ConfigParseOptions;
 use crate::parser::loader::{load_from_file, load_from_url};
 use crate::parser::string::parse_quoted_string;
-use crate::parser::{CONFIG, R, hocon_horizontal_multi_space0};
+use crate::parser::{hocon_horizontal_multi_space0, hocon_multi_space0, CONFIG, R};
 use crate::raw::include::{Inclusion, Location};
-use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::value;
 use nom::sequence::{delimited, preceded};
+use nom::Parser;
 
 fn parse_with_location(input: &str) -> R<'_, Inclusion> {
     let (remainder, (location, path)) = (
@@ -56,7 +56,7 @@ fn parse_with_required(input: &str) -> R<'_, Inclusion> {
 
 pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
     let (remainder, mut inclusion) = preceded(
-        tag("include"),
+        (hocon_multi_space0, tag("include")),
         preceded(
             hocon_horizontal_multi_space0,
             alt((
@@ -67,11 +67,37 @@ pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
         ),
     )
     .parse_complete(input)?;
-    parse_inclusion(&mut inclusion).unwrap();
+    if let Err(error) = parse_inclusion(&mut inclusion) {
+        return Err(nom::Err::Failure(crate::parser::HoconParseError::Other(error)))
+    }
     Ok((remainder, inclusion))
 }
 
 fn inclusion_from_file(
+    inclusion: &mut Inclusion,
+    options: Option<ConfigParseOptions>,
+) -> crate::Result<()> {
+    match load_from_file(&inclusion.path, options, None) {
+        Ok(object) => {
+            inclusion.val = Some(object.into());
+        }
+        Err(error) => {
+            if let crate::error::Error::IoError(io_error) = &error
+                && io_error.kind() == std::io::ErrorKind::NotFound
+                && inclusion.required
+            {
+                return Err(crate::error::Error::InclusionNotFound(
+                    inclusion.path.clone(),
+                ));
+            } else {
+                return Err(error);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn inclusion_from_classpath(
     inclusion: &mut Inclusion,
     options: Option<ConfigParseOptions>,
 ) -> crate::Result<()> {
@@ -127,11 +153,17 @@ fn parse_inclusion(inclusion: &mut Inclusion) -> crate::Result<()> {
     }
     match inclusion.location {
         None => {
-            let url = url::Url::from_str(&inclusion.path)?;
-            if url.scheme() == "file" {
-                inclusion_from_file(inclusion, Some(parse_options))?;
-            } else {
-                inclusion_from_url(inclusion, Some(parse_options))?;
+            match url::Url::from_str(&inclusion.path) {
+                Ok(url) => {
+                    if url.scheme() == "file" {
+                        inclusion_from_file(inclusion, Some(parse_options))?;
+                    } else {
+                        inclusion_from_url(inclusion, Some(parse_options))?;
+                    }
+                }
+                Err(_) => {
+                    inclusion_from_file(inclusion, Some(parse_options))?;
+                }
             }
         }
         Some(location) => match location {
@@ -151,8 +183,8 @@ mod tests {
 
     #[test]
     fn test_parse_include() {
-        let (_, i) = parse_include("include \"demo.conf\"").unwrap();
-        assert_eq!(i.path, "demo.conf");
+        let (_, i) = parse_include("include \"resources/demo.conf\"").unwrap();
+        assert_eq!(i.path, "resources/demo.conf");
         assert_eq!(i.required, false);
         let (_, i) = parse_include("include\"demo.conf\"").unwrap();
         assert_eq!(i.path, "demo.conf");

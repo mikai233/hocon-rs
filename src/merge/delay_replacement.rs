@@ -4,11 +4,16 @@ use derive_more::{Constructor, Deref, DerefMut};
 
 use crate::merge::value::Value;
 
-/// There are some some substitutions during the replacement operation,
-/// we can not known them at this time, so we construct a `DelayMerge`
-/// struct to merge it in the future.
-/// We don't know the merge result, because we don't no whether the substitutions
-/// is simple value or object value.
+/// A container for values that cannot be immediately merged during a replacement operation.
+///
+/// When merging HOCON values, a substitution expression (`${...}`) might be encountered.
+/// Because the final value of this substitution is unknown until the entire configuration
+/// has been parsed, we store these pending values in a `DelayReplacement` struct.
+///
+/// This structure holds a queue of values that need to be merged later, once all
+/// substitutions have been resolved. The final merge result is uncertain until then,
+/// as it depends on whether the substituted value is a simple type or an object.
+///
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor)]
 pub(crate) struct DelayReplacement(pub(crate) VecDeque<RefCell<Value>>);
 

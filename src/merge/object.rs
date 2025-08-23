@@ -1,4 +1,4 @@
-use tracing::{enabled, instrument, span, trace, Level};
+use tracing::{Level, enabled, instrument, span, trace};
 
 use crate::merge::substitution::Substitution;
 use crate::{
@@ -6,7 +6,6 @@ use crate::{
     path::Path,
     raw::{field::ObjectField, raw_object::RawObject, raw_string::RawString, raw_value::RawValue},
 };
-use std::cell::Ref;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -16,6 +15,21 @@ use std::{
 
 type V = RefCell<Value>;
 
+/// Represents an intermediate state for a HOCON object during parsing and merging.
+///
+/// This enum distinguishes between two states to optimize the resolution of substitutions:
+///
+/// - `Merged(BTreeMap<String, V>)`: Indicates that all values within this object and its children
+///   have been fully resolved and merged. There are no remaining substitutions, concatenations,
+///   or other complex structures that need further processing.
+///
+/// - `Unmerged(BTreeMap<String, V>)`: Indicates that this object or its children may still
+///   contain unresolved values, such as substitutions (`${...}`), concatenations (`Concat`),
+///   or additions (`AddAssign`). The resolver must process these pending values before
+///   the object is considered complete.
+///
+/// Separating these states allows the substitution resolver to limit its search to `Unmerged`
+/// objects, significantly reducing the scope of traversal and improving performance.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Object {
     Merged(BTreeMap<String, V>),
@@ -67,7 +81,7 @@ impl Object {
     pub(crate) fn merge(&mut self, other: Self, parent: Option<&RefPath>) -> crate::Result<()> {
         let both_merged = self.is_merged() && other.is_merged();
         let other: BTreeMap<String, V> = other.into();
-        for (k, mut v_right) in other {
+        for (k, v_right) in other {
             let sub_path = match parent {
                 None => RefPath::new(&k, None),
                 Some(parent_path) => parent_path.join(RefPath::new(&k, None)),
@@ -234,33 +248,62 @@ impl Object {
         Ok(())
     }
 
+    /// Traverses the `Value` tree by a given path and executes a callback on the final found value.
+    ///
+    /// This function recursively searches through nested `Object`s within the `Value` tree
+    /// using the provided path expression. Instead of returning the found value directly,
+    /// which would violate Rust's borrowing rules due to the `RefCell` wrapper, it invokes
+    /// a user-provided callback function on the final value's `RefCell`.
+    ///
+    /// This approach ensures that the borrow is temporary and isolated to the callback's scope,
+    /// allowing safe, recursive traversal without a risk of creating multiple mutable references
+    /// to the same data.
+    ///
+    /// # Arguments
+    /// * `path`: The path expression (e.g., `a.b.c`) to navigate the `Value` tree.
+    /// * `callback`: A closure that takes a `&RefCell<Value>` and performs an operation. It's called
+    ///   only once on the value found at the end of the path.
+    ///
+    /// # Returns
+    /// `Ok(true)` if the value at the given path was found and the callback was successfully executed.
+    /// `Ok(false)` if no value was found at the path.
+    /// A `crate::Result<()>` on any error during traversal or callback execution.
     pub(crate) fn get_by_path<F>(&self, path: &Path, callback: F) -> crate::Result<bool>
     where
         F: FnOnce(&RefCell<Value>) -> crate::Result<()>,
     {
+        // A nested helper function to handle the recursive traversal.
+        // It takes the current root and the remaining path segments.
         fn get<C>(root: &RefCell<Value>, path: Option<&Path>, callback: C) -> crate::Result<bool>
         where
             C: FnOnce(&RefCell<Value>) -> crate::Result<()>,
         {
-            let mut success = false;
             match path {
+                // Case 1: The path has more segments to traverse.
                 Some(path) => match &*root.borrow() {
                     Value::Object(object) => {
-                        if let Some(root) = object.get(&path.first) {
-                            success = get(root, path.next(), callback)?;
+                        if let Some(next_value) = object.get(&path.first) {
+                            // Recursively call `get` on the next value in the path.
+                            get(next_value, path.next(), callback)
+                        } else {
+                            // The next path segment does not exist.
+                            Ok(false)
                         }
                     }
-                    _ => {
-                        success = false;
-                    }
+                    // The current value is not an Object, so we can't continue traversing.
+                    _ => Ok(false),
                 },
+
+                // Case 2: The end of the path has been reached.
                 None => {
+                    // Execute the callback on the final value.
                     callback(root)?;
-                    success = true;
+                    Ok(true)
                 }
             }
-            Ok(success)
         }
+
+        // Start the recursive traversal from the top-level object.
         if let Some(value) = self.get(&path.first) {
             get(value, path.next(), callback)
         } else {
