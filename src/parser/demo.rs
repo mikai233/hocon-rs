@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use nom::{
     branch::alt, bytes::complete::{is_not, tag, take_while1},
     character::complete::{char, multispace0},
@@ -9,6 +7,7 @@ use nom::{
     IResult,
     Parser,
 };
+use std::collections::HashMap;
 
 use crate::parser::{arena_input::ArenaInput, error::ParseError};
 
@@ -92,10 +91,11 @@ fn parse_object(input: ArenaInput) -> R<JsonValue> {
 
 /// Parse any JSON value
 fn parse_value(input: ArenaInput) -> R<JsonValue> {
-    let obj = "{\"hello\" = \"world\"}".to_string();
+    let obj = "{\"a\" : \"q\"}".to_string();
     let obj = input.arean.alloc(obj);
     let input2 = input.copy_from(obj);
-    parse_object(input2)?;
+    let v = parse_object(input2)?;
+    println!("11{}", v.0);
     preceded(
         multispace0,
         alt((
@@ -108,4 +108,29 @@ fn parse_value(input: ArenaInput) -> R<JsonValue> {
         )),
     )
     .parse_complete(input)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::arena_input::ArenaInput;
+    use crate::parser::demo::parse_value;
+    use bumpalo::Bump;
+
+    #[test]
+    fn test() {
+        let data = r#"
+        {
+            "name": "Ironman",
+            "age": 18,
+            "is_cool": true,
+            "skills": ["Rust", "Java", "Gaming"],
+            "extra": null
+        }
+        "#
+            .to_string();
+        let b = Bump::new();
+        let v = b.alloc(data);
+        let input = ArenaInput::new(&b, v);
+        let e = parse_value(input).unwrap();
+    }
 }
