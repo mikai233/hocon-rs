@@ -191,3 +191,11 @@ where
     raw_object.extend(properties);
     Ok(raw_object)
 }
+
+fn load_environments() -> RawObject {
+    let mut raw = RawObject::default();
+    for (key, value) in std::env::vars() {
+        raw.push(ObjectField::key_value(key, RawValue::quoted_string(value)));
+    }
+    raw
+}

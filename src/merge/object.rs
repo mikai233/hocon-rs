@@ -633,6 +633,7 @@ impl Display for Object {
 #[cfg(test)]
 mod tests {
     use ahash::HashMap;
+    use rstest::rstest;
     use serde::{Deserialize, Serialize};
     use tracing::info;
 

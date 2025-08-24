@@ -32,13 +32,7 @@ impl Config {
     ) -> crate::Result<Value> {
         let parse_options: Option<ConfigParseOptions> = options.map(Into::into);
         let raw = load_from_file(path, parse_options, None)?;
-        let object = MObject::from_raw(None, raw)?;
-        let mut value = MValue::Object(object);
-        if value.is_unmerged() {
-            return Err(crate::error::Error::ResolveNotComplete);
-        }
-        value.resolve()?;
-        let value = value.try_into()?;
+        let value = Self::resolve_object(raw)?;
         Ok(value)
     }
 
@@ -58,15 +52,15 @@ impl Config {
         self
     }
 
-    pub fn add_kvs<I, V>(&mut self, object: I) -> &mut Self
+    pub fn add_kvs<I, V>(&mut self, kvs: I) -> &mut Self
     where
         I: IntoIterator<Item = (String, V)>,
         V: Into<RawValue>,
     {
-        let object = object
+        let fields = kvs
             .into_iter()
             .map(|(key, value)| ObjectField::key_value(key, value));
-        self.object.extend(object);
+        self.object.extend(fields);
         self
     }
 
@@ -77,8 +71,9 @@ impl Config {
 
     pub fn resolve(self) -> crate::Result<Value> {
         let object = crate::merge::object::Object::from_raw(None, self.object)?;
-        object.substitute()?;
-        let value: Value = crate::merge::value::Value::object(object).try_into()?;
+        let mut value = crate::merge::value::Value::Object(object);
+        value.resolve()?;
+        let value: Value = value.try_into()?;
         Ok(value)
     }
 
@@ -86,16 +81,58 @@ impl Config {
         path: impl AsRef<std::path::Path>,
         options: Option<ConfigOptions>,
     ) -> crate::Result<Value> {
-        unimplemented!()
+        let raw = load_from_file(
+            path,
+            options.map(Into::into),
+            Some(crate::syntax::Syntax::Hocon),
+        )?;
+        let value = Self::resolve_object(raw)?;
+        Ok(value)
     }
 
     pub fn parse_url(url: impl AsRef<str>, options: Option<ConfigOptions>) -> crate::Result<Value> {
         unimplemented!()
     }
 
-    ///
     pub fn parse_map(values: std::collections::HashMap<String, Value>) -> crate::Result<Value> {
         unimplemented!()
+    }
+
+    pub fn parse_str(s: impl AsRef<str>, options: Option<ConfigOptions>) -> crate::Result<Value> {
+        unimplemented!()
+    }
+
+    pub fn to_writer<W>(&self, writer: W) -> crate::Result<()>
+    where
+        W: std::io::Write,
+    {
+        unimplemented!()
+    }
+
+    pub fn to_writer_pretty<W>(&self, writer: W) -> crate::Result<()>
+    where
+        W: std::io::Write,
+    {
+        unimplemented!()
+    }
+
+    pub fn to_string<W>(&self, pretty: bool) -> crate::Result<String> {
+        unimplemented!()
+    }
+
+    pub fn to_string_pretty<W>(&self, pretty: bool) -> crate::Result<String> {
+        unimplemented!()
+    }
+
+    fn resolve_object(object: RawObject) -> crate::Result<Value> {
+        let object = MObject::from_raw(None, object)?;
+        let mut value = MValue::Object(object);
+        value.resolve()?;
+        if value.is_unmerged() {
+            return Err(crate::error::Error::ResolveNotComplete);
+        }
+        let value = value.try_into()?;
+        Ok(value)
     }
 }
 
@@ -129,7 +166,7 @@ impl From<std::collections::HashMap<String, Value>> for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::Config, value::Value};
+    use crate::value::Value;
 
     #[test]
     fn test_path_expression_get() -> crate::Result<()> {

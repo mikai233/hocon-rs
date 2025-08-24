@@ -14,7 +14,7 @@ pub struct Inclusion {
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Copy)]
 pub enum Location {
     File,
-    #[cfg(feature = "url")]
+    // #[cfg(feature = "url")]
     Url,
     Classpath,
 }
@@ -23,7 +23,7 @@ impl Display for Location {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Location::File => write!(f, "file"),
-            #[cfg(feature = "url")]
+            // #[cfg(feature = "url")]
             Location::Url => write!(f, "url"),
             Location::Classpath => write!(f, "classpath"),
         }
@@ -38,11 +38,11 @@ impl Display for Inclusion {
         }
         match self.location {
             None => {
-                write!(f, "{}", self.path)?;
+                write!(f, "\"{}\"", self.path)?;
             }
             Some(location) => {
                 write!(f, "{}(", location)?;
-                write!(f, "{}", self.path)?;
+                write!(f, "\"{}\"", self.path)?;
                 write!(f, ")")?;
             }
         }

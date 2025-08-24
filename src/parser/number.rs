@@ -1,10 +1,9 @@
-use crate::parser::{R, hocon_horizontal_multi_space0};
+use crate::parser::{R, hocon_horizontal_space0};
 use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::tag;
 use nom::character::complete::{char, digit1, line_ending};
 use nom::combinator::{eof, opt, peek, recognize};
-use nom::error::ParseError;
 use nom::sequence::{pair, terminated};
 use serde_json::Number;
 use std::str::FromStr;
@@ -69,42 +68,61 @@ pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
     let (remainder, num_str) = terminated(
         number_str,
         pair(
-            hocon_horizontal_multi_space0,
-            alt((peek(tag(",")), peek(line_ending), peek(eof))),
+            hocon_horizontal_space0,
+            alt((peek(tag(",")), peek(tag("}")), peek(line_ending), peek(eof))),
         ),
     )
     .parse_complete(input)?;
     match Number::from_str(num_str) {
         Ok(number) => Ok((remainder, number)),
-        Err(_) => {
-            //TODO Error
-            let err = nom_language::error::VerboseError::from_error_kind(
-                input,
-                nom::error::ErrorKind::Digit,
-            );
-            Err(nom::Err::Error(crate::parser::HoconParseError::Nom(err)))
+        Err(error) => {
+            let error = crate::error::Error::SerdeJsonError(error);
+            Err(nom::Err::Error(crate::parser::HoconParseError::Other(
+                error,
+            )))
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::f64;
+
+    use rstest::rstest;
+
     use crate::parser::number::parse_number;
 
-    #[test]
-    fn test_parse_number() {
-        let (_, num) = parse_number("1.0").unwrap();
-        println!("{}", num);
-        assert!(parse_number("1.0.").is_err());
-        assert!(parse_number("1.0 hello").is_err());
-        assert!(parse_number("1e1 hello").is_err());
-        let (_, num) = parse_number("1234567,").unwrap();
-        println!("{}", num);
-        let (_, num) = parse_number("0.1  \r\n").unwrap();
-        println!("{}", num);
-        let (_, num) = parse_number("-0.3e100").unwrap();
-        println!("{}", num);
-        let (_, num) = parse_number("3E+100").unwrap();
-        println!("{}", num);
+    #[rstest]
+    #[case("1.0", serde_json::Number::from_f64(1.0), "")]
+    #[case("-999", serde_json::Number::from_i128(-999), "")]
+    #[case("233", serde_json::Number::from_i128(233), "")]
+    #[case("-233.233", serde_json::Number::from_f64(-233.233), "")]
+    #[case("1.7976931348623157e+308", serde_json::Number::from_f64(f64::MAX), "")]
+    #[case("-1.7976931348623157e+308", serde_json::Number::from_f64(f64::MIN), "")]
+    #[case("-1E-1", serde_json::Number::from_f64(-0.1), "")]
+    #[case("-1E-1,", serde_json::Number::from_f64(-0.1), ",")]
+    #[case("-1E-1,\r\n", serde_json::Number::from_f64(-0.1), ",\r\n")]
+    #[case("-1E-1 \n", serde_json::Number::from_f64(-0.1), "\n")]
+    #[case("1.0 \n", serde_json::Number::from_f64(1.0), "\n")]
+    #[case("1.0 }\n", serde_json::Number::from_f64(1.0), "}\n")]
+    fn test_valid_number(
+        #[case] input: &str,
+        #[case] expected_result: Option<serde_json::Number>,
+        #[case] expected_rest: &str,
+    ) {
+        let result = parse_number(input);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result);
+        let (rest, parsed) = result.unwrap();
+        assert_eq!(Some(parsed), expected_result);
+        assert_eq!(rest, expected_rest);
+    }
+
+    #[rstest]
+    #[case("-1e1q")]
+    #[case("foo12")]
+    #[case("12 hello")]
+    fn test_invalid_number(#[case] input: &str) {
+        let result = parse_number(input);
+        assert!(result.is_err(), "expected Err but got {:?}", result);
     }
 }

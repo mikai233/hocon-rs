@@ -19,7 +19,7 @@
 //! allowing precise error handling and composition with other parsers in the HOCON parser crate.
 
 use crate::parser::{
-    R, hocon_horizontal_multi_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace,
+    R, hocon_horizontal_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace,
 };
 use crate::raw::raw_string::{ConcatString, RawString};
 use nom::Parser;
@@ -27,9 +27,9 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::char;
 use nom::character::complete::{anychar, multispace1};
-use nom::combinator::{map, map_opt, map_res, not, peek, value, verify};
+use nom::combinator::{map, map_opt, not, peek, value, verify};
 use nom::multi::{fold, many1, separated_list1};
-use nom::sequence::{delimited, preceded, terminated};
+use nom::sequence::{delimited, preceded};
 use std::ops::{Deref, DerefMut};
 
 /// Characters that are forbidden in unquoted strings and keys in HOCON.
@@ -44,7 +44,7 @@ const FORBIDDEN_CHARACTERS: [char; 19] = [
 /// Represents a fragment of a string inside a quoted HOCON string.
 ///
 /// A string may be composed of different fragments (e.g., literals, escaped
-/// characters, or escaped whitespace), which are parsed and then combined
+/// characters), which are parsed and then combined
 /// into the final string value.
 #[derive(Debug, Copy, Clone)]
 enum StringFragment<'a> {
@@ -52,8 +52,6 @@ enum StringFragment<'a> {
     Literal(&'a str),
     /// A single escaped character (e.g., `\n`, `\t`, `\"`).
     EscapedChar(char),
-    /// Escaped whitespace (ignored in the final string).
-    EscapedWS,
 }
 
 /// Represents different forms of HOCON path segments.
@@ -100,71 +98,65 @@ fn not_quote_slash(c: char) -> bool {
     c != '"' && c != '\\'
 }
 
-/// Parses a `\u{XXXX}` Unicode escape sequence, where `XXXX` is 1 to 6 hexadecimal digits.
+/// Parses escape sequences inside HOCON quoted strings.
+///
+/// Supported escapes include:
+/// - Standard JSON escapes: `\b`, `\t`, `\n`, `\f`, `\r`, `\"`, `\\`, `\/`
+/// - Unicode escapes: `\uXXXX` or `\UXXXXXXXX` (4–8 hex digits)
+/// - Any other escaped character is treated literally (e.g., `\$`, `\#`, `\=`).
 ///
 /// # Parameters
-/// * `input` - The input string slice to parse.
+/// - `input`: The input string slice starting with a backslash escape.
 ///
 /// # Returns
-/// An `R<char>` containing the remaining input and the parsed Unicode character on success,
-/// or an error on failure.
-fn parse_unicode(input: &str) -> R<'_, char> {
-    preceded(
-        char('\\'),
-        map_opt(
-            map_res(
-                preceded(
-                    char('{'),
-                    terminated(
-                        take_while_m_n(1, 6, |c: char| c.is_ascii_hexdigit()),
-                        char('}'),
-                    ),
-                ),
-                |hex| u32::from_str_radix(hex, 16),
-            ),
-            std::char::from_u32,
-        ),
-    )
-    .parse_complete(input)
-}
-
-/// Parses standard JSON escape sequences such as `\n`, `\t`, `\"`, `\\`, `\/`, `\b`, `\f`,
-/// and integrates with [`parse_unicode`] for `\u{XXXX}` sequences.
-///
-/// # Parameters
-/// * `input` - The input string slice to parse.
-///
-/// # Returns
-/// An `R<char>` containing the remaining input and the parsed character on success,
-/// or an error on failure.
+/// An [`R<char>`] containing the remaining input and the parsed character on success,
+/// or an error if the escape sequence is invalid.
 fn parse_escaped_char(input: &str) -> R<'_, char> {
     preceded(
         char('\\'),
         alt((
-            parse_unicode,
-            value('\n', char('n')),
-            value('\r', char('r')),
-            value('\t', char('t')),
-            value('\u{08}', char('b')), // Backspace
-            value('\u{0C}', char('f')), // Form feed
-            value('\\', char('\\')),
-            value('/', char('/')),
-            value('"', char('"')),
+            value('\u{0008}', char('b')), // Backspace
+            value('\u{0009}', char('t')), // Tab
+            value('\u{000A}', char('n')), // Line feed
+            value('\u{000C}', char('f')), // Form feed
+            value('\u{000D}', char('r')), // Carriage return
+            value('\"', char('"')),       // Double quote
+            value('\\', char('\\')),      // Backslash
+            value('/', char('/')),        // Solidus
+            parse_unicode_escape,         // Unicode escape (\uXXXX or \UXXXXXXXX)
+            anychar,                      // Literal escape (fallback)
         )),
     )
     .parse_complete(input)
 }
 
-/// Parses a sequence consisting of a backslash followed by one or more whitespace characters.
+/// Parses a Unicode escape sequence (`\uXXXX` or `\UXXXXXXXX`) inside a HOCON quoted string.
+///
+/// The sequence must be 4–8 hexadecimal digits. Surrogate code points (0xD800–0xDFFF)
+/// are rejected as invalid.
 ///
 /// # Parameters
-/// * `input` - The input string slice to parse.
+/// - `input`: The input string slice starting after the `u` or `U` marker.
 ///
 /// # Returns
-/// An `R<&str>` containing the remaining input and the parsed whitespace slice on success,
-/// or an error on failure.
-fn parse_escaped_whitespace(input: &str) -> R<'_, &str> {
-    preceded(char('\\'), multispace1).parse_complete(input)
+/// An [`R<char>`] containing the remaining input and the parsed Unicode character on success,
+/// or an error if the sequence is invalid.
+fn parse_unicode_escape(input: &str) -> R<'_, char> {
+    preceded(
+        alt((tag("u"), tag("U"))),
+        map_opt(
+            take_while_m_n(4, 8, |c: char| c.is_ascii_hexdigit()),
+            |hex_str| {
+                let code_point = u32::from_str_radix(hex_str, 16).ok()?;
+                if (0xD800..=0xDFFF).contains(&code_point) {
+                    None // surrogate code points are invalid
+                } else {
+                    char::from_u32(code_point)
+                }
+            },
+        ),
+    )
+    .parse_complete(input)
 }
 
 /// Parses a sequence of characters that are neither a double quote (`"`) nor a backslash (`\`).
@@ -198,7 +190,6 @@ fn parse_fragment(input: &str) -> R<'_, StringFragment<'_>> {
     alt((
         map(parse_literal, StringFragment::Literal),
         map(parse_escaped_char, StringFragment::EscapedChar),
-        value(StringFragment::EscapedWS, parse_escaped_whitespace),
     ))
     .parse_complete(input)
 }
@@ -219,7 +210,6 @@ pub(crate) fn parse_quoted_string(input: &str) -> R<'_, String> {
         match fragment {
             StringFragment::Literal(s) => string.push_str(s),
             StringFragment::EscapedChar(c) => string.push(c),
-            StringFragment::EscapedWS => {}
         }
         string
     });
@@ -273,7 +263,7 @@ fn parse_unquoted_char(input: &str) -> R<'_, char> {
 fn parse_unquoted_path_char(input: &str) -> R<'_, char> {
     alt((
         verify(anychar, |c| {
-            !FORBIDDEN_CHARACTERS.contains(&c) && *c != '/' && *c != '.'
+            !FORBIDDEN_CHARACTERS.contains(&c) && *c != '/' && *c != '.' && *c != '\n' && *c != '\n'
         }),
         (char('/'), peek(not(char('/')))).map(|_| '/'),
     ))
@@ -429,7 +419,7 @@ pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
             parse_quoted_string.map(RawString::QuotedString),
             parse_unquoted_string.map(RawString::UnquotedString),
         )),
-        hocon_horizontal_multi_space0.map(|s| {
+        hocon_horizontal_space0.map(|s| {
             if s.len() == 0 {
                 None
             } else {
@@ -460,62 +450,170 @@ fn maybe_concat(mut values: Vec<(RawString, Option<String>)>) -> RawString {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use crate::parser::string::{
-        parse_multiline_string, parse_quoted_string, parse_string, parse_unquoted_string,
+        FORBIDDEN_CHARACTERS, parse_multiline_string, parse_quoted_string, parse_string,
+        parse_unquoted_char, parse_unquoted_path_char, parse_unquoted_string,
     };
-    use crate::parser::substitution::parse_substitution;
+    #[rstest]
+    #[case("abc", "abc", "")]
+    #[case("foo123", "foo123", "")]
+    #[case("bar-baz", "bar-baz", "")]
+    #[case("path.to.value", "path.to.value", "")]
+    #[case("UPPER_case", "UPPER_case", "")]
+    #[case("foo bar", "foo", " bar")]
+    #[case("a/b/c", "a/b/c", "")]
+    #[case("a/b//c", "a/b", "//c")]
+    #[case("a/b\n", "a/b", "\n")]
+    #[case("a/b\r\n", "a/b", "\r\n")]
+    fn test_valid_unquoted_string(
+        #[case] input: &str,
+        #[case] expected_result: &str,
+        #[case] expected_rest: &str,
+    ) {
+        let result = parse_unquoted_string(input);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result);
+        let (rest, parsed) = result.unwrap();
+        assert_eq!(parsed, expected_result);
+        assert_eq!(rest, expected_rest);
+    }
 
-    #[test]
-    fn test_unquoted_string() {
-        let (r, o) = parse_unquoted_string("4  5.0").unwrap();
-        assert_eq!(r, "  5.0");
-        assert_eq!(o, "4");
+    #[rstest]
+    fn test_forbidden_char() {
+        for ele in FORBIDDEN_CHARACTERS {
+            let input = format!("{}abc", ele);
+            let result = parse_unquoted_string(&*input);
+            assert!(result.is_err(), "expected Ok but got {:?}", result);
+        }
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("//abc")]
+    #[case("$123")]
+    #[case("\na/b\r\n")]
+    fn test_invalid_unquoted_string(#[case] input: &str) {
+        let result = parse_unquoted_string(input);
+        assert!(result.is_err(), "expected Err but got {:?}", result);
+    }
+
+    #[rstest]
+    #[case("\"\"", "", "")]
+    #[case("\"hello world\"", "hello world", "")]
+    #[case("\"abc\r\t\"ccb", "abc\r\t", "ccb")]
+    #[case("\"${a.b?}.c\" 123", "${a.b?}.c", " 123")]
+    #[case("\"\n\"", "\n", "")]
+    #[case("\"\r\n\"", "\r\n", "")]
+    #[case("\"a\\\"\t\"", "a\"\t", "")]
+    #[case(r#""""#, "", "")]
+    #[case(r#""\u4F60\u597D""#, "你好", "")]
+    #[case(r#""\b""#, "\u{0008}", "")]
+    #[case(r#""\t""#, "\u{0009}", "")]
+    #[case(r#""\n""#, "\u{000A}", "")]
+    #[case(r#""\f""#, "\u{000C}", "")]
+    #[case(r#""\r""#, "\u{000D}", "")]
+    #[case(r#""\"""#, "\"", "")]
+    #[case(r#""\\""#, "\\", "")]
+    #[case(r#""\/""#, "/", "")]
+    // Unicode 转义测试
+    #[case(r#""\u0041""#, "A", "")] // 基本拉丁字母
+    #[case(r#""\U0001F600""#, "😀", "")] // 表情符号
+    #[case(r#""\u00E9""#, "é", "")] // 带重音字母
+    // 任意字符转义测试
+    #[case(r#""\$""#, "$", "")] // 美元符号
+    #[case(r#""\#""#, "#", "")] // 井号
+    #[case(r#""\=""#, "=", "")] // 等号
+    #[case(r#""\ ""#, " ", "")] // 空格
+    #[case(r#""\,""#, ",", "")] // 逗号
+    fn test_valid_quoted_string(
+        #[case] input: &str,
+        #[case] expected_result: &str,
+        #[case] expected_rest: &str,
+    ) {
+        let result = parse_quoted_string(input);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result);
+        let (rest, parsed) = result.unwrap();
+        assert_eq!(parsed, expected_result);
+        assert_eq!(rest, expected_rest);
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("\"")]
+    #[case("foo bar")]
+    fn test_invalid_quoted_string(#[case] input: &str) {
+        let result = parse_quoted_string(input);
+        assert!(result.is_err(), "expected Err but got {:?}", result);
+    }
+
+    #[rstest]
+    #[case(
+        r#""""
+        Hello,
+        World!
+        """"#,
+        r#"
+        Hello,
+        World!
+        "#,
+        ""
+    )]
+    #[case(
+        r#""""
+        Hello,""
+        World!
+        """"#,
+        r#"
+        Hello,""
+        World!
+        "#,
+        ""
+    )]
+    #[case(r#"""" Hello,""" World! """"#, r#" Hello,"#, r#" World! """"#)]
+    fn test_valid_multiline_string(
+        #[case] input: &str,
+        #[case] expected_result: &str,
+        #[case] expected_rest: &str,
+    ) {
+        let result = parse_multiline_string(input);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result);
+        let (rest, parsed) = result.unwrap();
+        assert_eq!(parsed, expected_result);
+        assert_eq!(rest, expected_rest);
+    }
+
+    #[rstest]
+    #[case(r#""foo bar""#)]
+    fn test_invalid_multiline_string(#[case] input: &str) {
+        let result = parse_multiline_string(input);
+        assert!(result.is_err(), "expected Err but got {:?}", result);
+    }
+
+    #[rstest]
+    #[case("4 5.0", "4 5.0", "")]
+    #[case("5.0", "5.0", "")]
+    #[case(r#""foo bar"hello"#, "\"foo bar\"hello", "")]
+    #[case(r#""""a.""". b." c""#, r#""""a.""". b." c""#, "")]
+    #[case("a.b.c", "a.b.c", "")]
+    #[case("a.\"b.c\"", r#"a."b.c""#, "")]
+    #[case("\"a.b\".c", r#""a.b".c"#, "")]
+    #[case(r#""complex: \u0041 \n \t \\ \"""#, "\"complex: A \n \t \\ \"\"", "")]
+    fn test_valid_string(
+        #[case] input: &str,
+        #[case] expected_result: &str,
+        #[case] expected_rest: &str,
+    ) {
+        let result = parse_string(input);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result);
+        let (rest, parsed) = result.unwrap();
+        assert_eq!(parsed.synthetic(), expected_result);
+        assert_eq!(rest, expected_rest);
     }
 
     #[test]
-    fn test_quoted_string() {
-        parse_quoted_string("\"\"").unwrap();
-        let (remainder, result) = parse_quoted_string("\"world\"").unwrap();
-        assert_eq!(remainder, "");
-        assert_eq!(result, "world");
-        let (remainder, result) = parse_quoted_string("\"world\"112233").unwrap();
-        assert_eq!(remainder, "112233");
-        assert_eq!(result, "world");
-    }
-
-    #[test]
-    fn test_multiline_string() {
-        let (r, o) = parse_multiline_string(
-            r#""""""Hello
-World!""""""#,
-        )
-        .unwrap();
-        assert_eq!(r, r#""""#);
-        assert_eq!(o, "\"\"Hello\nWorld!");
-    }
-
-    #[test]
-    fn test_string() {
-        let (r, o) = parse_string("4 5.0").unwrap();
-        let (r, o) = parse_string("\"\"\"a.\"\"\". b.\" c\"").unwrap();
-        println!("{}", o.synthetic());
-        // assert!(r.is_empty());
-        // let v = RawString::ConcatString(ConcatString::new(vec![(RawString::UnquotedString("4".to_string()), " ".to_string()), (RawString::UnquotedString("5.0".to_string()), "".to_string())]));
-        // assert_eq!(o, v);
-        // let v = quoted_string("\"\"").unwrap();
-        // println!("{}=={}", v.0, v.1);
-        // let (r, o) = parse_hocon_quoted_string("\"vv \" 1").unwrap();
-        // println!("{}={}", r, o);
-        // let (r, o) = parse_hocon_quoted_string("\"1\r\n\"").unwrap();
-        // println!("k{}={:?}", r, o);
-    }
-
-    #[test]
-    fn test_unquoted_path_expression() {
-        let (r, o) = parse_substitution("${a}").unwrap();
-        println!("{o:?}");
-        // parse_unquoted_path_char("/ ").unwrap();
-        // let (r, o) = parse_unquoted_path_expression(" c / }").unwrap();
-        // println!("{}={}", r, o);
+    fn a() {
+        parse_unquoted_path_char("\n").unwrap();
+        parse_unquoted_char("\n").unwrap();
     }
 }

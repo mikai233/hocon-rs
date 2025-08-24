@@ -1,5 +1,5 @@
 use crate::parser::string::parse_path_expression;
-use crate::parser::{R, hocon_horizontal_multi_space0};
+use crate::parser::{R, hocon_horizontal_space0};
 use crate::raw::substitution::Substitution;
 use nom::Parser;
 use nom::bytes::complete::tag;
@@ -13,9 +13,9 @@ pub(crate) fn parse_substitution(input: &str) -> R<'_, Substitution> {
         map(
             (
                 opt(char('?')),
-                hocon_horizontal_multi_space0,
+                hocon_horizontal_space0,
                 parse_path_expression,
-                hocon_horizontal_multi_space0,
+                hocon_horizontal_space0,
             ),
             |(optional, _, path, _)| Substitution::new(path, optional.is_some()),
         ),
@@ -26,21 +26,38 @@ pub(crate) fn parse_substitution(input: &str) -> R<'_, Substitution> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use crate::parser::substitution::parse_substitution;
 
-    #[test]
-    fn test_substitution() {
-        let (r, o) = parse_substitution("${? \"a .\".b. c}").unwrap();
-        println!("{}={:?}", r, o.path);
-        let (r, o) = parse_substitution("${? a.b.c}").unwrap();
-        println!("{}={:?}", r, o.path);
-        let (r, o) = parse_substitution("${? \"a .\".b.c}").unwrap();
-        println!("{}={:?}", r, o.path);
-        let (r, o) = parse_substitution("${? \"a .\".b.c}").unwrap();
-        println!("{}={:?}", r, o.path);
-        let (r, o) = parse_substitution("${ \"a .\".b. c / }").unwrap();
-        println!("{}={:?}", r, o.path);
-        let (r, o) = parse_substitution("${\"\"\"a\"\"\".\" b.\". c }").unwrap();
-        println!("{}={:?}", r, o.path);
+    #[rstest]
+    #[case("${? \"a .\".b. c}", "${?\"a .\".b. c}", "")]
+    #[case("${? a.b.c}", "${?a.b.c}", "")]
+    #[case("${ \"a .\".b. c / }", "${\"a .\".b. c /}", "")]
+    #[case("${foo}", "${foo}", "")]
+    #[case("${\"\".foo}abc", "${\"\".foo}", "abc")]
+    #[case("${\"\"\"a\"\"\".\" b.\". c }", "${\"\"\"a\"\"\".\" b.\". c}", "")]
+    fn test_valide_substitution(
+        #[case] input: &str,
+        #[case] expected_result: &str,
+        #[case] expected_rest: &str,
+    ) {
+        let result = parse_substitution(input);
+        assert!(result.is_ok(), "expected Ok but got {:?}", result);
+        let (rest, parsed) = result.unwrap();
+        assert_eq!(parsed.to_string(), expected_result);
+        assert_eq!(rest, expected_rest);
+    }
+
+    #[rstest]
+    #[case("${}")]
+    #[case("$ {a.b}")]
+    #[case("${\na}")]
+    #[case("$\n{foo.bar}")]
+    #[case("${foo.\nbar}")]
+    #[case("${foo\r.bar}")]
+    fn test_invalid_substitution(#[case] input: &str) {
+        let result = parse_substitution(input);
+        assert!(result.is_err(), "expected Err but got {:?}", result);
     }
 }

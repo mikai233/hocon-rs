@@ -23,7 +23,7 @@ use crate::parser::substitution::parse_substitution;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_value::RawValue;
 use nom::branch::alt;
-use nom::bytes::complete::{take_while, take_while1};
+use nom::bytes::complete::take_while;
 use nom::character::complete::char;
 use nom::combinator::{all_consuming, map, value};
 use nom::error::context;
@@ -69,22 +69,14 @@ fn hocon_multi_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_whitespace).parse_complete(input)
 }
 
-fn hocon_multi_space1(input: &str) -> R<'_, &str> {
-    take_while1(is_hocon_whitespace).parse_complete(input)
-}
-
-fn hocon_horizontal_multi_space0(input: &str) -> R<'_, &str> {
+fn hocon_horizontal_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_horizontal_whitespace).parse_complete(input)
-}
-
-fn hocon_horizontal_multi_space1(input: &str) -> R<'_, &str> {
-    take_while1(is_hocon_horizontal_whitespace).parse_complete(input)
 }
 
 fn parse_value(input: &str) -> R<'_, RawValue> {
     let (remainder, (value,)) = (map(
         many1((
-            hocon_horizontal_multi_space0,
+            hocon_horizontal_space0,
             alt((
                 context("parse_boolean", parse_boolean.map(RawValue::boolean)),
                 context("parse_null", parse_null.map(|_| RawValue::null())),
@@ -97,7 +89,7 @@ fn parse_value(input: &str) -> R<'_, RawValue> {
                 context("parse_array", parse_array.map(RawValue::Array)),
                 context("parse_object", parse_object.map(RawValue::Object)),
             )),
-            hocon_horizontal_multi_space0,
+            hocon_horizontal_space0,
         )),
         |mut values| {
             if values.len() == 1 {
@@ -122,12 +114,12 @@ pub(crate) fn load_conf(name: impl AsRef<str>) -> crate::Result<String> {
 
 #[cfg(test)]
 mod tests {
+
     use crate::parser::string::parse_key;
     use crate::parser::{next_element_whitespace, parse_value};
     use crate::raw::raw_string::RawString;
     use crate::raw::raw_value::RawValue;
     use nom::Err;
-    use nom_language::error::convert_error;
 
     #[test]
     fn test_next_element_whitespace() {

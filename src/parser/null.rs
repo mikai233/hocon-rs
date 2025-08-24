@@ -35,3 +35,27 @@ pub(crate) fn parse_null(input: &str) -> R<'_, ()> {
     let (input, _) = context("null", tag("null")).parse(input)?;
     Ok((input, ()))
 }
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use crate::parser::null::parse_null;
+
+    #[rstest]
+    #[case("null")]
+    #[case("null ")]
+    fn test_valid_null(#[case] input: &str) {
+        let result = parse_null(input);
+        assert!(result.is_ok());
+    }
+
+    #[rstest]
+    #[case("invalid")]
+    #[case("nul")]
+    #[case("")]
+    fn test_invalid_null(#[case] input: &str) {
+        let result = parse_null(input);
+        assert!(result.is_err());
+    }
+}
