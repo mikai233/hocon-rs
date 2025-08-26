@@ -151,6 +151,14 @@ impl RawObject {
         None
     }
 
+    /// Merges two `RawObject`s into one.
+    ///
+    /// - If both objects contain the same key, the field from `right` takes precedence
+    ///   and overwrites the one from `left`.
+    /// - Fields that only exist in `left` are preserved.
+    /// - This follows HOCON’s rule that later definitions of the same key override
+    ///   earlier ones.
+
     pub(crate) fn merge(mut left: Self, right: Self) -> Self {
         left.0.extend(right.0);
         left

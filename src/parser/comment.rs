@@ -7,6 +7,7 @@ use nom::character::complete::line_ending;
 use nom::combinator::{opt, value};
 use nom::sequence::{preceded, terminated};
 
+#[inline]
 fn comment_separator(input: &str) -> R<'_, CommentType> {
     alt((
         value(CommentType::DoubleSlash, tag("//")),
@@ -15,11 +16,13 @@ fn comment_separator(input: &str) -> R<'_, CommentType> {
     .parse_complete(input)
 }
 
+#[inline]
 fn comment_content(input: &str) -> R<'_, &str> {
     take_while(|c| c != '\n' && c != '\r').parse_complete(input)
 }
 
 //TODO line ending
+#[inline]
 pub(crate) fn parse_comment(input: &str) -> R<'_, (CommentType, &str)> {
     preceded(
         hocon_horizontal_space0,

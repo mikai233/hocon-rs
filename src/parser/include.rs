@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use crate::parser::config_parse_options::ConfigParseOptions;
-use crate::parser::loader::{load_from_file, load_from_url};
+use crate::parser::loader::{self, load_from_classpath, load_from_path, load_from_url};
 use crate::parser::string::parse_quoted_string;
 use crate::parser::{CONFIG, R, hocon_horizontal_space0, hocon_multi_space0};
 use crate::raw::include::{Inclusion, Location};
@@ -69,6 +69,7 @@ fn parse(input: &str) -> R<'_, Inclusion> {
     .parse_complete(input)
 }
 
+#[inline]
 pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
     let (remainder, mut inclusion) = parse.parse_complete(input)?;
     if let Err(error) = parse_inclusion(&mut inclusion) {
@@ -81,23 +82,27 @@ pub(crate) fn parse_include(input: &str) -> R<'_, Inclusion> {
 
 fn inclusion_from_file(
     inclusion: &mut Inclusion,
-    options: Option<ConfigParseOptions>,
+    options: ConfigParseOptions,
 ) -> crate::Result<()> {
-    match load_from_file(&inclusion.path, options, None) {
+    match load_from_path(&inclusion.path, options) {
         Ok(object) => {
             inclusion.val = Some(object.into());
         }
-        Err(error) => {
-            if let crate::error::Error::IoError(io_error) = &error
-                && io_error.kind() == std::io::ErrorKind::NotFound
-                && inclusion.required
-            {
-                return Err(crate::error::Error::InclusionNotFound(
-                    inclusion.path.clone(),
-                ));
-            } else {
-                return Err(error);
+        e @ Err(crate::error::Error::ConfigNotFound { .. }) => {
+            if inclusion.required {
+                return e
+                    .map(|_| ())
+                    .map_err(|e| crate::error::Error::InclusionError {
+                        inclusion: inclusion.clone(),
+                        error: Box::new(e),
+                    });
             }
+        }
+        Err(e) => {
+            return Err(crate::error::Error::InclusionError {
+                inclusion: inclusion.clone(),
+                error: Box::new(e),
+            });
         }
     }
     Ok(())
@@ -105,23 +110,55 @@ fn inclusion_from_file(
 
 fn inclusion_from_classpath(
     inclusion: &mut Inclusion,
-    options: Option<ConfigParseOptions>,
+    parse_opts: ConfigParseOptions,
 ) -> crate::Result<()> {
-    match load_from_file(&inclusion.path, options, None) {
+    match load_from_classpath(&inclusion.path, parse_opts) {
         Ok(object) => {
             inclusion.val = Some(object.into());
         }
-        Err(error) => {
-            if let crate::error::Error::IoError(io_error) = &error
-                && io_error.kind() == std::io::ErrorKind::NotFound
-                && inclusion.required
-            {
-                return Err(crate::error::Error::InclusionNotFound(
-                    inclusion.path.clone(),
-                ));
-            } else {
-                return Err(error);
+        e @ Err(crate::error::Error::ConfigNotFound { .. }) => {
+            if inclusion.required {
+                return e
+                    .map(|_| ())
+                    .map_err(|e| crate::error::Error::InclusionError {
+                        inclusion: inclusion.clone(),
+                        error: Box::new(e),
+                    });
             }
+        }
+        Err(e) => {
+            return Err(crate::error::Error::InclusionError {
+                inclusion: inclusion.clone(),
+                error: Box::new(e),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn inclusion_from_file_and_classpath(
+    inclusion: &mut Inclusion,
+    parse_opts: ConfigParseOptions,
+) -> crate::Result<()> {
+    match loader::load(&inclusion.path, parse_opts) {
+        Ok(object) => {
+            inclusion.val = Some(object.into());
+        }
+        e @ Err(crate::error::Error::ConfigNotFound { .. }) => {
+            if inclusion.required {
+                return e
+                    .map(|_| ())
+                    .map_err(|e| crate::error::Error::InclusionError {
+                        inclusion: inclusion.clone(),
+                        error: Box::new(e),
+                    });
+            }
+        }
+        Err(e) => {
+            return Err(crate::error::Error::InclusionError {
+                inclusion: inclusion.clone(),
+                error: Box::new(e),
+            });
         }
     }
     Ok(())
@@ -129,54 +166,61 @@ fn inclusion_from_classpath(
 
 fn inclusion_from_url(
     inclusion: &mut Inclusion,
-    options: Option<ConfigParseOptions>,
+    parse_opts: ConfigParseOptions,
 ) -> crate::Result<()> {
     let url = url::Url::from_str(&inclusion.path)?;
-    match load_from_url(url, options, None) {
+    match load_from_url(url, parse_opts) {
         Ok(object) => {
             inclusion.val = Some(object.into());
         }
-        Err(error) => {
+        e @ Err(crate::error::Error::ConfigNotFound { .. }) => {
             if inclusion.required {
-                panic!("required url not found");
-            } else {
-                return Err(error);
+                return e
+                    .map(|_| ())
+                    .map_err(|e| crate::error::Error::InclusionError {
+                        inclusion: inclusion.clone(),
+                        error: Box::new(e),
+                    });
             }
+        }
+        Err(e) => {
+            return Err(crate::error::Error::InclusionError {
+                inclusion: inclusion.clone(),
+                error: Box::new(e),
+            });
         }
     }
     Ok(())
 }
 
 fn parse_inclusion(inclusion: &mut Inclusion) -> crate::Result<()> {
-    let mut parse_options = CONFIG.take();
-    if let Some(includes) = parse_options.includes.get_mut(&inclusion.path) {
-        *includes += 1;
-        if *includes > parse_options.options.max_include_depth {
-            return Err(crate::error::Error::InclusionCycle(inclusion.path.clone()));
-        }
-    } else {
-        parse_options.includes.insert(inclusion.path.clone(), 1);
+    let mut parse_opts = CONFIG.take();
+    if parse_opts
+        .includes
+        .iter()
+        .rfind(|p| p == &&inclusion.path)
+        .is_some()
+    {
+        return Err(crate::error::Error::InclusionCycle(inclusion.path.clone()));
     }
+    parse_opts.includes.push(inclusion.path.clone());
     match inclusion.location {
-        None => match url::Url::from_str(&inclusion.path) {
+        None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
             Ok(url) => {
-                if url.scheme() == "file" {
-                    inclusion_from_file(inclusion, Some(parse_options))?;
-                } else {
-                    inclusion_from_url(inclusion, Some(parse_options))?;
+                if url.scheme() != "file" {
+                    inclusion_from_url(inclusion, parse_opts)?;
                 }
             }
-            Err(_) => {
-                inclusion_from_file(inclusion, Some(parse_options))?;
+            _ => {
+                inclusion_from_file_and_classpath(inclusion, parse_opts)?;
             }
         },
-        Some(location) => match location {
-            Location::File => inclusion_from_file(inclusion, Some(parse_options))?,
-            // #[cfg(feature = "url")]
-            Location::Url => inclusion_from_url(inclusion, Some(parse_options))?,
-            Location::Classpath => inclusion_from_classpath(inclusion, Some(parse_options))?,
-        },
+        Some(Location::Classpath) => inclusion_from_classpath(inclusion, parse_opts)?,
+        Some(Location::File) => inclusion_from_file(inclusion, parse_opts)?,
     }
+    CONFIG.with_borrow_mut(|c| {
+        c.includes.pop();
+    });
     Ok(())
 }
 
@@ -236,6 +280,7 @@ mod tests {
     #[case("include required (classpath(\"demo.conf\"))")]
     #[case("include required(classpath (\"demo.conf\"))")]
     #[case("include required (\"demo.conf\")")]
+    #[case("included \"demo\"")]
     fn test_invalid_include(#[case] input: &str) {
         let result = parse(input);
         assert!(result.is_err(), "expected Err but got {:?}", result);

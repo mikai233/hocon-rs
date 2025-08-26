@@ -1,10 +1,10 @@
-use crate::parser::{R, hocon_horizontal_space0};
-use nom::Parser;
+use crate::parser::{hocon_horizontal_space0, R};
 use nom::branch::alt;
 use nom::bytes::tag;
 use nom::character::complete::{char, digit1, line_ending};
 use nom::combinator::{eof, opt, peek, recognize};
 use nom::sequence::{pair, terminated};
+use nom::Parser;
 use serde_json::Number;
 use std::str::FromStr;
 
@@ -43,6 +43,7 @@ use std::str::FromStr;
 /// ```
 ///
 /// [`IResult`]: nom::IResult
+#[inline]
 fn number_str(input: &str) -> R<'_, &str> {
     recognize((
         // Optional minus sign.
@@ -64,6 +65,7 @@ fn number_str(input: &str) -> R<'_, &str> {
     .parse_complete(input)
 }
 
+#[inline]
 pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
     let (remainder, num_str) = terminated(
         number_str,

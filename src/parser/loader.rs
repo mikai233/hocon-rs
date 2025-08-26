@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::parser::error::HoconParseError;
 use crate::{
@@ -10,15 +10,14 @@ use itertools::Itertools;
 use nom::Needed;
 use nom_language::error::convert_error;
 
-// If no syntax is specified and the file has no clear extension,
-// this function will attempt to load all supported config formats.
-pub(crate) fn load_from_file(
-    path: impl AsRef<Path>,
-    options: Option<ConfigParseOptions>,
-    mut syntax: Option<Syntax>,
-) -> crate::Result<RawObject> {
+struct ConfigPath {
+    path: PathBuf,
+    syntax: Syntax,
+}
+
+fn load_config_paths(path: impl AsRef<Path>) -> Vec<ConfigPath> {
     let path = path.as_ref();
-    let extension_syntax = if let Some(extension) = path.extension()
+    let syntax = if let Some(extension) = path.extension()
         && let Some(extension) = extension.to_str()
     {
         if extension.eq_ignore_ascii_case("json") {
@@ -33,105 +32,223 @@ pub(crate) fn load_from_file(
     } else {
         None
     };
-    syntax = syntax.or(extension_syntax);
+    let mut result = vec![];
     match syntax {
-        Some(syntax) => match syntax {
-            Syntax::Hocon => {
-                let config = std::fs::read_to_string(path)?;
-                load_hocon(&config, options)
+        Some(syntax) => {
+            let mut path = path.to_path_buf();
+            path.set_extension(syntax.to_string());
+            if path.is_file() {
+                let config_path = ConfigPath { path, syntax };
+                result.push(config_path);
             }
-            Syntax::Json => {
-                let file = std::fs::File::open(path)?;
-                let reader = std::io::BufReader::new(file);
-                load_json(reader)
-            }
-            Syntax::Properties => todo!(),
-        },
+        }
         None => {
-            let hocon = match std::fs::read_to_string(path.join(".conf")) {
-                Ok(config) => {
-                    let hocon = load_hocon(&config, options)?;
-                    Some(hocon)
-                }
-                Err(_) => None,
-            };
-            let json = match std::fs::File::open(path.join(".json")) {
-                Ok(file) => {
-                    let reader = std::io::BufReader::new(file);
-                    let json = load_json(reader)?;
-                    Some(json)
-                }
-                Err(_) => None,
-            };
-            let properties = match std::fs::File::open(path.join(".properties")) {
-                Ok(file) => {
-                    let reader = std::io::BufReader::new(file);
-                    let properties = load_properties(reader)?;
-                    Some(properties)
-                }
-                Err(_) => None,
-            };
-            let raw_object = [
-                (hocon, Syntax::Hocon),
-                (json, Syntax::Json),
-                (properties, Syntax::Properties),
-            ]
-            .into_iter()
-            .sorted_by(|(_, s1), (_, s2)| s1.cmp(s2))
-            .map(|(o, _)| o)
-            .flatten()
-            .fold(Some(RawObject::default()), |merged, o| match merged {
-                Some(merged) => Some(RawObject::merge(merged, o)),
-                None => Some(o),
-            });
-            let raw_object = raw_object.ok_or(crate::error::Error::ConfigNotFound(format!(
-                "No configuration file (.conf, .json, .properties) was found at the given path: {}",
-                path.display()
-            )))?;
-            Ok(raw_object)
+            let mut json_path = path.to_path_buf();
+            json_path.set_extension("json");
+            let mut hocon_path = path.to_path_buf();
+            hocon_path.set_extension("conf");
+            let mut properties_path = path.to_path_buf();
+            properties_path.set_extension("properties");
+            if json_path.is_file() {
+                let config_path = ConfigPath {
+                    path: json_path,
+                    syntax: Syntax::Json,
+                };
+                result.push(config_path);
+            }
+            if hocon_path.is_file() {
+                let config_path = ConfigPath {
+                    path: hocon_path,
+                    syntax: Syntax::Hocon,
+                };
+                result.push(config_path);
+            }
+            if properties_path.is_file() {
+                let config_path = ConfigPath {
+                    path: properties_path,
+                    syntax: Syntax::Properties,
+                };
+                result.push(config_path);
+            }
         }
     }
+    result
+}
+
+pub(crate) fn load_from_path(
+    path: impl AsRef<Path>,
+    parse_opts: ConfigParseOptions,
+) -> crate::Result<RawObject> {
+    let path_ref = path.as_ref();
+    let paths = load_config_paths(path_ref);
+    fn construct_error(path: &Path, io: Option<std::io::Error>) -> crate::error::Error {
+        let message = format!(
+            "No configuration file (.conf, .json, .properties) was found at the given path: {}",
+            path.display()
+        );
+        crate::error::Error::ConfigNotFound {
+            message,
+            error: io.map(|e| Box::new(e) as Box<dyn std::error::Error>),
+        }
+    }
+    if paths.is_empty() {
+        let message = format!(
+            "No configuration file (.conf, .json, .properties) was found at the given path: {}",
+            path_ref.display()
+        );
+        let error = crate::error::Error::ConfigNotFound {
+            message,
+            error: None,
+        };
+        return Err(error);
+    }
+    let mut result = vec![];
+    for ConfigPath { path, syntax } in paths {
+        let raw = match syntax {
+            Syntax::Hocon => match std::fs::read_to_string(&path) {
+                Ok(data) => load_hocon(&data, parse_opts.clone())?,
+                Err(error) => {
+                    return Err(construct_error(&path, Some(error)));
+                }
+            },
+            Syntax::Json => match std::fs::File::open(&path) {
+                Ok(file) => {
+                    let reader = std::io::BufReader::new(file);
+                    load_json(reader)?
+                }
+                Err(error) => {
+                    return Err(construct_error(&path, Some(error)));
+                }
+            },
+            Syntax::Properties => match std::fs::File::open(&path) {
+                Ok(file) => {
+                    let reader = std::io::BufReader::new(file);
+                    load_properties(reader)?
+                }
+                Err(error) => {
+                    return Err(construct_error(&path, Some(error)));
+                }
+            },
+        };
+        result.push((raw, syntax));
+    }
+    let cmp = parse_opts.options.compare;
+    let raw = result
+        .into_iter()
+        .sorted_by(|(_, s1), (_, s2)| cmp(s1, s2))
+        .map(|(o, _)| o)
+        .fold(RawObject::default(), |merged, o| {
+            RawObject::merge(merged, o)
+        });
+    Ok(raw)
 }
 
 pub(crate) fn load_from_url(
-    url: reqwest::Url,
-    options: Option<ConfigParseOptions>,
-    syntax: Option<Syntax>,
+    url: url::Url,
+    parse_opts: ConfigParseOptions,
 ) -> crate::Result<RawObject> {
-    if url.scheme() == "file" {
-        let path = url.to_file_path().unwrap();
-        load_from_file(path, options, syntax)
-    } else {
-        let client = reqwest::blocking::Client::new();
-        let response = client.get(url).send()?;
-        let syntax =
-            if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE) {
-                match content_type.as_bytes() {
-                    b"application/json" => Syntax::Json,
-                    b"text/x-java-properties" => Syntax::Properties,
-                    b"application/hocon" => Syntax::Hocon,
-                    _ => Syntax::Hocon,
+    let client = reqwest::blocking::Client::new();
+    match client.get(url).send() {
+        Ok(response) => {
+            let extension_syntax = if let Some(filename) = response
+                .url()
+                .path_segments()
+                .and_then(|segments| segments.last())
+            {
+                if let Some(dot_index) = filename.rfind('.') {
+                    let extension = &filename[dot_index + 1..];
+                    match extension {
+                        "json" => Some(Syntax::Json),
+                        "properties" => Some(Syntax::Properties),
+                        "conf" => Some(Syntax::Hocon),
+                        _ => None,
+                    }
+                } else {
+                    None
                 }
             } else {
-                Syntax::Hocon
+                None
             };
-        match syntax {
-            Syntax::Hocon => {
-                let config = response.text()?;
-                load_hocon(&config, options)
+            let header_syntax =
+                if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE) {
+                    match content_type.as_bytes() {
+                        b"application/json" => Some(Syntax::Json),
+                        b"text/x-java-properties" => Some(Syntax::Properties),
+                        b"application/hocon" => Some(Syntax::Hocon),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+            let syntax = extension_syntax.or(header_syntax).unwrap_or(Syntax::Hocon);
+            match syntax {
+                Syntax::Hocon => match response.text() {
+                    Ok(data) => load_hocon(&data, parse_opts),
+                    Err(error) => {
+                        let message = format!(
+                            "Can't get response content from {}, error: {}",
+                            error.url().unwrap().as_str(),
+                            error
+                        );
+                        let error = Box::new(error);
+                        Err(crate::error::Error::ConfigNotFound {
+                            message,
+                            error: Some(error),
+                        })
+                    }
+                },
+                Syntax::Json => load_json(response),
+                Syntax::Properties => load_properties(response),
             }
-            Syntax::Json => load_json(response),
-            Syntax::Properties => load_properties(response),
+        }
+        Err(error) => {
+            let message = format!(
+                "Url resource not found: {}, error: {}",
+                error.url().unwrap().as_str(),
+                error
+            );
+            let error = Box::new(error);
+            Err(crate::error::Error::ConfigNotFound {
+                message,
+                error: Some(error),
+            })
         }
     }
 }
 
 pub(crate) fn load_from_classpath(
     path: impl AsRef<Path>,
-    options: Option<ConfigParseOptions>,
-    mut syntax: Option<Syntax>,
+    parse_opts: ConfigParseOptions,
 ) -> crate::Result<RawObject> {
-    unimplemented!()
+    let path = path.as_ref();
+    if path.is_absolute() {
+        return Err(crate::error::Error::AbsolutePathInClasspath(
+            path.display().to_string(),
+        ));
+    }
+    if !parse_opts.options.classpath.is_empty() {
+        for classpath in &parse_opts.options.classpath {
+            let candidate = Path::new(classpath).join(path);
+            match load_from_path(&candidate, parse_opts.clone()) {
+                Ok(raw) => {
+                    return Ok(raw);
+                }
+                Err(crate::error::Error::ConfigNotFound { .. }) => {}
+                error => {
+                    return error;
+                }
+            }
+        }
+    }
+    let message = format!(
+        "No configuration file (.conf, .json, .properties) was found at the given path: {} in classpath: [{}]",
+        path.display(),
+        parse_opts.options.classpath.join(", ")
+    );
+    return Err(crate::error::Error::ConfigNotFound {
+        message,
+        error: None,
+    });
 }
 
 fn load_json<R>(reader: R) -> crate::Result<RawObject>
@@ -150,8 +267,7 @@ where
     }
 }
 
-fn load_hocon(s: &str, options: Option<ConfigParseOptions>) -> crate::Result<RawObject> {
-    // let (_, raw_object) = parse(s, options).unwrap();
+fn load_hocon(s: &str, options: ConfigParseOptions) -> crate::Result<RawObject> {
     let raw_object = match parse(s, options) {
         Ok((_, raw)) => raw,
         Err(error) => {
@@ -198,4 +314,28 @@ fn load_environments() -> RawObject {
         raw.push(ObjectField::key_value(key, RawValue::quoted_string(value)));
     }
     raw
+}
+
+pub(crate) fn load(
+    path: impl AsRef<Path>,
+    parse_opts: ConfigParseOptions,
+) -> crate::Result<RawObject> {
+    let env_raw = if parse_opts.options.use_system_environment {
+        Some(load_environments())
+    } else {
+        None
+    };
+    let path = path.as_ref();
+    let raw = match load_from_path(path, parse_opts.clone()) {
+        Ok(raw) => raw,
+        Err(crate::error::Error::ConfigNotFound { .. }) => load_from_classpath(path, parse_opts.into())?,
+        error => {
+            return error;
+        }
+    };
+    let raw_obj = match env_raw {
+        Some(env_raw) => RawObject::merge(env_raw, raw),
+        None => raw,
+    };
+    Ok(raw_obj)
 }

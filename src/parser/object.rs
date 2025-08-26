@@ -40,6 +40,7 @@ pub(crate) fn parse_root_object(input: &str) -> R<'_, RawObject> {
 }
 
 fn object_element(input: &str) -> R<'_, Vec<ObjectField>> {
+    #[inline]
     fn newline_comments(input: &str) -> R<'_, Vec<ObjectField>> {
         many0(delimited(
             hocon_multi_space0,
@@ -51,12 +52,14 @@ fn object_element(input: &str) -> R<'_, Vec<ObjectField>> {
         .parse_complete(input)
     }
 
+    #[inline]
     fn current_line_comment(input: &str) -> R<'_, Comment> {
         parse_comment
             .map(|(ty, content)| Comment::new(content.to_string(), ty))
             .parse_complete(input)
     }
 
+    #[inline]
     fn object_field(input: &str) -> R<'_, ObjectField> {
         alt((
             map(parse_include, ObjectField::inclusion),
@@ -66,6 +69,7 @@ fn object_element(input: &str) -> R<'_, Vec<ObjectField>> {
         .parse_complete(input)
     }
 
+    #[inline]
     fn separator(input: &str) -> R<'_, ()> {
         value((), (hocon_horizontal_space0, many_m_n(0, 1, char(',')))).parse_complete(input)
     }
@@ -90,6 +94,7 @@ fn object_element(input: &str) -> R<'_, Vec<ObjectField>> {
     Ok((remainder, fields))
 }
 
+#[inline]
 fn parse_key_value(input: &str) -> R<'_, (RawString, RawValue)> {
     fn separator(input: &str) -> R<'_, ()> {
         value((), alt((char(':'), char('='), peek(char('{'))))).parse_complete(input)
@@ -110,6 +115,7 @@ fn parse_key_value(input: &str) -> R<'_, (RawString, RawValue)> {
     Ok((remainder, (key, value)))
 }
 
+#[inline]
 fn parse_add_assign(input: &str) -> R<'_, (RawString, RawValue)> {
     let (remainder, (_, key, _, _, _, value)) = context(
         "parse_add_assign",

@@ -1,4 +1,4 @@
-use tracing::{Level, enabled, instrument, span, trace};
+use tracing::{enabled, instrument, span, trace, Level};
 
 use crate::merge::substitution::Substitution;
 use crate::{
@@ -129,10 +129,10 @@ impl Object {
     }
 
     pub(crate) fn try_become_merged(&mut self) -> bool {
-        let mut all_merged = false;
+        let mut all_merged = true;
         for val in self.values_mut() {
             let val = val.get_mut();
-            if !val.is_merged() {
+            if val.is_unmerged() {
                 all_merged = false;
                 break;
             }
@@ -633,7 +633,6 @@ impl Display for Object {
 #[cfg(test)]
 mod tests {
     use ahash::HashMap;
-    use rstest::rstest;
     use serde::{Deserialize, Serialize};
     use tracing::info;
 
@@ -650,9 +649,9 @@ mod tests {
     #[test]
     fn test_sub() -> crate::Result<()> {
         let conf = load_conf("object6")?;
-        let (remainder, object) = parse(conf.as_str(), None).unwrap();
+        let (_remainder, object) = parse(conf.as_str(), Default::default()).unwrap();
         info!("raw:{object}");
-        let mut obj = Object::from_raw(None, object)?;
+        let obj = Object::from_raw(None, object)?;
         info!("before:{obj}");
         obj.substitute()?;
         info!("after:{obj}");
@@ -665,9 +664,9 @@ mod tests {
     #[test]
     fn test_object7() -> crate::Result<()> {
         let conf = load_conf("object7")?;
-        let (remainder, object) = parse(conf.as_str(), None).unwrap();
+        let (_remainder, object) = parse(conf.as_str(), Default::default()).unwrap();
         info!("raw:{object}");
-        let mut obj = Object::from_raw(None, object)?;
+        let obj = Object::from_raw(None, object)?;
         info!("before:{obj}");
         obj.substitute()?;
         info!("after:{obj}");

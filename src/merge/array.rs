@@ -5,6 +5,7 @@ use itertools::Itertools;
 
 use crate::merge::{path::RefPath, value::Value};
 
+// TODO considering add Merged and Unmerged states to avoid unnecessary iteration.
 #[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor)]
 pub(crate) struct Array(pub(crate) Vec<RefCell<Value>>);
 

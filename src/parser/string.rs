@@ -19,17 +19,17 @@
 //! allowing precise error handling and composition with other parsers in the HOCON parser crate.
 
 use crate::parser::{
-    R, hocon_horizontal_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace,
+    hocon_horizontal_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace, R,
 };
 use crate::raw::raw_string::{ConcatString, RawString};
-use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::char;
-use nom::character::complete::{anychar, multispace1};
+use nom::character::complete::anychar;
 use nom::combinator::{map, map_opt, not, peek, value, verify};
 use nom::multi::{fold, many1, separated_list1};
 use nom::sequence::{delimited, preceded};
+use nom::Parser;
 use std::ops::{Deref, DerefMut};
 
 /// Characters that are forbidden in unquoted strings and keys in HOCON.
@@ -453,8 +453,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::parser::string::{
-        FORBIDDEN_CHARACTERS, parse_multiline_string, parse_quoted_string, parse_string,
-        parse_unquoted_char, parse_unquoted_path_char, parse_unquoted_string,
+        parse_multiline_string, parse_quoted_string, parse_string, parse_unquoted_char,
+        parse_unquoted_path_char, parse_unquoted_string, FORBIDDEN_CHARACTERS,
     };
     #[rstest]
     #[case("abc", "abc", "")]

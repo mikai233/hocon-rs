@@ -339,6 +339,7 @@ impl Value {
             object.substitute()?;
         }
         self.resolve_add_assign();
+        self.try_become_merged();
         Ok(())
     }
 

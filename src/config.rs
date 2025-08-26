@@ -1,8 +1,9 @@
+use std::str::FromStr;
+
 use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
-use crate::parser::config_parse_options::ConfigParseOptions;
-use crate::parser::loader::load_from_file;
+use crate::parser::loader::{self, load_from_classpath, load_from_url};
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
@@ -28,10 +29,9 @@ impl Config {
 
     pub fn load(
         path: impl AsRef<std::path::Path>,
-        options: Option<ConfigOptions>,
+        opts: Option<ConfigOptions>,
     ) -> crate::Result<Value> {
-        let parse_options: Option<ConfigParseOptions> = options.map(Into::into);
-        let raw = load_from_file(path, parse_options, None)?;
+        let raw = loader::load(path, opts.unwrap_or_default().into())?;
         let value = Self::resolve_object(raw)?;
         Ok(value)
     }
@@ -79,26 +79,24 @@ impl Config {
 
     pub fn parse_file(
         path: impl AsRef<std::path::Path>,
-        options: Option<ConfigOptions>,
-    ) -> crate::Result<Value> {
-        let raw = load_from_file(
-            path,
-            options.map(Into::into),
-            Some(crate::syntax::Syntax::Hocon),
-        )?;
-        let value = Self::resolve_object(raw)?;
-        Ok(value)
+        opts: Option<ConfigOptions>,
+    ) -> crate::Result<RawObject> {
+        load_from_classpath(path, opts.unwrap_or_default().into())
     }
 
-    pub fn parse_url(url: impl AsRef<str>, options: Option<ConfigOptions>) -> crate::Result<Value> {
-        unimplemented!()
+    pub fn parse_url(
+        url: impl AsRef<str>,
+        opts: Option<ConfigOptions>,
+    ) -> crate::Result<RawObject> {
+        let url = url::Url::from_str(url.as_ref())?;
+        load_from_url(url, opts.unwrap_or_default().into())
     }
 
     pub fn parse_map(values: std::collections::HashMap<String, Value>) -> crate::Result<Value> {
         unimplemented!()
     }
 
-    pub fn parse_str(s: impl AsRef<str>, options: Option<ConfigOptions>) -> crate::Result<Value> {
+    pub fn parse_str(s: impl AsRef<str>, opts: Option<ConfigOptions>) -> crate::Result<Value> {
         unimplemented!()
     }
 
@@ -124,7 +122,7 @@ impl Config {
         unimplemented!()
     }
 
-    fn resolve_object(object: RawObject) -> crate::Result<Value> {
+    pub fn resolve_object(object: RawObject) -> crate::Result<Value> {
         let object = MObject::from_raw(None, object)?;
         let mut value = MValue::Object(object);
         value.resolve()?;
@@ -166,7 +164,8 @@ impl From<std::collections::HashMap<String, Value>> for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::value::Value;
+
+    use crate::{config::Config, config_options::ConfigOptions, value::Value};
 
     #[test]
     fn test_path_expression_get() -> crate::Result<()> {
@@ -179,5 +178,14 @@ mod tests {
         let value3 = Value::with_object([("a", value2)]);
         let object = value3.into_object().unwrap();
         Ok(())
+    }
+
+    #[test]
+    fn aa() {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()];
+        options.use_system_environment = false;
+        let r = Config::load("main", Some(options)).unwrap();
+        println!("{}", r)
     }
 }

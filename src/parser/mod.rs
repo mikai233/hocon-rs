@@ -31,6 +31,7 @@ use nom::multi::{many_m_n, many1};
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 use std::cell::RefCell;
+pub(crate) mod re;
 
 type R<'a, T> = IResult<&'a str, T, HoconParseError<'a>>;
 
@@ -38,15 +39,8 @@ thread_local! {
     pub(crate) static CONFIG: RefCell<ConfigParseOptions> = RefCell::new(ConfigParseOptions::default());
 }
 
-pub fn parse(input: &str, options: Option<ConfigParseOptions>) -> R<'_, RawObject> {
-    match options {
-        Some(options) => {
-            CONFIG.set(options);
-        }
-        None => {
-            CONFIG.set(ConfigParseOptions::default());
-        }
-    }
+pub fn parse(input: &str, parse_options: ConfigParseOptions) -> R<'_, RawObject> {
+    CONFIG.set(parse_options);
     all_consuming(preceded(
         hocon_multi_space0,
         alt((parse_object, parse_root_object)),
@@ -54,6 +48,7 @@ pub fn parse(input: &str, options: Option<ConfigParseOptions>) -> R<'_, RawObjec
     .parse_complete(input)
 }
 
+#[inline]
 fn is_hocon_whitespace(c: char) -> bool {
     match c {
         '\u{001C}' | '\u{001D}' | '\u{001E}' | '\u{001F}' => true,
@@ -61,14 +56,17 @@ fn is_hocon_whitespace(c: char) -> bool {
     }
 }
 
+#[inline]
 fn is_hocon_horizontal_whitespace(c: char) -> bool {
     is_hocon_whitespace(c) && c != '\r' && c != '\n'
 }
 
+#[inline]
 fn hocon_multi_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_whitespace).parse_complete(input)
 }
 
+#[inline]
 fn hocon_horizontal_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_horizontal_whitespace).parse_complete(input)
 }
@@ -103,18 +101,25 @@ fn parse_value(input: &str) -> R<'_, RawValue> {
     Ok((remainder, value))
 }
 
+#[inline(always)]
 fn next_element_whitespace(input: &str) -> R<'_, ()> {
     value((), (hocon_multi_space0, many_m_n(0, 1, char(',')))).parse_complete(input)
 }
 
 pub(crate) fn load_conf(name: impl AsRef<str>) -> crate::Result<String> {
-    let conf = std::fs::read_to_string(format!("resources/{}.conf", name.as_ref()))?;
+    let conf =
+        std::fs::read_to_string(format!("resources/{}.conf", name.as_ref())).map_err(|e| {
+            let error = Box::new(e);
+            crate::error::Error::ConfigNotFound {
+                message: format!("resources/{}.conf", name.as_ref()),
+                error: Some(error),
+            }
+        })?;
     Ok(conf)
 }
 
 #[cfg(test)]
 mod tests {
-
     use crate::parser::string::parse_key;
     use crate::parser::{next_element_whitespace, parse_value};
     use crate::raw::raw_string::RawString;

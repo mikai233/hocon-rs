@@ -3,8 +3,8 @@ use itertools::Itertools;
 use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
-use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
+use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -255,6 +255,8 @@ impl Value {
         }
     }
 }
+
+impl Value {}
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

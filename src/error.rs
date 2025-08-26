@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::raw::include::Inclusion;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Cannot convert `{from}` to `{to}`")]
@@ -11,8 +13,8 @@ pub enum Error {
     InvalidPathExpression(&'static str),
     #[error("Parse error: {0}")]
     ParseError(String),
-    #[error("{0}")]
-    IoError(#[from] std::io::Error),
+    // #[error("{0}")]
+    // IoError(#[from] std::io::Error),
     #[error("{0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("Cannot concatenation different type: {ty1} {ty2}")]
@@ -32,18 +34,24 @@ pub enum Error {
         "Maximum inclusion depth reached for {0}. An inclusion cycle might have occurred. If not, try increasing `max_include_depth` in `ConfigOptions`."
     )]
     InclusionCycle(String),
-    #[error("Inclusion not found: {0}")]
-    InclusionNotFound(String),
+    #[error("Inclusion: {inclusion} error: {error}")]
+    InclusionError {
+        inclusion: Inclusion,
+        error: Box<Error>,
+    },
     #[error("A cycle substitution found at {0}")]
     CycleSubstitution(String),
-    #[error("Deserialize error: {0}")]
-    DeserializeError(String),
     #[error("{0}")]
-    ConfigNotFound(String),
+    DeserializeError(String),
+    #[error("{message}")]
+    ConfigNotFound {
+        message: String,
+        error: Option<Box<dyn std::error::Error>>,
+    },
+    #[error("Absolute path: {0} in classpath is invalid")]
+    AbsolutePathInClasspath(String),
     #[error("{0}")]
     PropertiesParseError(#[from] java_properties::PropertiesError),
-    #[error("{0}")]
-    ReqwestError(#[from] reqwest::Error),
     #[error("{0}")]
     UrlParseError(#[from] url::ParseError),
 }
