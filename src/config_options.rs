@@ -13,7 +13,7 @@ pub struct ConfigOptions {
 impl Default for ConfigOptions {
     fn default() -> Self {
         Self {
-            use_system_environment: true,
+            use_system_environment: false,
             compare: Arc::new(Box::new(Syntax::cmp)),
             classpath: Default::default(),
         }

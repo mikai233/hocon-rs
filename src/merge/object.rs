@@ -1,4 +1,4 @@
-use tracing::{enabled, instrument, span, trace, Level};
+use tracing::{Level, enabled, instrument, span, trace};
 
 use crate::merge::substitution::Substitution;
 use crate::{
@@ -449,14 +449,18 @@ impl Object {
                                         second_last.into_inner(),
                                         last.into_inner(),
                                     )?;
-                                    let new_val = RefCell::new(new_val);
+                                    let mut new_val = RefCell::new(new_val);
                                     self.substitute_value(path, &new_val, tracker)?;
-                                    let mut new_val = new_val.into_inner();
+                                    new_val.get_mut().try_become_merged();
                                     if enabled!(Level::TRACE) {
-                                        trace!("set {} to {}", value.borrow(), new_val);
+                                        trace!(
+                                            "push back {} to {}",
+                                            new_val.get_mut(),
+                                            value.borrow()
+                                        );
                                     }
-                                    new_val.try_become_merged();
-                                    *value.borrow_mut() = new_val;
+                                    value.borrow_mut().as_concat_mut().push_back(new_val);
+                                    self.substitute_value(path, value, tracker)?;
                                 }
                                 None => {
                                     let mut last = last.into_inner();
@@ -531,14 +535,21 @@ impl Object {
                                         second_last.into_inner(),
                                         last.into_inner(),
                                     )?;
-                                    let new_val = RefCell::new(new_val);
+                                    let mut new_val = RefCell::new(new_val);
                                     self.substitute_value(path, &new_val, tracker)?;
-                                    let mut new_val = new_val.into_inner();
-                                    new_val.try_become_merged();
+                                    new_val.get_mut().try_become_merged();
                                     if enabled!(Level::TRACE) {
-                                        trace!("set {} to {}", value.borrow(), new_val);
+                                        trace!(
+                                            "push back {} to {}",
+                                            new_val.get_mut(),
+                                            value.borrow(),
+                                        );
                                     }
-                                    *value.borrow_mut() = new_val;
+                                    value
+                                        .borrow_mut()
+                                        .as_delay_replacement_mut()
+                                        .push_back(new_val);
+                                    self.substitute_value(path, value, tracker)?;
                                 }
                                 None => {
                                     let mut last = last.into_inner();

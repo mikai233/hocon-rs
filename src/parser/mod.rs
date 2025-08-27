@@ -24,13 +24,15 @@ use crate::raw::raw_object::RawObject;
 use crate::raw::raw_value::RawValue;
 use nom::branch::alt;
 use nom::bytes::complete::take_while;
-use nom::character::complete::char;
-use nom::combinator::{all_consuming, map, value};
+use nom::bytes::tag;
+use nom::character::complete::{char, line_ending};
+use nom::combinator::{all_consuming, eof, map, peek, value};
 use nom::error::context;
 use nom::multi::{many_m_n, many1};
 use nom::sequence::preceded;
 use nom::{IResult, Parser};
 use std::cell::RefCell;
+
 pub(crate) mod re;
 
 type R<'a, T> = IResult<&'a str, T, HoconParseError<'a>>;
@@ -39,7 +41,7 @@ thread_local! {
     pub(crate) static CONFIG: RefCell<ConfigParseOptions> = RefCell::new(ConfigParseOptions::default());
 }
 
-pub fn parse(input: &str, parse_options: ConfigParseOptions) -> R<'_, RawObject> {
+pub(crate) fn parse(input: &str, parse_options: ConfigParseOptions) -> R<'_, RawObject> {
     CONFIG.set(parse_options);
     all_consuming(preceded(
         hocon_multi_space0,
@@ -69,6 +71,23 @@ fn hocon_multi_space0(input: &str) -> R<'_, &str> {
 #[inline]
 fn hocon_horizontal_space0(input: &str) -> R<'_, &str> {
     take_while(is_hocon_horizontal_whitespace).parse_complete(input)
+}
+
+#[inline]
+fn horizontal_ending(input: &str) -> R<'_, &str> {
+    preceded(
+        hocon_horizontal_space0,
+        alt((
+            peek(tag(",")),
+            peek(tag("}")),
+            peek(tag("]")),
+            peek(tag("//")),
+            peek(tag("#")),
+            peek(line_ending),
+            peek(eof),
+        )),
+    )
+    .parse_complete(input)
 }
 
 fn parse_value(input: &str) -> R<'_, RawValue> {

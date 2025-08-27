@@ -1,7 +1,8 @@
 use crate::parser::comment::parse_comment;
+use crate::parser::config_parse_options::MAX_DEPTH;
 use crate::parser::include::parse_include;
 use crate::parser::string::parse_key;
-use crate::parser::{R, hocon_horizontal_space0, hocon_multi_space0, parse_value};
+use crate::parser::{CONFIG, R, hocon_horizontal_space0, hocon_multi_space0, parse_value};
 use crate::raw::comment::Comment;
 use crate::raw::field::ObjectField;
 use crate::raw::raw_object::RawObject;
@@ -17,6 +18,17 @@ use nom::multi::{many_m_n, many0};
 use nom::sequence::delimited;
 
 pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
+    let current_depth = CONFIG.with_borrow_mut(|c| {
+        c.current_depth += 1;
+        c.current_depth
+    });
+    if current_depth > MAX_DEPTH {
+        return Err(nom::Err::Failure(crate::parser::HoconParseError::Other(
+            crate::error::Error::RecursionDepthExceeded {
+                max_depth: MAX_DEPTH,
+            },
+        )));
+    }
     let (remainder, object) = delimited(
         (char('{'), hocon_multi_space0),
         map(many0(object_element), |fields| {

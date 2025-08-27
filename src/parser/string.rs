@@ -19,17 +19,17 @@
 //! allowing precise error handling and composition with other parsers in the HOCON parser crate.
 
 use crate::parser::{
-    hocon_horizontal_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace, R,
+    R, hocon_horizontal_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace,
 };
 use crate::raw::raw_string::{ConcatString, RawString};
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::char;
 use nom::character::complete::anychar;
-use nom::combinator::{map, map_opt, not, peek, value, verify};
+use nom::combinator::{map, map_opt, not, opt, peek, value, verify};
 use nom::multi::{fold, many1, separated_list1};
 use nom::sequence::{delimited, preceded};
-use nom::Parser;
 use std::ops::{Deref, DerefMut};
 
 /// Characters that are forbidden in unquoted strings and keys in HOCON.
@@ -419,13 +419,7 @@ pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
             parse_quoted_string.map(RawString::QuotedString),
             parse_unquoted_string.map(RawString::UnquotedString),
         )),
-        hocon_horizontal_space0.map(|s| {
-            if s.len() == 0 {
-                None
-            } else {
-                Some(s.to_string())
-            }
-        }),
+        opt(hocon_horizontal_space0).map(|v| v.map(|v| v.to_string())),
     ))
     .map(maybe_concat)
     .parse_complete(input)
@@ -453,8 +447,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::parser::string::{
-        parse_multiline_string, parse_quoted_string, parse_string, parse_unquoted_char,
-        parse_unquoted_path_char, parse_unquoted_string, FORBIDDEN_CHARACTERS,
+        FORBIDDEN_CHARACTERS, parse_multiline_string, parse_quoted_string, parse_string,
+        parse_unquoted_string,
     };
     #[rstest]
     #[case("abc", "abc", "")]
@@ -599,6 +593,7 @@ mod tests {
     #[case("a.\"b.c\"", r#"a."b.c""#, "")]
     #[case("\"a.b\".c", r#""a.b".c"#, "")]
     #[case(r#""complex: \u0041 \n \t \\ \"""#, "\"complex: A \n \t \\ \"\"", "")]
+    #[case("true false", "true false", "")]
     fn test_valid_string(
         #[case] input: &str,
         #[case] expected_result: &str,
@@ -609,11 +604,5 @@ mod tests {
         let (rest, parsed) = result.unwrap();
         assert_eq!(parsed.synthetic(), expected_result);
         assert_eq!(rest, expected_rest);
-    }
-
-    #[test]
-    fn a() {
-        parse_unquoted_path_char("\n").unwrap();
-        parse_unquoted_char("\n").unwrap();
     }
 }

@@ -1,11 +1,10 @@
-use ::serde::de::DeserializeOwned;
+use ::serde::{Serialize, de::DeserializeOwned};
 
 use crate::value::Value;
 
 pub mod config;
 mod config_options;
 pub mod error;
-mod key;
 pub mod macros;
 pub mod object;
 pub mod parser;
@@ -28,12 +27,13 @@ mod merge {
 
 pub type Result<T> = std::result::Result<T, error::Error>;
 
-// pub fn to_value<T>(value: T) -> crate::Result<Value>
-// where
-//     T: Serialize,
-// {
-//     value.serialize(serializer)
-// }
+pub fn to_value<T>(value: T) -> crate::Result<Value>
+where
+    T: Serialize,
+{
+    let value: Value = serde_json::to_value(value)?.into();
+    Ok(value)
+}
 
 pub fn from_value<T>(value: Value) -> crate::Result<T>
 where

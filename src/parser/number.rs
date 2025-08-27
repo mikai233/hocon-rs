@@ -1,8 +1,7 @@
-use crate::parser::{hocon_horizontal_space0, R};
+use crate::parser::{horizontal_ending, R};
 use nom::branch::alt;
-use nom::bytes::tag;
-use nom::character::complete::{char, digit1, line_ending};
-use nom::combinator::{eof, opt, peek, recognize};
+use nom::character::complete::{char, digit1};
+use nom::combinator::{opt, recognize};
 use nom::sequence::{pair, terminated};
 use nom::Parser;
 use serde_json::Number;
@@ -69,10 +68,7 @@ fn number_str(input: &str) -> R<'_, &str> {
 pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
     let (remainder, num_str) = terminated(
         number_str,
-        pair(
-            hocon_horizontal_space0,
-            alt((peek(tag(",")), peek(tag("}")), peek(line_ending), peek(eof))),
-        ),
+        horizontal_ending,
     )
     .parse_complete(input)?;
     match Number::from_str(num_str) {
@@ -107,6 +103,7 @@ mod tests {
     #[case("-1E-1 \n", serde_json::Number::from_f64(-0.1), "\n")]
     #[case("1.0 \n", serde_json::Number::from_f64(1.0), "\n")]
     #[case("1.0 }\n", serde_json::Number::from_f64(1.0), "}\n")]
+    #[case("1.0 ]", serde_json::Number::from_f64(1.0), "]")]
     fn test_valid_number(
         #[case] input: &str,
         #[case] expected_result: Option<serde_json::Number>,

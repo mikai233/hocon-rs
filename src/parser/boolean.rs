@@ -1,24 +1,20 @@
-use crate::parser::{R, hocon_horizontal_space0};
-use nom::Parser;
+use crate::parser::{horizontal_ending, R};
 use nom::branch::alt;
 use nom::bytes::complete::tag;
-use nom::character::complete::line_ending;
-use nom::combinator::{eof, peek, value};
+use nom::combinator::value;
 use nom::error::context;
-use nom::sequence::{pair, terminated};
+use nom::sequence::terminated;
+use nom::Parser;
 
 pub(crate) fn parse_boolean(input: &str) -> R<'_, bool> {
     context(
         "boolean literal (expected 'true' or 'false')",
         terminated(
             alt((value(true, tag("true")), value(false, tag("false")))),
-            pair(
-                hocon_horizontal_space0,
-                alt((peek(tag(",")), peek(tag("}")), peek(line_ending), peek(eof))),
-            ),
+            horizontal_ending,
         ),
     )
-    .parse(input)
+        .parse_complete(input)
 }
 
 #[cfg(test)]
@@ -33,6 +29,7 @@ mod tests {
     #[case("true \t", true, "")]
     #[case("true ,", true, ",")]
     #[case("true }", true, "}")]
+    #[case("true ]", true, "]")]
     fn test_valid_boolean(
         #[case] input: &str,
         #[case] expected_result: bool,

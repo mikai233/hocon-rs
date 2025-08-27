@@ -1,0 +1,28 @@
+{
+  "a": {
+    "age": 12,
+    "cc": 1,
+    "name": "hello"
+  },
+  "b": {
+    "c": {
+      "cc": 1
+    }
+  },
+  "e": "1 2 hello",
+  "f": "true false",
+  "g": ".a a true false qqw",
+  "h": [
+    1.0,
+    {
+      "ab": "ab"
+    },
+    {
+      "bc": ".1"
+    },
+    "mikai",
+    "oh",
+    [],
+    2.0
+  ]
+}

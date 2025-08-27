@@ -1,4 +1,3 @@
-use crate::error::Error;
 use derive_more::Constructor;
 use itertools::Itertools;
 use std::fmt::Display;
@@ -10,27 +9,8 @@ pub struct Path {
 }
 
 impl Path {
-    pub fn from_str(paths: impl AsRef<str>) -> crate::Result<Self> {
-        let trimmed = paths.as_ref().trim();
-        if trimmed.is_empty() {
-            return Err(Error::InvalidPathExpression("path is empty"));
-        }
-        if trimmed.starts_with('.') {
-            return Err(Error::InvalidPathExpression(
-                "leading period '.' not allowed",
-            ));
-        }
-        if trimmed.ends_with('.') {
-            return Err(Error::InvalidPathExpression(
-                "trailing period '.' not allowed",
-            ));
-        }
-        if trimmed.contains("..") {
-            return Err(Error::InvalidPathExpression(
-                "adjacent periods '..' not allowed",
-            ));
-        }
-        Self::from_iter(trimmed.split('.'))
+    pub fn from_str(paths: impl AsRef<str>) -> crate::Result<Path> {
+        Self::from_iter(paths.as_ref().split('.'))
     }
 
     pub fn from_iter<I, V>(paths: I) -> crate::Result<Path>

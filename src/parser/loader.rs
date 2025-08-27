@@ -267,7 +267,11 @@ where
     }
 }
 
-fn load_hocon(s: &str, options: ConfigParseOptions) -> crate::Result<RawObject> {
+pub(crate) fn load_hocon(
+    s: impl AsRef<str>,
+    options: ConfigParseOptions,
+) -> crate::Result<RawObject> {
+    let s = s.as_ref();
     let raw_object = match parse(s, options) {
         Ok((_, raw)) => raw,
         Err(error) => {
@@ -328,7 +332,9 @@ pub(crate) fn load(
     let path = path.as_ref();
     let raw = match load_from_path(path, parse_opts.clone()) {
         Ok(raw) => raw,
-        Err(crate::error::Error::ConfigNotFound { .. }) => load_from_classpath(path, parse_opts.into())?,
+        Err(crate::error::Error::ConfigNotFound { .. }) => {
+            load_from_classpath(path, parse_opts.into())?
+        }
         error => {
             return error;
         }

@@ -1,6 +1,8 @@
-use crate::parser::R;
+use crate::parser::{horizontal_ending, R};
 use nom::bytes::complete::tag;
+use nom::combinator::value;
 use nom::error::context;
+use nom::sequence::terminated;
 use nom::Parser;
 
 /// Parses the literal `null` keyword in a HOCON configuration.
@@ -33,8 +35,14 @@ use nom::Parser;
 /// [`IResult`]: nom::IResult
 #[inline]
 pub(crate) fn parse_null(input: &str) -> R<'_, ()> {
-    let (input, _) = context("null", tag("null")).parse(input)?;
-    Ok((input, ()))
+    context(
+        "boolean literal (expected 'null')",
+        terminated(
+            value((), tag("null")),
+            horizontal_ending,
+        ),
+    )
+        .parse_complete(input)
 }
 
 #[cfg(test)]
@@ -55,6 +63,7 @@ mod tests {
     #[case("invalid")]
     #[case("nul")]
     #[case("")]
+    #[case("null a")]
     fn test_invalid_null(#[case] input: &str) {
         let result = parse_null(input);
         assert!(result.is_err());

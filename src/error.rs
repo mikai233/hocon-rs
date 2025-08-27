@@ -13,8 +13,6 @@ pub enum Error {
     InvalidPathExpression(&'static str),
     #[error("Parse error: {0}")]
     ParseError(String),
-    // #[error("{0}")]
-    // IoError(#[from] std::io::Error),
     #[error("{0}")]
     SerdeJsonError(#[from] serde_json::Error),
     #[error("Cannot concatenation different type: {ty1} {ty2}")]
@@ -34,6 +32,8 @@ pub enum Error {
         "Maximum inclusion depth reached for {0}. An inclusion cycle might have occurred. If not, try increasing `max_include_depth` in `ConfigOptions`."
     )]
     InclusionCycle(String),
+    #[error("Object nesting depth exceeded the limit of {max_depth} levels")]
+    RecursionDepthExceeded { max_depth: u32 },
     #[error("Inclusion: {inclusion} error: {error}")]
     InclusionError {
         inclusion: Inclusion,

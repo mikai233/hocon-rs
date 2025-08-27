@@ -1,34 +1,59 @@
-// use serde::{
-//     Serialize, Serializer,
-//     ser::{SerializeMap, SerializeSeq},
-// };
+use crate::Result;
+use serde::ser::Serialize;
+use std::io;
 
-// use crate::value::Value;
+#[inline]
+pub fn to_writer<W, T>(writer: W, value: &T) -> Result<()>
+where
+    W: io::Write,
+    T: ?Sized + Serialize,
+{
+    serde_json::to_writer(writer, value)?;
+    Ok(())
+}
 
-// impl Serialize for Value {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: Serializer,
-//     {
-//         match self {
-//             Value::Null => serializer.serialize_unit(),
-//             Value::Boolean(b) => serializer.serialize_bool(*b),
-//             Value::String(s) => serializer.serialize_str(s),
-//             Value::Number(n) => n.serialize(serializer),
-//             Value::Array(vec) => {
-//                 let mut seq = serializer.serialize_seq(Some(vec.len()))?;
-//                 for v in vec {
-//                     seq.serialize_element(v)?;
-//                 }
-//                 seq.end()
-//             }
-//             Value::Object(map) => {
-//                 let mut m = serializer.serialize_map(Some(map.len()))?;
-//                 for (k, v) in map {
-//                     m.serialize_entry(k, v)?;
-//                 }
-//                 m.end()
-//             }
-//         }
-//     }
-// }
+#[inline]
+pub fn to_writer_pretty<W, T>(writer: W, value: &T) -> Result<()>
+where
+    W: io::Write,
+    T: ?Sized + Serialize,
+{
+    serde_json::to_writer_pretty(writer, value)?;
+    Ok(())
+}
+
+#[inline]
+pub fn to_vec<T>(value: &T) -> Result<Vec<u8>>
+where
+    T: ?Sized + Serialize,
+{
+    let data = serde_json::to_vec(value)?;
+    Ok(data)
+}
+
+#[inline]
+pub fn to_vec_pretty<T>(value: &T) -> Result<Vec<u8>>
+where
+    T: ?Sized + Serialize,
+{
+    let data = serde_json::to_vec_pretty(value)?;
+    Ok(data)
+}
+
+#[inline]
+pub fn to_string<T>(value: &T) -> Result<String>
+where
+    T: ?Sized + Serialize,
+{
+    let string = serde_json::to_string(value)?;
+    Ok(string)
+}
+
+#[inline]
+pub fn to_string_pretty<T>(value: &T) -> Result<String>
+where
+    T: ?Sized + Serialize,
+{
+    let string = serde_json::to_string_pretty(value)?;
+    Ok(string)
+}
