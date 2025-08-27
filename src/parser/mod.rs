@@ -33,8 +33,6 @@ use nom::sequence::preceded;
 use nom::{IResult, Parser};
 use std::cell::RefCell;
 
-pub(crate) mod re;
-
 type R<'a, T> = IResult<&'a str, T, HoconParseError<'a>>;
 
 thread_local! {
