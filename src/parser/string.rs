@@ -19,7 +19,8 @@
 //! allowing precise error handling and composition with other parsers in the HOCON parser crate.
 
 use crate::parser::{
-    R, hocon_horizontal_space0, is_hocon_horizontal_whitespace, is_hocon_whitespace,
+    R, hocon_horizontal_space0, horizontal_ending, is_hocon_horizontal_whitespace,
+    is_hocon_whitespace,
 };
 use crate::raw::raw_string::{ConcatString, RawString};
 use nom::Parser;
@@ -413,7 +414,7 @@ pub(crate) fn parse_path_expression(input: &str) -> R<'_, RawString> {
 /// An `R<RawString>` containing the remaining input and the parsed string on success,
 /// or an error on failure.
 pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
-    many1((
+    let (remainder, mut values) = many1((
         alt((
             parse_multiline_string.map(RawString::MultilineString),
             parse_quoted_string.map(RawString::QuotedString),
@@ -421,8 +422,11 @@ pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
         )),
         opt(hocon_horizontal_space0).map(|v| v.map(|v| v.to_string())),
     ))
-    .map(maybe_concat)
-    .parse_complete(input)
+    .parse_complete(input)?;
+    if peek(horizontal_ending).parse_complete(remainder).is_ok() {
+        values.last_mut().unwrap().1 = None;
+    };
+    Ok((remainder, maybe_concat(values)))
 }
 
 /// Helper function: concatenates multiple parsed string fragments into a single [`RawString`].
@@ -435,7 +439,7 @@ pub(crate) fn parse_string(input: &str) -> R<'_, RawString> {
 /// A concatenated `RawString`. If only one fragment is present, it is returned directly.
 fn maybe_concat(mut values: Vec<(RawString, Option<String>)>) -> RawString {
     assert!(!values.is_empty());
-    if values.len() == 1 {
+    if values.len() == 1 && values[0].1.is_none() {
         values.remove(0).0
     } else {
         RawString::ConcatString(ConcatString::new(values))

@@ -1,11 +1,13 @@
 use tracing::{Level, enabled, instrument, span, trace};
 
+use crate::merge::concat::Concat;
 use crate::merge::substitution::Substitution;
 use crate::{
     merge::{add_assign::AddAssign, path::RefPath, value::Value},
     path::Path,
     raw::{field::ObjectField, raw_object::RawObject, raw_string::RawString, raw_value::RawValue},
 };
+use std::collections::VecDeque;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -385,7 +387,12 @@ impl Object {
                         };
                     }
                     self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
-                    let target_clone = target.borrow().clone();
+                    let mut target_clone = target.borrow().clone();
+                    if let Value::String(string) = &mut target_clone
+                        && let Some(space) = &substitution.space
+                    {
+                        string.push_str(space);
+                    }
                     if enabled!(Level::TRACE) {
                         trace!("set {} to {}", value.borrow(), target_clone);
                     }

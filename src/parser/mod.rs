@@ -8,6 +8,7 @@ pub(crate) mod loader;
 mod null;
 mod number;
 mod object;
+mod pure;
 mod string;
 mod substitution;
 

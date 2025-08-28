@@ -2,20 +2,20 @@ use crate::parser::comment::parse_comment;
 use crate::parser::config_parse_options::MAX_DEPTH;
 use crate::parser::include::parse_include;
 use crate::parser::string::parse_key;
-use crate::parser::{CONFIG, R, hocon_horizontal_space0, hocon_multi_space0, parse_value};
+use crate::parser::{hocon_horizontal_space0, hocon_multi_space0, parse_value, CONFIG, R};
 use crate::raw::comment::Comment;
 use crate::raw::field::ObjectField;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
-use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::{map, opt, peek, value};
 use nom::error::context;
-use nom::multi::{many_m_n, many0};
+use nom::multi::{many0, many_m_n};
 use nom::sequence::delimited;
+use nom::Parser;
 
 pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
     let current_depth = CONFIG.with_borrow_mut(|c| {
@@ -37,6 +37,9 @@ pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
         (hocon_multi_space0, char('}')),
     )
     .parse_complete(input)?;
+    CONFIG.with_borrow_mut(|c| {
+        c.current_depth -= 1;
+    });
     Ok((remainder, object))
 }
 

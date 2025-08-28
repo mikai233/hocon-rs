@@ -31,7 +31,8 @@ impl Config {
         path: impl AsRef<std::path::Path>,
         opts: Option<ConfigOptions>,
     ) -> crate::Result<Value> {
-        let raw = loader::load(path, opts.unwrap_or_default().into())?;
+        let raw = loader::load(&path, opts.unwrap_or_default().into())?;
+        tracing::debug!("path: {} raw obj: {}", path.as_ref().display(), raw);
         let value = Self::resolve_object(raw)?;
         Ok(value)
     }

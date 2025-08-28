@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 pub struct Substitution {
     pub path: RawString,
     pub optional: bool,
+    pub space: Option<String>, // Space after substitution expression is necessary when the substitute result is string
 }
 
 impl Display for Substitution {

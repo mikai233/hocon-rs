@@ -44,9 +44,7 @@ impl ConcatString {
     /// if they exist.
     pub fn synthetic(&self) -> String {
         let mut result = String::new();
-        let iter = self.iter();
-        let last_index = iter.len().saturating_sub(1);
-        for (index, (string, space)) in iter.enumerate() {
+        for (string, space) in self.iter() {
             match string {
                 RawString::ConcatString(s) => {
                     result.push_str(s.synthetic().as_str());
@@ -55,9 +53,7 @@ impl ConcatString {
                     result.push_str(other.synthetic().as_str());
                 }
             }
-            if index != last_index
-                && let Some(space) = space
-            {
+            if let Some(space) = space {
                 result.push_str(space);
             }
         }
@@ -75,13 +71,10 @@ impl ConcatString {
 
 impl Display for ConcatString {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let last_index = self.len().saturating_sub(1);
-        for (index, (string, space)) in self.iter().enumerate() {
+        for (string, space) in self.iter() {
             write!(f, "{}", string)?;
-            if index != last_index
-                && let Some(space) = space
-            {
-                write!(f, " {}", space)?;
+            if let Some(space) = space {
+                write!(f, "{}", space)?;
             }
         }
         Ok(())

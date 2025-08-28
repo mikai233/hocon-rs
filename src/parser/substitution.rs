@@ -8,20 +8,25 @@ use nom::combinator::{map, opt};
 use nom::sequence::delimited;
 
 pub(crate) fn parse_substitution(input: &str) -> R<'_, Substitution> {
-    delimited(
-        tag("${"),
-        map(
-            (
-                opt(char('?')),
-                hocon_horizontal_space0,
-                parse_path_expression,
-                hocon_horizontal_space0,
+    let (remainder, (mut substition, space)) = (
+        delimited(
+            tag("${"),
+            map(
+                (
+                    opt(char('?')),
+                    hocon_horizontal_space0,
+                    parse_path_expression,
+                    hocon_horizontal_space0,
+                ),
+                |(optional, _, path, _)| Substitution::new(path, optional.is_some(), None),
             ),
-            |(optional, _, path, _)| Substitution::new(path, optional.is_some()),
+            tag("}"),
         ),
-        tag("}"),
+        opt(hocon_horizontal_space0),
     )
-    .parse_complete(input)
+        .parse_complete(input)?;
+    substition.space = space.map(|s| s.to_string());
+    Ok((remainder, substition))
 }
 
 #[cfg(test)]
@@ -37,6 +42,8 @@ mod tests {
     #[case("${foo}", "${foo}", "")]
     #[case("${\"\".foo}abc", "${\"\".foo}", "abc")]
     #[case("${\"\"\"a\"\"\".\" b.\". c }", "${\"\"\"a\"\"\".\" b.\". c}", "")]
+    #[case("${foo.bar} hello", "${foo.bar}", "hello")]
+    #[case("${foo }  ", "${foo}", "")]
     fn test_valide_substitution(
         #[case] input: &str,
         #[case] expected_result: &str,
