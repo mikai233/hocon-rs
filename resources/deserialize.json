@@ -1,0 +1,45 @@
+{
+  "app": {
+    "database": {
+      "host": "localhost",
+      "options": {
+        "ssl": true,
+        "timeout": 30
+      },
+      "password": "secret",
+      "port": 5432,
+      "user": "admin"
+    },
+    "features": {
+      "experimental": true,
+      "max_connections": 100,
+      "tags": [
+        "alpha",
+        "beta",
+        "release-candidate"
+      ]
+    },
+    "log_dir": "/var/log MyApp",
+    "name": "MyApp",
+    "servers": [
+      {
+        "host": "192.168.0.1",
+        "roles": [
+          "api",
+          "worker"
+        ]
+      },
+      {
+        "host": "192.168.0.2",
+        "roles": [
+          "db"
+        ]
+      }
+    ],
+    "version": "1.2.3"
+  },
+  "deployment": {
+    "image": "MyApp : 1.2.3",
+    "replicas": 3
+  }
+}

@@ -15,10 +15,13 @@ pub enum Error {
     ParseError(String),
     #[error("{0}")]
     SerdeJsonError(#[from] serde_json::Error),
-    #[error("Cannot concatenation different type: {ty1} {ty2}")]
+    #[error("Cannot concatenation different type {left_ty}:{left} and {right_ty}:{right} at {path}")]
     ConcatenationDifferentType {
-        ty1: &'static str,
-        ty2: &'static str,
+        path: String,
+        left: String,
+        left_ty: &'static str,
+        right: String,
+        right_ty: &'static str,
     },
     #[error("{val} is not allowed in {ty}")]
     InvalidValue { val: &'static str, ty: &'static str },

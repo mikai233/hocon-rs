@@ -44,7 +44,7 @@ mod tests {
     #[case("${\"\"\"a\"\"\".\" b.\". c }", "${\"\"\"a\"\"\".\" b.\". c}", "")]
     #[case("${foo.bar} hello", "${foo.bar}", "hello")]
     #[case("${foo }  ", "${foo}", "")]
-    fn test_valide_substitution(
+    fn test_valid_substitution(
         #[case] input: &str,
         #[case] expected_result: &str,
         #[case] expected_rest: &str,

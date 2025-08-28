@@ -49,11 +49,11 @@ mod test {
 
     #[ctor::ctor]
     fn init_tracing() {
-        tracing_subscriber::fmt()
-            .with_test_writer()
-            .pretty()
-            .with_max_level(LevelFilter::TRACE)
-            .with_timer(LocalTime::rfc_3339())
-            .try_init();
+        // tracing_subscriber::fmt()
+        //     .with_test_writer()
+        //     .pretty()
+        //     .with_max_level(LevelFilter::TRACE)
+        //     .with_timer(LocalTime::rfc_3339())
+        //     .try_init();
     }
 }

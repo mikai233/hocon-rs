@@ -22,16 +22,6 @@ use nom::Parser;
 ///   `remaining` is the part of the input left after consuming `"null"`.
 /// - `Err(HoconParseError)` if the input does not start with `"null"`.
 ///
-/// # Examples
-///
-/// ```rust
-/// use your_crate::parse_null; // adjust the path to your module
-///
-/// assert_eq!(parse_null("null"), Ok(("", ())));
-/// assert_eq!(parse_null("null rest"), Ok((" rest", ())));
-/// assert!(parse_null("none").is_err());
-/// ```
-///
 /// [`IResult`]: nom::IResult
 #[inline]
 pub(crate) fn parse_null(input: &str) -> R<'_, ()> {

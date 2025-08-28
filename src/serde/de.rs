@@ -1,8 +1,8 @@
 use crate::value::Value;
 use serde::{
-    Deserializer,
     de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor},
     forward_to_deserialize_any,
+    Deserializer,
 };
 
 impl<'de> Deserializer<'de> for Value {
@@ -81,5 +81,68 @@ impl<'de> Deserializer<'de> for Value {
         bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 char str string
         bytes byte_buf option unit unit_struct newtype_struct seq tuple
         tuple_struct map struct enum identifier ignored_any
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct Config {
+        app: App,
+        deployment: Deployment,
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct App {
+        name: String,
+        version: String,
+        database: Database,
+        servers: Vec<Server>,
+        log_dir: String,
+        features: Features,
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct Database {
+        host: String,
+        port: u16,
+        user: String,
+        password: String,
+        options: DatabaseOptions,
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct DatabaseOptions {
+        ssl: bool,
+        timeout: u32,
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct Server {
+        host: String,
+        roles: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct Features {
+        experimental: bool,
+        max_connections: u32,
+        tags: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize, Eq, PartialEq)]
+    struct Deployment {
+        replicas: u32,
+        image: String,
+    }
+    #[test]
+    fn test_de() -> crate::Result<()> {
+        let config_hocon: Config = crate::config::Config::load("resources/deserialize.conf", None)?;
+        let file = std::fs::File::open("resources/deserialize.json").unwrap();
+        let config_json: Config = serde_json::from_reader(file)?;
+        assert_eq!(config_hocon, config_json);
+        Ok(())
     }
 }

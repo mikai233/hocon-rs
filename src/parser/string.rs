@@ -19,11 +19,10 @@
 //! allowing precise error handling and composition with other parsers in the HOCON parser crate.
 
 use crate::parser::{
-    R, hocon_horizontal_space0, horizontal_ending, is_hocon_horizontal_whitespace,
-    is_hocon_whitespace,
+    hocon_horizontal_space0, horizontal_ending, is_hocon_horizontal_whitespace, is_hocon_whitespace,
+    R,
 };
 use crate::raw::raw_string::{ConcatString, RawString};
-use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::char;
@@ -31,6 +30,7 @@ use nom::character::complete::anychar;
 use nom::combinator::{map, map_opt, not, opt, peek, value, verify};
 use nom::multi::{fold, many1, separated_list1};
 use nom::sequence::{delimited, preceded};
+use nom::Parser;
 use std::ops::{Deref, DerefMut};
 
 /// Characters that are forbidden in unquoted strings and keys in HOCON.
@@ -264,7 +264,7 @@ fn parse_unquoted_char(input: &str) -> R<'_, char> {
 fn parse_unquoted_path_char(input: &str) -> R<'_, char> {
     alt((
         verify(anychar, |c| {
-            !FORBIDDEN_CHARACTERS.contains(&c) && *c != '/' && *c != '.' && *c != '\n' && *c != '\n'
+            !FORBIDDEN_CHARACTERS.contains(&c) && *c != '/' && *c != '.' && *c != '\r' && *c != '\n'
         }),
         (char('/'), peek(not(char('/')))).map(|_| '/'),
     ))
@@ -376,11 +376,15 @@ pub(crate) fn parse_key(input: &str) -> R<'_, RawString> {
                 path_to_raw(paths.remove(0))
             } else {
                 let mut keys = Vec::with_capacity(paths.len());
-                for path in paths {
+                let last_index = paths.len().saturating_sub(1);
+                for (index, path) in paths.iter().enumerate() {
+                    let dot = if index != last_index {
+                        Some(".")
+                    } else { None };
                     let key = match path {
-                        Path::Quoted(s) => (RawString::quoted(s), Some(".")),
-                        Path::Unquoted(s) => (RawString::unquoted(s), Some(".")),
-                        Path::Multiline(s) => (RawString::multiline(s), Some(".")),
+                        Path::Quoted(s) => (RawString::quoted(s), dot),
+                        Path::Unquoted(s) => (RawString::unquoted(s), dot),
+                        Path::Multiline(s) => (RawString::multiline(s), dot),
                     };
                     keys.push(key);
                 }
@@ -451,8 +455,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::parser::string::{
-        FORBIDDEN_CHARACTERS, parse_multiline_string, parse_quoted_string, parse_string,
-        parse_unquoted_string,
+        parse_multiline_string, parse_quoted_string, parse_string, parse_unquoted_string,
+        FORBIDDEN_CHARACTERS,
     };
     #[rstest]
     #[case("abc", "abc", "")]

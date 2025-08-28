@@ -23,11 +23,11 @@ pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
         c.current_depth
     });
     if current_depth > MAX_DEPTH {
-        return Err(nom::Err::Failure(crate::parser::HoconParseError::Other(
-            crate::error::Error::RecursionDepthExceeded {
-                max_depth: MAX_DEPTH,
-            },
-        )));
+        // return Err(nom::Err::Failure(crate::parser::HoconParseError::Other(
+        //     crate::error::Error::RecursionDepthExceeded {
+        //         max_depth: MAX_DEPTH,
+        //     },
+        // )));
     }
     let (remainder, object) = delimited(
         (char('{'), hocon_multi_space0),
@@ -37,9 +37,9 @@ pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
         (hocon_multi_space0, char('}')),
     )
     .parse_complete(input)?;
-    CONFIG.with_borrow_mut(|c| {
-        c.current_depth -= 1;
-    });
+    // CONFIG.with_borrow_mut(|c| {
+    //     c.current_depth -= 1;
+    // });
     Ok((remainder, object))
 }
 

@@ -11,8 +11,9 @@ pub(crate) enum Value {
     Object(Object),
     Array(Array),
     Boolean(bool),
-    #[default]
     Null,
+    #[default]
+    None,
     String(String),
     Number(serde_json::Number),
     Substitution(Substitution),
@@ -64,6 +65,7 @@ impl Value {
             Value::Array(_) => "array",
             Value::Boolean(_) => "boolean",
             Value::Null => "null",
+            Value::None => "none",
             Value::String(_) => "string",
             Value::Number(_) => "number",
             Value::Substitution(_) => "substitution",
@@ -109,7 +111,7 @@ impl Value {
         match self {
             Value::Object(object) => object.try_become_merged(),
             Value::Array(array) => array.iter_mut().all(|v| v.get_mut().try_become_merged()),
-            Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => true,
+            Value::Boolean(_) | Value::Null | Value::None | Value::String(_) | Value::Number(_) => true,
             Value::Substitution(_)
             | Value::Concat(_)
             | Value::AddAssign(_)
@@ -131,6 +133,7 @@ impl Value {
                 Value::Array(_)
                 | Value::Boolean(_)
                 | Value::Null
+                | Value::None
                 | Value::String(_)
                 | Value::Number(_) => right,
                 Value::Substitution(_) => {
@@ -154,9 +157,13 @@ impl Value {
                     // if there is any bug here, for safety's side, jsut push the left value into the front
                 }
                 Value::AddAssign(_) => {
+                    // TODO another error?
                     return Err(crate::error::Error::ConcatenationDifferentType {
-                        ty1: "object",
-                        ty2: "array",
+                        path: path.to_string(),
+                        left: obj_left.to_string(),
+                        left_ty: "object",
+                        right: right.to_string(),
+                        right_ty: right.ty(),
                     });
                 }
                 Value::DelayReplacement(mut delay_merge) => {
@@ -184,7 +191,7 @@ impl Value {
                 //     right
                 // }
             }
-            Value::Null => {
+            Value::Null | Value::None => {
                 match right {
                     Value::AddAssign(add_assign) => {
                         let array = Array::new(vec![RefCell::new(*add_assign.0)]);
@@ -220,15 +227,18 @@ impl Value {
         trace!("concatenate: `{}`: `{}` <- `{}`", path, left, right);
         let val = match left {
             Value::Object(mut left_obj) => match right {
-                Value::Null => Value::object(left_obj),
+                Value::Null | Value::None => Value::object(left_obj),
                 Value::Object(right_obj) => {
                     left_obj.merge(right_obj, Some(path))?;
                     Value::object(left_obj)
                 }
-                Value::Array(_) | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
+                Value::Array(_) | Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::AddAssign(_) => {
                     return Err(crate::error::Error::ConcatenationDifferentType {
-                        ty1: "object",
-                        ty2: right.ty(),
+                        path: path.to_string(),
+                        left: left_obj.to_string(),
+                        left_ty: "object",
+                        right: right.to_string(),
+                        right_ty: right.ty(),
                     });
                 }
                 Value::Substitution(_) => {
@@ -240,12 +250,6 @@ impl Value {
                     let left = Value::object(left_obj);
                     concat.push_front(RefCell::new(left));
                     Value::concat(concat)
-                }
-                Value::AddAssign(_) => {
-                    return Err(crate::error::Error::ConcatenationDifferentType {
-                        ty1: "object",
-                        ty2: right.ty(),
-                    });
                 }
                 Value::DelayReplacement(_) => {
                     let left = Value::object(left_obj);
@@ -259,22 +263,30 @@ impl Value {
                     Value::array(left_array)
                 } else {
                     return Err(crate::error::Error::ConcatenationDifferentType {
-                        ty1: "array",
-                        ty2: right.ty(),
+                        path: path.to_string(),
+                        left: left_array.to_string(),
+                        left_ty: "array",
+                        right: right.to_string(),
+                        right_ty: right.ty(),
                     });
                 }
             }
-            Value::Null => right,
-            Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
+            Value::None => right,
+            Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
                 if matches!(
                     right,
-                    Value::Boolean(_) | Value::String(_) | Value::Number(_)
+                    Value::Boolean(_) | Value::String(_) | Value::Number(_) |Value::Null
                 ) {
                     Value::string(format!("{left}{right}"))
+                } else if matches!(right,Value::None) {
+                    Value::string(left.to_string())
                 } else {
                     return Err(crate::error::Error::ConcatenationDifferentType {
-                        ty1: left.ty(),
-                        ty2: right.ty(),
+                        path: path.to_string(),
+                        left: left.to_string(),
+                        left_ty: left.ty(),
+                        right: right.to_string(),
+                        right_ty: right.ty(),
                     });
                 }
             }
@@ -295,8 +307,11 @@ impl Value {
             }
             Value::AddAssign(_) => {
                 return Err(crate::error::Error::ConcatenationDifferentType {
-                    ty1: left.ty(),
-                    ty2: right.ty(),
+                    path: path.to_string(),
+                    left: left.to_string(),
+                    left_ty: left.ty(),
+                    right: right.to_string(),
+                    right_ty: right.ty(),
                 });
             }
             Value::DelayReplacement(_) => {
@@ -312,7 +327,7 @@ impl Value {
         match self {
             Value::Object(object) => object.is_merged(),
             Value::Array(array) => array.is_merged(),
-            Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => true,
+            Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::Null | Value::None => true,
             Value::Substitution(_)
             | Value::Concat(_)
             | Value::AddAssign(_)
@@ -384,6 +399,7 @@ impl Display for Value {
             Value::Object(object) => write!(f, "{object}"),
             Value::Array(array) => write!(f, "{array}"),
             Value::Boolean(boolean) => write!(f, "{boolean}"),
+            Value::None => write!(f, "none"),
             Value::Null => write!(f, "null"),
             Value::String(string) => write!(f, "{string}"),
             Value::Number(number) => write!(f, "{number}"),

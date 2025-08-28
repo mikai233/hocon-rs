@@ -301,8 +301,10 @@ impl TryFrom<crate::merge::value::Value> for Value {
             let mut object = HashMap::with_capacity(inner.len());
             for (k, v) in inner.into_iter() {
                 let v = v.into_inner();
-                let v: Value = v.try_into()?;
-                object.insert(k, v);
+                if !matches!(v, crate::merge::value::Value::None) {
+                    let v: Value = v.try_into()?;
+                    object.insert(k, v);
+                }
             }
             Ok(Value::Object(object))
         }
@@ -325,7 +327,7 @@ impl TryFrom<crate::merge::value::Value> for Value {
             }
             crate::merge::value::Value::Array(array) => from_array(array)?,
             crate::merge::value::Value::Boolean(boolean) => Value::Boolean(boolean),
-            crate::merge::value::Value::Null => Value::Null,
+            crate::merge::value::Value::Null | crate::merge::value::Value::None => Value::Null,
             crate::merge::value::Value::String(string) => Value::String(string),
             crate::merge::value::Value::Number(number) => Value::Number(number),
             crate::merge::value::Value::Substitution(_)

@@ -1,13 +1,11 @@
-use tracing::{Level, enabled, instrument, span, trace};
+use tracing::{enabled, instrument, span, trace, Level};
 
-use crate::merge::concat::Concat;
 use crate::merge::substitution::Substitution;
 use crate::{
     merge::{add_assign::AddAssign, path::RefPath, value::Value},
     path::Path,
     raw::{field::ObjectField, raw_object::RawObject, raw_string::RawString, raw_value::RawValue},
 };
-use std::collections::VecDeque;
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -105,7 +103,7 @@ impl Object {
                 },
                 None => {
                     let mut v_right =
-                        Value::replacement(&sub_path, Value::Null, v_right.into_inner())?;
+                        Value::replacement(&sub_path, Value::None, v_right.into_inner())?;
                     if let Value::Object(obj) = &mut v_right {
                         obj.resolve_add_assign();
                     }
@@ -202,6 +200,7 @@ impl Object {
         }
     }
 
+    // TODO This implementation has problems
     fn fixup_substitution(&mut self, parent: Option<&RefPath>) -> crate::Result<()> {
         if let Some(parent) = parent {
             for (_, val) in self.iter_mut() {
@@ -216,7 +215,11 @@ impl Object {
                             }
                         }
                     }
-                    Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {}
+                    Value::Boolean(_)
+                    | Value::Null
+                    | Value::None
+                    | Value::String(_)
+                    | Value::Number(_) => {}
                     Value::Substitution(substitution) => {
                         let mut parent: Path = parent.clone().into();
                         let mut sub = Path::new("".to_string(), None);
@@ -352,7 +355,8 @@ impl Object {
                 }
                 drop(borrowed);
             }
-            Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {}
+            Value::Boolean(_) | Value::Null | Value::None | Value::String(_) | Value::Number(_) => {
+            }
             Value::Substitution(substitution) => {
                 let span = span!(Level::TRACE, "Substitution");
                 let _enter = span.enter();
@@ -378,7 +382,7 @@ impl Object {
                         && matches!(&*target.borrow(), Value::Substitution(_))
                     {
                         return if substitution.optional {
-                            *target.borrow_mut() = Value::Null;
+                            *target.borrow_mut() = Value::None;
                             Ok(())
                         } else {
                             Err(crate::error::Error::CycleSubstitution(
@@ -388,10 +392,17 @@ impl Object {
                     }
                     self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
                     let mut target_clone = target.borrow().clone();
-                    if let Value::String(string) = &mut target_clone
-                        && let Some(space) = &substitution.space
-                    {
-                        string.push_str(space);
+                    if let Some(space) = &substitution.space {
+                        match target_clone {
+                            Value::Boolean(_)
+                            | Value::Null
+                            | Value::String(_)
+                            | Value::Number(_) => {
+                                target_clone =
+                                    Value::String(format!("{}{}", target_clone.to_string(), space));
+                            }
+                            _ => {}
+                        }
                     }
                     if enabled!(Level::TRACE) {
                         trace!("set {} to {}", value.borrow(), target_clone);
@@ -417,7 +428,7 @@ impl Object {
                                     substitution.to_string(),
                                 ));
                             } else {
-                                *value.borrow_mut() = Value::Null;
+                                *value.borrow_mut() = Value::None;
                             }
                         }
                     }
@@ -450,12 +461,36 @@ impl Object {
                         if matches!(&*value.borrow(), Value::Concat(_)) {
                             match pop_value(value) {
                                 Some(second_last) => {
+                                    let substitution_space = match second_last.borrow().deref() {
+                                        Value::Substitution(s) => s.space.clone(),
+                                        _ => None,
+                                    };
                                     self.substitute_value(path, &second_last, tracker)?;
-                                    let new_val = Value::concatenate(
-                                        path,
-                                        second_last.into_inner(),
-                                        last.into_inner(),
-                                    )?;
+                                    let last = last.into_inner();
+                                    let new_val = match second_last.into_inner() {
+                                        Value::None => {
+                                            if let Some(space) = substitution_space
+                                                && matches!(
+                                                    last,
+                                                    Value::None
+                                                        | Value::Null
+                                                        | Value::Boolean(_)
+                                                        | Value::Number(_)
+                                                        | Value::String(_)
+                                                )
+                                            {
+                                                Value::concatenate(
+                                                    path,
+                                                    Value::String(space),
+                                                    last,
+                                                )?
+                                            } else {
+                                                Value::concatenate(path, Value::None, last)?
+                                            }
+                                        }
+                                        second_last => Value::concatenate(path, second_last, last)?,
+                                    };
+
                                     let mut new_val = RefCell::new(new_val);
                                     self.substitute_value(path, &new_val, tracker)?;
                                     new_val.get_mut().try_become_merged();
@@ -466,7 +501,15 @@ impl Object {
                                             value.borrow()
                                         );
                                     }
-                                    value.borrow_mut().as_concat_mut().push_back(new_val);
+                                    match value.borrow_mut().deref_mut() {
+                                        v @ Value::None => {
+                                            *v = new_val.into_inner();
+                                        }
+                                        Value::Concat(concat) => {
+                                            concat.push_back(new_val);
+                                        }
+                                        _ => unreachable!(),
+                                    }
                                     self.substitute_value(path, value, tracker)?;
                                 }
                                 None => {
@@ -492,9 +535,9 @@ impl Object {
                     }
                     None => {
                         if enabled!(Level::TRACE) {
-                            trace!("set null to {}", value.borrow());
+                            trace!("set none to {}", value.borrow());
                         }
-                        *value.borrow_mut() = Value::Null;
+                        *value.borrow_mut() = Value::None;
                     }
                 }
             }
@@ -552,10 +595,15 @@ impl Object {
                                             value.borrow(),
                                         );
                                     }
-                                    value
-                                        .borrow_mut()
-                                        .as_delay_replacement_mut()
-                                        .push_back(new_val);
+                                    match value.borrow_mut().deref_mut() {
+                                        v @ Value::None => {
+                                            *v = new_val.into_inner();
+                                        }
+                                        Value::DelayReplacement(re) => {
+                                            re.push_back(new_val);
+                                        }
+                                        _ => unreachable!(),
+                                    }
                                     self.substitute_value(path, value, tracker)?;
                                 }
                                 None => {
@@ -581,9 +629,9 @@ impl Object {
                     }
                     None => {
                         if enabled!(Level::TRACE) {
-                            trace!("set null to {}", value.borrow());
+                            trace!("set none to {}", value.borrow());
                         }
-                        *value.borrow_mut() = Value::Null;
+                        *value.borrow_mut() = Value::None;
                     }
                 }
             }
@@ -652,43 +700,10 @@ impl Display for Object {
 mod tests {
     use ahash::HashMap;
     use serde::{Deserialize, Serialize};
-    use tracing::info;
-
-    use crate::from_value;
-    use crate::merge::object::Object;
-    use crate::parser::{load_conf, parse};
 
     #[derive(Debug, Serialize, Deserialize)]
     struct Test {
         a: HashMap<String, String>,
         b: Vec<crate::value::Value>,
-    }
-
-    #[test]
-    fn test_sub() -> crate::Result<()> {
-        let conf = load_conf("object6")?;
-        let (_remainder, object) = parse(conf.as_str(), Default::default()).unwrap();
-        info!("raw:{object}");
-        let obj = Object::from_raw(None, object)?;
-        info!("before:{obj}");
-        obj.substitute()?;
-        info!("after:{obj}");
-        let v: crate::value::Value = crate::merge::value::Value::Object(obj).try_into()?;
-        let v: Test = from_value(v)?;
-        info!("done:{v:?}");
-        Ok(())
-    }
-
-    #[test]
-    fn test_object7() -> crate::Result<()> {
-        let conf = load_conf("object7")?;
-        let (_remainder, object) = parse(conf.as_str(), Default::default()).unwrap();
-        info!("raw:{object}");
-        let obj = Object::from_raw(None, object)?;
-        info!("before:{obj}");
-        obj.substitute()?;
-        info!("after:{obj}");
-        // let v: crate::value::Value = crate::merge::value::Value::Object(obj).try_into()?;
-        Ok(())
     }
 }

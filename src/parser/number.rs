@@ -30,17 +30,6 @@ use std::str::FromStr;
 ///   where `number_str` is the matched substring
 /// - `Err(HoconParseError)` if the input is not a valid number
 ///
-/// # Examples
-///
-/// ```rust
-/// use your_crate::number_str; // adjust path
-///
-/// assert_eq!(number_str("123"), Ok(("", "123")));
-/// assert_eq!(number_str("-45.67e+2"), Ok(("", "-45.67e+2")));
-/// assert_eq!(number_str(".5 rest"), Ok((" rest", ".5")));
-/// assert!(number_str("abc").is_err());
-/// ```
-///
 /// [`IResult`]: nom::IResult
 #[inline]
 fn number_str(input: &str) -> R<'_, &str> {
