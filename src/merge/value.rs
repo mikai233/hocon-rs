@@ -75,43 +75,13 @@ impl Value {
         }
     }
 
-    pub(crate) fn as_delay_replacement_mut(&mut self) -> &mut DelayReplacement {
-        if let Value::DelayReplacement(delay_replacement) = self {
-            return delay_replacement;
-        } else {
-            panic!("value should be DelayReplacement got {}", self.ty())
-        }
-    }
-
-    pub(crate) fn as_concat_mut(&mut self) -> &mut Concat {
-        if let Value::Concat(concat) = self {
-            concat
-        } else {
-            panic!("value should be Concat got {}", self.ty())
-        }
-    }
-
-    pub(crate) fn as_add_assign_mut(&mut self) -> &mut AddAssign {
-        if let Value::AddAssign(add_assign) = self {
-            return add_assign;
-        } else {
-            panic!("value should be AddAssign got {}", self.ty())
-        }
-    }
-
-    pub(crate) fn as_array_mut(&mut self) -> &mut Array {
-        if let Value::Array(array) = self {
-            return array;
-        } else {
-            panic!("value should be Array got {}", self.ty())
-        }
-    }
-
     pub(crate) fn try_become_merged(&mut self) -> bool {
         match self {
             Value::Object(object) => object.try_become_merged(),
-            Value::Array(array) => array.iter_mut().all(|v| v.get_mut().try_become_merged()),
-            Value::Boolean(_) | Value::Null | Value::None | Value::String(_) | Value::Number(_) => true,
+            Value::Array(array) => array.try_become_merged(),
+            Value::Boolean(_) | Value::Null | Value::None | Value::String(_) | Value::Number(_) => {
+                true
+            }
             Value::Substitution(_)
             | Value::Concat(_)
             | Value::AddAssign(_)
@@ -138,7 +108,7 @@ impl Value {
                 | Value::Number(_) => right,
                 Value::Substitution(_) => {
                     let left = Value::object(obj_left);
-                    Value::delay_replacement(vec![left, right])
+                    Value::delay_replacement([left, right])
                 }
                 Value::Concat(mut concat) => {
                     if concat
@@ -176,7 +146,7 @@ impl Value {
                 match right {
                     Value::Substitution(_) |
                     Value::DelayReplacement(_) => {
-                        Value::delay_replacement(vec![Value::array(array), right])
+                        Value::delay_replacement([Value::array(array), right])
                     }
                     Value::AddAssign(add_assign) => {
                         array.push(RefCell::new(add_assign.into()));
@@ -205,7 +175,7 @@ impl Value {
             | Value::Number(_) => match right {
                 // the substitution expression might refer to the previous value
                 Value::Substitution(_) => {
-                    Value::delay_replacement(vec![left, right])
+                    Value::delay_replacement([left, right])
                 }
                 other => other,
             },
@@ -216,7 +186,7 @@ impl Value {
             // FIXME Is there could be another DelayReplacement here?
             Value::Concat(_) |
             Value::DelayReplacement(_) => {
-                Value::delay_replacement(vec![left, right])
+                Value::delay_replacement([left, right])
             }
         };
         trace!("replacement result: `{path}`=`{new_val}`");
@@ -232,7 +202,11 @@ impl Value {
                     left_obj.merge(right_obj, Some(path))?;
                     Value::object(left_obj)
                 }
-                Value::Array(_) | Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::AddAssign(_) => {
+                Value::Array(_)
+                | Value::Boolean(_)
+                | Value::String(_)
+                | Value::Number(_)
+                | Value::AddAssign(_) => {
                     return Err(crate::error::Error::ConcatenationDifferentType {
                         path: path.to_string(),
                         left: left_obj.to_string(),
@@ -243,8 +217,7 @@ impl Value {
                 }
                 Value::Substitution(_) => {
                     let left = Value::object(left_obj);
-                    // Value::delay_merge(vec![left, right])
-                    Value::concat(Concat::from_iter(vec![left, right]))
+                    Value::concat(Concat::from_iter([left, right]))
                 }
                 Value::Concat(mut concat) => {
                     let left = Value::object(left_obj);
@@ -253,13 +226,12 @@ impl Value {
                 }
                 Value::DelayReplacement(_) => {
                     let left = Value::object(left_obj);
-                    // Value::delay_merge(vec![left, right])
-                    Value::concat(Concat::from_iter(vec![left, right]))
+                    Value::concat(Concat::from_iter([left, right]))
                 }
             },
             Value::Array(mut left_array) => {
                 if let Value::Array(right_array) = right {
-                    left_array.extend(right_array.0);
+                    left_array.extend(right_array.into_inner());
                     Value::array(left_array)
                 } else {
                     return Err(crate::error::Error::ConcatenationDifferentType {
@@ -275,10 +247,10 @@ impl Value {
             Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
                 if matches!(
                     right,
-                    Value::Boolean(_) | Value::String(_) | Value::Number(_) |Value::Null
+                    Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::Null
                 ) {
                     Value::string(format!("{left}{right}"))
-                } else if matches!(right,Value::None) {
+                } else if matches!(right, Value::None) {
                     Value::string(left.to_string())
                 } else {
                     return Err(crate::error::Error::ConcatenationDifferentType {
@@ -290,19 +262,9 @@ impl Value {
                     });
                 }
             }
-            Value::Substitution(_) => {
-                // Value::delay_merge(vec![left, right]),
-                Value::concat(Concat::from_iter(vec![left, right]))
-            }
+            Value::Substitution(_) => Value::concat(Concat::from_iter([left, right])),
             Value::Concat(mut concat) => {
-                // let left = concat.reslove()?;
-                // Self::concatenate(left, right)?
                 concat.push_back(RefCell::new(right));
-                // println!("left:{left} right:{right}");
-                // return Err(crate::error::Error::ConcatenationDifferentType {
-                //     ty1: left.ty(),
-                //     ty2: right.ty(),
-                // });
                 Value::concat(concat)
             }
             Value::AddAssign(_) => {
@@ -314,10 +276,7 @@ impl Value {
                     right_ty: right.ty(),
                 });
             }
-            Value::DelayReplacement(_) => {
-                // Value::delay_merge(vec![left, right]),
-                Value::concat(Concat::from_iter(vec![left, right]))
-            }
+            Value::DelayReplacement(_) => Value::concat(Concat::from_iter([left, right])),
         };
         trace!("concatenate result: `{path}`=`{val}`");
         Ok(val)
@@ -327,7 +286,9 @@ impl Value {
         match self {
             Value::Object(object) => object.is_merged(),
             Value::Array(array) => array.is_merged(),
-            Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::Null | Value::None => true,
+            Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::Null | Value::None => {
+                true
+            }
             Value::Substitution(_)
             | Value::Concat(_)
             | Value::AddAssign(_)
@@ -362,7 +323,7 @@ impl Value {
         parent: Option<&RefPath>,
         raw: crate::raw::raw_value::RawValue,
     ) -> crate::Result<Self> {
-        let value = match raw {
+        let mut value = match raw {
             crate::raw::raw_value::RawValue::Object(raw_object) => {
                 let object = Object::from_raw(parent, raw_object)?;
                 Value::object(object)
@@ -389,6 +350,7 @@ impl Value {
                 Value::add_assign(add_assign)
             }
         };
+        value.try_become_merged();
         Ok(value)
     }
 }

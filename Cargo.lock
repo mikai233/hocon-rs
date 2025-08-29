@@ -408,6 +408,7 @@ dependencies = [
  "ahash",
  "ctor",
  "derive_more",
+ "encoding_rs",
  "itertools",
  "java-properties",
  "nom",

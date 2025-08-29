@@ -124,25 +124,12 @@ fn next_element_whitespace(input: &str) -> R<'_, ()> {
     value((), (hocon_multi_space0, many_m_n(0, 1, char(',')))).parse_complete(input)
 }
 
-pub(crate) fn load_conf(name: impl AsRef<str>) -> crate::Result<String> {
-    let conf =
-        std::fs::read_to_string(format!("resources/{}.conf", name.as_ref())).map_err(|e| {
-            let error = Box::new(e);
-            crate::error::Error::ConfigNotFound {
-                message: format!("resources/{}.conf", name.as_ref()),
-                error: Some(error),
-            }
-        })?;
-    Ok(conf)
-}
-
 #[cfg(test)]
 mod tests {
     use crate::parser::string::parse_key;
     use crate::parser::{next_element_whitespace, parse_value};
     use crate::raw::raw_string::RawString;
     use crate::raw::raw_value::RawValue;
-    use nom::Err;
 
     #[test]
     fn test_next_element_whitespace() {
@@ -150,29 +137,6 @@ mod tests {
         assert_eq!(r, " hello = world");
         let (r, _) = next_element_whitespace("  ,, hello = world").unwrap();
         assert_eq!(r, ", hello = world");
-    }
-
-    #[test]
-    fn test1() -> crate::Result<()> {
-        match parse_value("").err() {
-            None => {}
-            Some(e) => match e {
-                Err::Incomplete(_) => {}
-                Err::Error(e) => {
-                    // println!("e:{}", convert_error("world", e));
-                }
-                Err::Failure(_) => {}
-            },
-        }
-        // let demo = std::fs::read_to_string("resources/demo.conf")?;
-        // match parse_object(&demo) {
-        //     Ok(_) => {}
-        //     Err(e) => {
-        //         println!("{e}");
-        //     }
-        // }
-        // let obj = parse_object(&demo)?;
-        Ok(())
     }
 
     #[test]

@@ -25,7 +25,7 @@ impl DelayReplacement {
         Self::new(value.into_iter().map(|v| RefCell::new(v)).collect())
     }
 
-    pub(crate) fn into_values(self) -> VecDeque<RefCell<Value>> {
+    pub(crate) fn into_inner(self) -> VecDeque<RefCell<Value>> {
         self.0
     }
 }
@@ -33,10 +33,10 @@ impl DelayReplacement {
 impl DelayReplacement {
     pub(crate) fn flatten(self) -> Self {
         let mut values = VecDeque::new();
-        for val in self.into_values() {
+        for val in self.into_inner() {
             let val = val.into_inner();
             if let Value::DelayReplacement(de) = val {
-                values.extend(de.flatten().into_values());
+                values.extend(de.flatten().into_inner());
             } else {
                 values.push_back(RefCell::new(val));
             }

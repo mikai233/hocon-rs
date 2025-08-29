@@ -2,20 +2,20 @@ use crate::parser::comment::parse_comment;
 use crate::parser::config_parse_options::MAX_DEPTH;
 use crate::parser::include::parse_include;
 use crate::parser::string::parse_key;
-use crate::parser::{hocon_horizontal_space0, hocon_multi_space0, parse_value, CONFIG, R};
+use crate::parser::{CONFIG, R, hocon_horizontal_space0, hocon_multi_space0, parse_value};
 use crate::raw::comment::Comment;
 use crate::raw::field::ObjectField;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::tag;
 use nom::character::complete::char;
 use nom::combinator::{map, opt, peek, value};
 use nom::error::context;
-use nom::multi::{many0, many_m_n};
+use nom::multi::{many_m_n, many0};
 use nom::sequence::delimited;
-use nom::Parser;
 
 pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
     let current_depth = CONFIG.with_borrow_mut(|c| {
@@ -23,6 +23,7 @@ pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
         c.current_depth
     });
     if current_depth > MAX_DEPTH {
+        //TODO
         // return Err(nom::Err::Failure(crate::parser::HoconParseError::Other(
         //     crate::error::Error::RecursionDepthExceeded {
         //         max_depth: MAX_DEPTH,
@@ -195,7 +196,7 @@ mod tests {
     #[case(
         "hello : {a = 1},\n",
         RawString::unquoted("hello"),
-        RawValue::Object(RawObject::key_value(vec![(RawString::unquoted("a"),RawValue::Number(serde_json::Number::from_i128(1).unwrap()))]
+        RawValue::Object(RawObject::key_value([(RawString::unquoted("a"),RawValue::Number(serde_json::Number::from_i128(1).unwrap()))]
         )),
         ",\n"
     )]

@@ -3,8 +3,8 @@ use itertools::Itertools;
 use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
-use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
+use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -311,7 +311,7 @@ impl TryFrom<crate::merge::value::Value> for Value {
 
         fn from_array(array: crate::merge::array::Array) -> crate::Result<Value> {
             let mut result = Vec::with_capacity(array.len());
-            for ele in array.0.into_iter() {
+            for ele in array.into_inner().into_iter() {
                 let v = ele.into_inner();
                 let v: Value = v.try_into()?;
                 result.push(v);

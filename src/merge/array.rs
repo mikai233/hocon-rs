@@ -1,17 +1,28 @@
-use std::{cell::RefCell, fmt::Display};
+use std::{
+    cell::RefCell,
+    fmt::Display,
+    ops::{Deref, DerefMut},
+};
 
-use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
+use tracing::trace;
 
 use crate::merge::{path::RefPath, value::Value};
 
 // TODO considering add Merged and Unmerged states to avoid unnecessary iteration.
-#[derive(Debug, Clone, PartialEq, Deref, DerefMut, Constructor)]
-pub(crate) struct Array(pub(crate) Vec<RefCell<Value>>);
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Array {
+    Merged(Vec<RefCell<Value>>),
+    Unmerged(Vec<RefCell<Value>>),
+}
 
 impl Array {
+    pub(crate) fn new(values: Vec<RefCell<Value>>) -> Self {
+        Array::Unmerged(values)
+    }
+
     pub(crate) fn is_merged(&self) -> bool {
-        self.iter().all(|v| v.borrow().is_merged())
+        matches!(self, Array::Merged(_))
     }
 
     pub(crate) fn from_raw(
@@ -24,6 +35,47 @@ impl Array {
             values.push(RefCell::new(val));
         }
         Ok(Self::new(values))
+    }
+
+    pub(crate) fn as_merged(&mut self) {
+        let array = std::mem::take(self.deref_mut());
+        *self = Self::Merged(array);
+    }
+
+    pub(crate) fn try_become_merged(&mut self) -> bool {
+        if self.is_merged() {
+            return true;
+        }
+        let all_merged = self.iter_mut().all(|v| v.get_mut().try_become_merged());
+        if all_merged {
+            self.as_merged();
+            trace!("{} become merged", self);
+        }
+        all_merged
+    }
+
+    pub(crate) fn into_inner(self) -> Vec<RefCell<Value>> {
+        match self {
+            Array::Merged(array) | Array::Unmerged(array) => array,
+        }
+    }
+}
+
+impl Deref for Array {
+    type Target = Vec<RefCell<Value>>;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Array::Merged(array) | Array::Unmerged(array) => array,
+        }
+    }
+}
+
+impl DerefMut for Array {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Array::Merged(array) | Array::Unmerged(array) => array,
+        }
     }
 }
 

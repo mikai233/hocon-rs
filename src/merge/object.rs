@@ -1,5 +1,6 @@
-use tracing::{enabled, instrument, span, trace, Level};
+use tracing::{Level, enabled, instrument, span, trace};
 
+use crate::merge::array::Array;
 use crate::merge::substitution::Substitution;
 use crate::{
     merge::{add_assign::AddAssign, path::RefPath, value::Value},
@@ -111,6 +112,7 @@ impl Object {
                 }
             }
         }
+        // TODO Can I use try_become_merged directly here?
         if !both_merged {
             self.as_unmerged();
         } else {
@@ -129,20 +131,10 @@ impl Object {
     }
 
     pub(crate) fn try_become_merged(&mut self) -> bool {
-        let mut all_merged = true;
-        for val in self.values_mut() {
-            let val = val.get_mut();
-            if val.is_unmerged() {
-                all_merged = false;
-                break;
-            }
-            if let Value::Object(obj) = val
-                && !obj.try_become_merged()
-            {
-                all_merged = false;
-                break;
-            }
+        if self.is_merged() {
+            return true;
         }
+        let all_merged = self.values_mut().all(|v| v.get_mut().try_become_merged());
         if all_merged {
             self.as_merged();
             trace!("{} become merged", self);
@@ -194,7 +186,7 @@ impl Object {
             current = Value::object(obj);
         }
         if let Value::Object(obj) = current {
-            return Ok(obj);
+            Ok(obj)
         } else {
             unreachable!("`current` should always be Object")
         }
@@ -345,295 +337,339 @@ impl Object {
                 // value.borrow_mut().try_become_merged();
             }
             Value::Array(array) => {
-                let span = span!(Level::TRACE, "Array");
-                let _enter = span.enter();
-                for (index, ele) in array.iter().enumerate() {
-                    //TODO
-                    let string_index = index.to_string();
-                    let sub_path = path.join(RefPath::new(&string_index, None));
-                    self.substitute_value(&sub_path, ele, tracker)?;
-                }
+                self.handle_array(path, tracker, array)?;
                 drop(borrowed);
             }
             Value::Boolean(_) | Value::Null | Value::None | Value::String(_) | Value::Number(_) => {
             }
             Value::Substitution(substitution) => {
-                let span = span!(Level::TRACE, "Substitution");
-                let _enter = span.enter();
                 let substitution = substitution.clone();
-                match tracker.iter().rposition(|t| t == &substitution) {
-                    None => {
-                        tracker.push(substitution.clone());
-                    }
-                    Some(i) => {
-                        let substitution = &tracker[i];
-                        return Err(crate::error::Error::CycleSubstitution(
-                            substitution.to_string(),
-                        ));
-                    }
-                }
                 drop(borrowed);
-                trace!("substitute: {}", substitution);
-                let success = self.get_by_path(&substitution.path, |target| {
-                    if enabled!(Level::TRACE) {
-                        trace!("find substitution: {} -> {}", substitution, target.borrow());
-                    }
-                    if &*substitution.path == path
-                        && matches!(&*target.borrow(), Value::Substitution(_))
-                    {
-                        return if substitution.optional {
-                            *target.borrow_mut() = Value::None;
-                            Ok(())
-                        } else {
-                            Err(crate::error::Error::CycleSubstitution(
-                                substitution.to_string(),
-                            ))
-                        };
-                    }
-                    self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
-                    let mut target_clone = target.borrow().clone();
-                    if let Some(space) = &substitution.space {
-                        match target_clone {
-                            Value::Boolean(_)
-                            | Value::Null
-                            | Value::String(_)
-                            | Value::Number(_) => {
-                                target_clone =
-                                    Value::String(format!("{}{}", target_clone.to_string(), space));
-                            }
-                            _ => {}
-                        }
-                    }
-                    if enabled!(Level::TRACE) {
-                        trace!("set {} to {}", value.borrow(), target_clone);
-                    }
-                    *value.borrow_mut() = target_clone;
-                    Ok(())
-                })?;
-                if !success {
-                    match std::env::var(substitution.full_path()) {
-                        Ok(env_var) => {
-                            if enabled!(Level::TRACE) {
-                                trace!(
-                                    "set environment variable {} to {}",
-                                    env_var,
-                                    value.borrow()
-                                );
-                            }
-                            *value.borrow_mut() = Value::string(env_var);
-                        }
-                        Err(_) => {
-                            if !substitution.optional {
-                                return Err(crate::error::Error::SubstitutionNotFound(
-                                    substitution.to_string(),
-                                ));
-                            } else {
-                                *value.borrow_mut() = Value::None;
-                            }
-                        }
-                    }
-                }
-                tracker.pop();
+                self.handle_substitution(path, value, tracker, substitution)?;
             }
             Value::Concat(_) => {
-                let span = span!(Level::TRACE, "Concat");
-                let _enter = span.enter();
                 drop(borrowed);
-                fn pop_value(value: &RefCell<Value>) -> Option<RefCell<Value>> {
-                    let mut borrowed = value.borrow_mut();
-                    let concat = borrowed.as_concat_mut();
-                    let popped = concat.pop_back();
-                    match &popped {
-                        Some(v) => {
-                            if enabled!(Level::TRACE) {
-                                trace!("popped {} from {}", v.borrow(), concat);
-                            }
-                        }
-                        None => {
-                            trace!("popped None from {}", concat);
-                        }
-                    }
-                    popped
-                }
-                match pop_value(value) {
-                    Some(last) => {
-                        self.substitute_value(path, &last, tracker)?;
-                        if matches!(&*value.borrow(), Value::Concat(_)) {
-                            match pop_value(value) {
-                                Some(second_last) => {
-                                    let substitution_space = match second_last.borrow().deref() {
-                                        Value::Substitution(s) => s.space.clone(),
-                                        _ => None,
-                                    };
-                                    self.substitute_value(path, &second_last, tracker)?;
-                                    let last = last.into_inner();
-                                    let new_val = match second_last.into_inner() {
-                                        Value::None => {
-                                            if let Some(space) = substitution_space
-                                                && matches!(
-                                                    last,
-                                                    Value::None
-                                                        | Value::Null
-                                                        | Value::Boolean(_)
-                                                        | Value::Number(_)
-                                                        | Value::String(_)
-                                                )
-                                            {
-                                                Value::concatenate(
-                                                    path,
-                                                    Value::String(space),
-                                                    last,
-                                                )?
-                                            } else {
-                                                Value::concatenate(path, Value::None, last)?
-                                            }
-                                        }
-                                        second_last => Value::concatenate(path, second_last, last)?,
-                                    };
-
-                                    let mut new_val = RefCell::new(new_val);
-                                    self.substitute_value(path, &new_val, tracker)?;
-                                    new_val.get_mut().try_become_merged();
-                                    if enabled!(Level::TRACE) {
-                                        trace!(
-                                            "push back {} to {}",
-                                            new_val.get_mut(),
-                                            value.borrow()
-                                        );
-                                    }
-                                    match value.borrow_mut().deref_mut() {
-                                        v @ Value::None => {
-                                            *v = new_val.into_inner();
-                                        }
-                                        Value::Concat(concat) => {
-                                            concat.push_back(new_val);
-                                        }
-                                        _ => unreachable!(),
-                                    }
-                                    self.substitute_value(path, value, tracker)?;
-                                }
-                                None => {
-                                    let mut last = last.into_inner();
-                                    last.try_become_merged();
-                                    if enabled!(Level::TRACE) {
-                                        trace!("set {} to {}", last, value.borrow());
-                                    }
-                                    *value.borrow_mut() = last;
-                                }
-                            }
-                        } else {
-                            let second_last = std::mem::take(&mut *value.borrow_mut());
-                            let mut new_val =
-                                Value::concatenate(path, second_last, last.into_inner())?;
-                            new_val.try_become_merged();
-                            if enabled!(Level::TRACE) {
-                                trace!("set {} to {}", value.borrow(), new_val);
-                            }
-                            *value.borrow_mut() = new_val;
-                            self.substitute_value(path, value, tracker)?;
-                        }
-                    }
-                    None => {
-                        if enabled!(Level::TRACE) {
-                            trace!("set none to {}", value.borrow());
-                        }
-                        *value.borrow_mut() = Value::None;
-                    }
-                }
+                self.handle_concat(path, value, tracker)?;
             }
             Value::AddAssign(_) => {
-                let span = span!(Level::TRACE, "AddAssign");
-                let _enter = span.enter();
                 drop(borrowed);
-                let add_assign = std::mem::take(value.borrow_mut().as_add_assign_mut());
-                let v: RefCell<Value> = RefCell::new(add_assign.into());
-                self.substitute_value(path, &v, tracker)?;
-                let mut v = v.into_inner();
-                v.try_become_merged();
-                let add_assign = AddAssign::new(Box::new(v));
-                *value.borrow_mut() = Value::add_assign(add_assign);
+                self.handle_add_assign(path, value, tracker)?;
             }
             Value::DelayReplacement(_) => {
-                let span = span!(Level::TRACE, "DelayReplacement");
-                let _enter = span.enter();
                 drop(borrowed);
-                fn pop_value(value: &RefCell<Value>) -> Option<RefCell<Value>> {
-                    let mut borrowed = value.borrow_mut();
-                    let de = borrowed.as_delay_replacement_mut();
-                    let popped = de.pop_back();
-                    match &popped {
-                        Some(v) => {
-                            if enabled!(Level::TRACE) {
-                                trace!("popped {} from {}", v.borrow(), de);
-                            }
-                        }
-                        None => {
-                            trace!("popped None from {}", de);
-                        }
+                self.handle_delay_replacement(path, value, tracker)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_add_assign(
+        &self,
+        path: &RefPath,
+        value: &RefCell<Value>,
+        tracker: &mut Vec<Substitution>,
+    ) -> crate::Result<()> {
+        let span = span!(Level::TRACE, "AddAssign");
+        let _enter = span.enter();
+        let add_assign = if let Value::AddAssign(add_assign) = value.borrow_mut().deref_mut() {
+            std::mem::take(add_assign)
+        } else {
+            panic!("value should be an AddAssign, got {}", value.borrow().ty());
+        };
+        let v: RefCell<Value> = RefCell::new(add_assign.into());
+        self.substitute_value(path, &v, tracker)?;
+        let mut v = v.into_inner();
+        v.try_become_merged();
+        let add_assign = AddAssign::new(Box::new(v));
+        *value.borrow_mut() = Value::add_assign(add_assign);
+        Ok(())
+    }
+
+    fn handle_array(
+        &self,
+        path: &RefPath,
+        tracker: &mut Vec<Substitution>,
+        array: &Array,
+    ) -> crate::Result<()> {
+        let span = span!(Level::TRACE, "Array");
+        let _enter = span.enter();
+        for (index, ele) in array.iter().enumerate() {
+            //TODO
+            let string_index = index.to_string();
+            let sub_path = path.join(RefPath::new(&string_index, None));
+            self.substitute_value(&sub_path, ele, tracker)?;
+        }
+        Ok(())
+    }
+
+    fn handle_substitution(
+        &self,
+        path: &RefPath,
+        value: &RefCell<Value>,
+        tracker: &mut Vec<Substitution>,
+        substitution: Substitution,
+    ) -> crate::Result<()> {
+        let span = span!(Level::TRACE, "Substitution");
+        let _enter = span.enter();
+        match tracker.iter().rposition(|t| t == &substitution) {
+            None => {
+                tracker.push(substitution.clone());
+            }
+            Some(i) => {
+                let substitution = &tracker[i];
+                return Err(crate::error::Error::CycleSubstitution(
+                    substitution.to_string(),
+                ));
+            }
+        }
+        trace!("substitute: {}", substitution);
+        let success = self.get_by_path(&substitution.path, |target| {
+            if enabled!(Level::TRACE) {
+                trace!("find substitution: {} -> {}", substitution, target.borrow());
+            }
+            if &*substitution.path == path && matches!(&*target.borrow(), Value::Substitution(_)) {
+                return if substitution.optional {
+                    *target.borrow_mut() = Value::None;
+                    Ok(())
+                } else {
+                    Err(crate::error::Error::CycleSubstitution(
+                        substitution.to_string(),
+                    ))
+                };
+            }
+            self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
+            let mut target_clone = target.borrow().clone();
+            if let Some(space) = &substitution.space {
+                match target_clone {
+                    Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {
+                        target_clone =
+                            Value::String(format!("{}{}", target_clone.to_string(), space));
                     }
-                    popped
+                    _ => {}
                 }
-                match pop_value(value) {
-                    Some(last) => {
-                        self.substitute_value(path, &last, tracker)?;
-                        if matches!(&*value.borrow(), Value::DelayReplacement(_)) {
-                            match pop_value(value) {
-                                Some(second_last) => {
-                                    self.substitute_value(path, &second_last, tracker)?;
-                                    let new_val = Value::replacement(
-                                        path,
-                                        second_last.into_inner(),
-                                        last.into_inner(),
-                                    )?;
-                                    let mut new_val = RefCell::new(new_val);
-                                    self.substitute_value(path, &new_val, tracker)?;
-                                    new_val.get_mut().try_become_merged();
-                                    if enabled!(Level::TRACE) {
-                                        trace!(
-                                            "push back {} to {}",
-                                            new_val.get_mut(),
-                                            value.borrow(),
-                                        );
-                                    }
-                                    match value.borrow_mut().deref_mut() {
-                                        v @ Value::None => {
-                                            *v = new_val.into_inner();
-                                        }
-                                        Value::DelayReplacement(re) => {
-                                            re.push_back(new_val);
-                                        }
-                                        _ => unreachable!(),
-                                    }
-                                    self.substitute_value(path, value, tracker)?;
-                                }
-                                None => {
-                                    let mut last = last.into_inner();
-                                    last.try_become_merged();
-                                    if enabled!(Level::TRACE) {
-                                        trace!("set {} to {}", last, value.borrow());
-                                    }
-                                    *value.borrow_mut() = last;
-                                }
-                            }
-                        } else {
-                            let second_last = std::mem::take(&mut *value.borrow_mut());
-                            let mut new_val =
-                                Value::replacement(path, second_last, last.into_inner())?;
-                            new_val.try_become_merged();
-                            if enabled!(Level::TRACE) {
-                                trace!("set {} to {}", value.borrow(), new_val);
-                            }
-                            *value.borrow_mut() = new_val;
-                            self.substitute_value(path, value, tracker)?;
-                        }
+            }
+            if enabled!(Level::TRACE) {
+                trace!("set {} to {}", value.borrow(), target_clone);
+            }
+            *value.borrow_mut() = target_clone;
+            Ok(())
+        })?;
+        if !success {
+            match std::env::var(substitution.full_path()) {
+                Ok(env_var) => {
+                    if enabled!(Level::TRACE) {
+                        trace!("set environment variable {} to {}", env_var, value.borrow());
                     }
-                    None => {
-                        if enabled!(Level::TRACE) {
-                            trace!("set none to {}", value.borrow());
-                        }
+                    *value.borrow_mut() = Value::string(env_var);
+                }
+                Err(_) => {
+                    if !substitution.optional {
+                        return Err(crate::error::Error::SubstitutionNotFound(
+                            substitution.to_string(),
+                        ));
+                    } else {
                         *value.borrow_mut() = Value::None;
                     }
                 }
+            }
+        }
+        tracker.pop();
+        Ok(())
+    }
+
+    fn pop_value_from_concat(value: &RefCell<Value>) -> Option<RefCell<Value>> {
+        let mut borrowed = value.borrow_mut();
+        let concat = if let Value::Concat(concat) = borrowed.deref_mut() {
+            concat
+        } else {
+            panic!("value should be a Concat, got: {}", borrowed.ty());
+        };
+        let popped = concat.pop_back();
+        match &popped {
+            Some(v) => {
+                if enabled!(Level::TRACE) {
+                    trace!("popped {} from {}", v.borrow(), concat);
+                }
+            }
+            None => {
+                trace!("popped None from {}", concat);
+            }
+        }
+        popped
+    }
+
+    fn handle_concat(
+        &self,
+        path: &RefPath,
+        value: &RefCell<Value>,
+        tracker: &mut Vec<Substitution>,
+    ) -> crate::Result<()> {
+        let span = span!(Level::TRACE, "Concat");
+        let _enter = span.enter();
+
+        match Self::pop_value_from_concat(value) {
+            Some(last) => {
+                self.substitute_value(path, &last, tracker)?;
+                if matches!(&*value.borrow(), Value::Concat(_)) {
+                    match Self::pop_value_from_concat(value) {
+                        Some(second_last) => {
+                            let substitution_space = match second_last.borrow().deref() {
+                                Value::Substitution(s) => s.space.clone(),
+                                _ => None,
+                            };
+                            self.substitute_value(path, &second_last, tracker)?;
+                            let last = last.into_inner();
+                            let new_val = match second_last.into_inner() {
+                                Value::None => {
+                                    if let Some(space) = substitution_space
+                                        && matches!(
+                                            last,
+                                            Value::None
+                                                | Value::Null
+                                                | Value::Boolean(_)
+                                                | Value::Number(_)
+                                                | Value::String(_)
+                                        )
+                                    {
+                                        Value::concatenate(path, Value::String(space), last)?
+                                    } else {
+                                        Value::concatenate(path, Value::None, last)?
+                                    }
+                                }
+                                second_last => Value::concatenate(path, second_last, last)?,
+                            };
+
+                            let mut new_val = RefCell::new(new_val);
+                            self.substitute_value(path, &new_val, tracker)?;
+                            new_val.get_mut().try_become_merged();
+                            if enabled!(Level::TRACE) {
+                                trace!("push back {} to {}", new_val.get_mut(), value.borrow());
+                            }
+                            match value.borrow_mut().deref_mut() {
+                                v @ Value::None => {
+                                    *v = new_val.into_inner();
+                                }
+                                Value::Concat(concat) => {
+                                    concat.push_back(new_val);
+                                }
+                                _ => unreachable!(),
+                            }
+                            self.substitute_value(path, value, tracker)?;
+                        }
+                        None => {
+                            let mut last = last.into_inner();
+                            last.try_become_merged();
+                            if enabled!(Level::TRACE) {
+                                trace!("set {} to {}", last, value.borrow());
+                            }
+                            *value.borrow_mut() = last;
+                        }
+                    }
+                } else {
+                    let second_last = std::mem::take(&mut *value.borrow_mut());
+                    let mut new_val = Value::concatenate(path, second_last, last.into_inner())?;
+                    new_val.try_become_merged();
+                    if enabled!(Level::TRACE) {
+                        trace!("set {} to {}", value.borrow(), new_val);
+                    }
+                    *value.borrow_mut() = new_val;
+                    self.substitute_value(path, value, tracker)?;
+                }
+            }
+            None => {
+                if enabled!(Level::TRACE) {
+                    trace!("set none to {}", value.borrow());
+                }
+                *value.borrow_mut() = Value::None;
+            }
+        }
+        Ok(())
+    }
+
+    fn pop_value_from_delay_replacement(value: &RefCell<Value>) -> Option<RefCell<Value>> {
+        let mut borrowed = value.borrow_mut();
+        let de = if let Value::DelayReplacement(de) = borrowed.deref_mut() {
+            de
+        } else {
+            panic!("value should be a DelayReplacement, got {}", borrowed.ty());
+        };
+        let popped = de.pop_back();
+        match &popped {
+            Some(v) => {
+                if enabled!(Level::TRACE) {
+                    trace!("popped {} from {}", v.borrow(), de);
+                }
+            }
+            None => {
+                trace!("popped None from {}", de);
+            }
+        }
+        popped
+    }
+
+    fn handle_delay_replacement(
+        &self,
+        path: &RefPath,
+        value: &RefCell<Value>,
+        tracker: &mut Vec<Substitution>,
+    ) -> crate::Result<()> {
+        let span = span!(Level::TRACE, "DelayReplacement");
+        let _enter = span.enter();
+
+        match Self::pop_value_from_delay_replacement(value) {
+            Some(last) => {
+                self.substitute_value(path, &last, tracker)?;
+                if matches!(&*value.borrow(), Value::DelayReplacement(_)) {
+                    match Self::pop_value_from_delay_replacement(value) {
+                        Some(second_last) => {
+                            self.substitute_value(path, &second_last, tracker)?;
+                            let new_val = Value::replacement(
+                                path,
+                                second_last.into_inner(),
+                                last.into_inner(),
+                            )?;
+                            let mut new_val = RefCell::new(new_val);
+                            self.substitute_value(path, &new_val, tracker)?;
+                            new_val.get_mut().try_become_merged();
+                            if enabled!(Level::TRACE) {
+                                trace!("push back {} to {}", new_val.get_mut(), value.borrow(),);
+                            }
+                            match value.borrow_mut().deref_mut() {
+                                v @ Value::None => {
+                                    *v = new_val.into_inner();
+                                }
+                                Value::DelayReplacement(re) => {
+                                    re.push_back(new_val);
+                                }
+                                _ => unreachable!(),
+                            }
+                            self.substitute_value(path, value, tracker)?;
+                        }
+                        None => {
+                            let mut last = last.into_inner();
+                            last.try_become_merged();
+                            if enabled!(Level::TRACE) {
+                                trace!("set {} to {}", last, value.borrow());
+                            }
+                            *value.borrow_mut() = last;
+                        }
+                    }
+                } else {
+                    let second_last = std::mem::take(&mut *value.borrow_mut());
+                    let mut new_val = Value::replacement(path, second_last, last.into_inner())?;
+                    new_val.try_become_merged();
+                    if enabled!(Level::TRACE) {
+                        trace!("set {} to {}", value.borrow(), new_val);
+                    }
+                    *value.borrow_mut() = new_val;
+                    self.substitute_value(path, value, tracker)?;
+                }
+            }
+            None => {
+                if enabled!(Level::TRACE) {
+                    trace!("set none to {}", value.borrow());
+                }
+                *value.borrow_mut() = Value::None;
             }
         }
         Ok(())
@@ -644,6 +680,7 @@ impl Object {
         for (key, value) in self.iter() {
             let path = RefPath::new(key, None);
             self.substitute_value(&path, value, &mut tracker)?;
+            value.borrow_mut().try_become_merged();
         }
         Ok(())
     }

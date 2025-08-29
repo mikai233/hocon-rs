@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+encoding_rs = "0.8.35"
 nom = "8.0.0"
 nom-language = "0.1.0"
 ahash = "0.8.12"
