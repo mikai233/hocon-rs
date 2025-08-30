@@ -34,7 +34,31 @@ pub trait Read {
 
     fn fill_buf(&mut self) -> Result<(), DecoderError>;
 
-    fn available_chars(&self) -> usize;
+    fn available_chars(&self) -> usize {
+        match self.peek_chunk() {
+            Some(s) => {
+                if s.is_ascii() {
+                    s.len()
+                } else {
+                    s.chars().count()
+                }
+            }
+            None => 0,
+        }
+    }
+
+    fn chunk_len(&self) -> usize {
+        self.peek_chunk().map_or(0, |s| s.len())
+    }
+
+    fn has_at_least_n_chars(&self, n: usize) -> bool {
+        if self.chunk_len() < n {
+            false
+        } else {
+            self.peek_chunk()
+                .map_or(false, |s| s.char_indices().nth(n).is_some())
+        }
+    }
 }
 
 pub struct StreamRead<R: std::io::Read> {
@@ -60,9 +84,9 @@ impl<R: std::io::Read> StreamRead<R> {
 
     fn fill_buf(&mut self) -> Result<(), DecoderError> {
         // 1. 如果缓冲区中已经有数据，直接返回。
-        if self.decoded_start < self.decoded_end {
-            return Ok(());
-        }
+        // if self.decoded_start < self.decoded_end && !force {
+        // return Ok(());
+        // }
 
         // 2. 如果之前已经处理完文件末尾(EOF)，则返回错误，防止重复调用。
         if self.eof {
@@ -143,12 +167,6 @@ impl<R: std::io::Read> Read for StreamRead<R> {
     fn fill_buf(&mut self) -> Result<(), DecoderError> {
         self.fill_buf()
     }
-
-    fn available_chars(&self) -> usize {
-        self.peek_chunk()
-            .map(|s| s.chars().count())
-            .unwrap_or_default()
-    }
 }
 
 pub struct SliceRead<'a> {
@@ -184,12 +202,6 @@ impl<'a> Read for SliceRead<'a> {
 
     fn fill_buf(&mut self) -> Result<(), DecoderError> {
         return Err(DecoderError::Eof);
-    }
-
-    fn available_chars(&self) -> usize {
-        self.peek_chunk()
-            .map(|s| s.chars().count())
-            .unwrap_or_default()
     }
 }
 
@@ -240,11 +252,5 @@ impl Read for TestRead {
             self.slice.extend(buf);
             Ok(())
         }
-    }
-
-    fn available_chars(&self) -> usize {
-        self.peek_chunk()
-            .map(|s| s.chars().count())
-            .unwrap_or_default()
     }
 }

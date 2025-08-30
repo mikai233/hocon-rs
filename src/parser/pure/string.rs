@@ -1,4 +1,7 @@
+use memchr::memchr;
+
 use crate::parser::pure::{
+    is_hocon_whitespace,
     parser::Parser,
     read::{DecoderError, Read},
 };
@@ -8,42 +11,42 @@ const FORBIDDEN_CHARACTERS: [char; 19] = [
 ];
 
 enum QuotedStringState {
-    Begin,
-    Parsing,
-    NeedMore { need: usize, known: Option<usize> },
-    End,
+    Start,
+    InProgress,
+    NeedsMore(usize),
+    Finished,
 }
 
-impl QuotedStringState {
-    fn need_more(&self, need: usize) -> QuotedStringState {
-        if let QuotedStringState::NeedMore { known, .. } = self {
-            QuotedStringState::NeedMore {
-                need,
-                known: *known,
-            }
-        } else {
-            QuotedStringState::NeedMore { need, known: None }
-        }
-    }
+enum UnquotedStringState {
+    InProgress,
+    NeedsMore,
+    Finished,
+}
+
+enum MultilineStringState {
+    Start,
+    InProgress,
+    NeedsMore(bool),
+    Finished,
 }
 
 impl<R: Read> Parser<R> {
     pub(crate) fn parse_quoted_string(&mut self) -> Result<String, DecoderError> {
         let mut string = String::new();
-        let mut state = QuotedStringState::Begin;
+        let mut state = QuotedStringState::Start;
         let mut consume_len_utf8 = 0;
         loop {
             match self.reader.peek_chunk() {
                 Some(s) => match state {
-                    QuotedStringState::Begin => {
+                    QuotedStringState::Start => {
                         if s.starts_with('"') {
-                            state = QuotedStringState::Parsing;
+                            state = QuotedStringState::InProgress;
                             consume_len_utf8 += 1;
                         } else {
                             return Err(DecoderError::UnexpectedToken);
                         }
                     }
-                    QuotedStringState::Parsing => {
+                    QuotedStringState::InProgress => {
                         let mut iter = s.chars();
                         while let Some(ch) = iter.next() {
                             match ch {
@@ -57,7 +60,7 @@ impl<R: Read> Parser<R> {
                                 }
                                 '"' => {
                                     consume_len_utf8 += 1;
-                                    state = QuotedStringState::End;
+                                    state = QuotedStringState::Finished;
                                     break;
                                 }
                                 _ => {
@@ -67,36 +70,25 @@ impl<R: Read> Parser<R> {
                             }
                         }
                     }
-                    QuotedStringState::NeedMore { need, known } => {
-                        let current_available_before = self.reader.available_chars();
-                        match self.reader.fill_buf() {
-                            Ok(_) => {
-                                let current_available_after = self.reader.available_chars();
-                                if Some(current_available_after) > known
-                                    && current_available_after - current_available_before < need
-                                {
-                                    state = QuotedStringState::NeedMore {
-                                        need,
-                                        known: Some(current_available_before),
-                                    };
-                                } else if current_available_after - current_available_before < need
-                                {
-                                    return Err(DecoderError::UnexpectedEof);
-                                } else {
-                                    state = QuotedStringState::Parsing;
-                                }
+                    QuotedStringState::NeedsMore(need) => match self.reader.fill_buf() {
+                        Ok(_) => {
+                            if self.reader.has_at_least_n_chars(need) {
+                                state = QuotedStringState::InProgress;
                             }
-                            Err(err) => return Err(err),
                         }
-                    }
-                    QuotedStringState::End => {
+                        Err(DecoderError::Eof) => {
+                            return Err(DecoderError::UnexpectedEof);
+                        }
+                        Err(err) => return Err(err),
+                    },
+                    QuotedStringState::Finished => {
                         break;
                     }
                 },
                 None => match self.reader.fill_buf() {
                     Ok(_) => {}
                     Err(DecoderError::Eof) => {
-                        if matches!(state, QuotedStringState::End) {
+                        if matches!(state, QuotedStringState::Finished) {
                             break;
                         } else {
                             return Err(DecoderError::UnexpectedEof);
@@ -134,7 +126,7 @@ impl<R: Read> Parser<R> {
                 _ => return Err(DecoderError::InvalidEscape),
             },
             None => {
-                *state = state.need_more(1);
+                *state = QuotedStringState::NeedsMore(1);
                 return Ok(None);
             }
         };
@@ -147,7 +139,7 @@ impl<R: Read> Parser<R> {
         state: &mut QuotedStringState,
     ) -> Result<Option<(char, usize)>, DecoderError> {
         let mut high_code = String::new();
-        for i in 0..4 {
+        for _ in 0..4 {
             match iter.next() {
                 Some(digit) if digit.is_ascii_hexdigit() => {
                     high_code.push(digit);
@@ -156,7 +148,7 @@ impl<R: Read> Parser<R> {
                     return Err(DecoderError::InvalidEscape);
                 }
                 None => {
-                    *state = state.need_more(4 - i);
+                    *state = QuotedStringState::NeedsMore(6);
                     return Ok(None);
                 }
             }
@@ -167,7 +159,7 @@ impl<R: Read> Parser<R> {
             match (iter.next(), iter.next()) {
                 (Some('\\'), Some('u')) => {
                     let mut low_code = String::new();
-                    for i in 0..4 {
+                    for _ in 0..4 {
                         match iter.next() {
                             Some(digit) if digit.is_ascii_hexdigit() => {
                                 low_code.push(digit);
@@ -176,7 +168,7 @@ impl<R: Read> Parser<R> {
                                 return Err(DecoderError::InvalidEscape);
                             }
                             None => {
-                                *state = state.need_more(4 - i);
+                                *state = QuotedStringState::NeedsMore(12);
                                 return Ok(None);
                             }
                         }
@@ -194,7 +186,7 @@ impl<R: Read> Parser<R> {
                     }
                 }
                 _ => {
-                    *state = state.need_more(6);
+                    *state = QuotedStringState::NeedsMore(12);
                     Ok(None)
                 }
             }
@@ -202,6 +194,166 @@ impl<R: Read> Parser<R> {
             let ch = char::from_u32(high).ok_or(DecoderError::InvalidEscape)?;
             Ok(Some((ch, 6)))
         }
+    }
+
+    pub(crate) fn parse_unquoted_string(&mut self) -> Result<String, DecoderError> {
+        let mut string = String::new();
+        let mut consume_len_utf8 = 0;
+        let mut state = UnquotedStringState::InProgress;
+        loop {
+            match state {
+                UnquotedStringState::InProgress => {
+                    match self.reader.peek_chunk() {
+                        Some(s) => {
+                            let mut p = s.chars().peekable();
+                            while let Some(ch) = p.next() {
+                                if ch == '/' {
+                                    // need to peek next char to see if it's a double slash comment
+                                    match p.peek() {
+                                        Some(next) => {
+                                            if next != &'/' {
+                                                consume_len_utf8 += ch.len_utf8();
+                                                string.push(ch);
+                                            } else {
+                                                state = UnquotedStringState::Finished;
+                                                break;
+                                            }
+                                        }
+                                        None => {
+                                            // need more data to determine if it's a comment or not
+                                            state = UnquotedStringState::NeedsMore;
+                                            break;
+                                        }
+                                    }
+                                } else if !FORBIDDEN_CHARACTERS.contains(&ch)
+                                    && !is_hocon_whitespace(ch)
+                                {
+                                    consume_len_utf8 += ch.len_utf8();
+                                    string.push(ch);
+                                } else {
+                                    // current character is not a valid unquoted string character
+                                    state = UnquotedStringState::Finished;
+                                    break;
+                                }
+                            }
+                        }
+                        None => match self.reader.fill_buf() {
+                            Ok(_) => {}
+                            Err(DecoderError::Eof) => {
+                                break;
+                            }
+                            Err(err) => {
+                                return Err(err);
+                            }
+                        },
+                    }
+                }
+                UnquotedStringState::NeedsMore => match self.reader.fill_buf() {
+                    Ok(_) => {
+                        state = UnquotedStringState::InProgress;
+                    }
+                    Err(DecoderError::Eof) => {
+                        consume_len_utf8 += '/'.len_utf8();
+                        string.push('/');
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                },
+                UnquotedStringState::Finished => {
+                    break;
+                }
+            }
+            self.reader.consume(consume_len_utf8);
+            consume_len_utf8 = 0;
+        }
+        if string.is_empty() {
+            return Err(DecoderError::UnexpectedEof);
+        }
+        Ok(string)
+    }
+
+    fn parse_multiline_string(&mut self) -> Result<String, DecoderError> {
+        let mut string = String::new();
+        let mut state = MultilineStringState::Start;
+        let mut consume_len_utf8 = 0;
+        loop {
+            match self.reader.peek_chunk() {
+                Some(s) => match state {
+                    MultilineStringState::Start => {
+                        if s.starts_with("\"\"\"") {
+                            state = MultilineStringState::InProgress;
+                            consume_len_utf8 += 3;
+                        } else if !self.reader.has_at_least_n_chars(3) {
+                            state = MultilineStringState::NeedsMore(true);
+                        } else {
+                            return Err(DecoderError::UnexpectedToken);
+                        }
+                    }
+                    MultilineStringState::InProgress => match memchr(b'"', s.as_bytes()) {
+                        Some(i) => {
+                            if s[i..].starts_with("\"\"\"") {
+                                let chunk = &s[..i];
+                                string.push_str(chunk);
+                                consume_len_utf8 += chunk.len() + 3;
+                                state = MultilineStringState::Finished;
+                            } else {
+                                let chunk = &s[..i];
+                                string.push_str(chunk);
+                                consume_len_utf8 += chunk.len();
+                                state = MultilineStringState::NeedsMore(false);
+                            }
+                        }
+                        None => {
+                            string.push_str(s);
+                            consume_len_utf8 += s.len();
+                            state = MultilineStringState::NeedsMore(false);
+                        }
+                    },
+                    MultilineStringState::NeedsMore(start) => match self.reader.fill_buf() {
+                        Ok(_) => {
+                            if self.reader.has_at_least_n_chars(3) {
+                                if start {
+                                    state = MultilineStringState::Start;
+                                } else {
+                                    state = MultilineStringState::InProgress;
+                                }
+                            }
+                        }
+                        Err(DecoderError::Eof) => {
+                            return Err(DecoderError::UnexpectedEof);
+                        }
+                        Err(err) => return Err(err),
+                    },
+                    MultilineStringState::Finished => {
+                        break;
+                    }
+                },
+                None => match self.reader.fill_buf() {
+                    Ok(_) => {}
+                    Err(DecoderError::Eof) => {
+                        if matches!(state, MultilineStringState::Finished) {
+                            break;
+                        } else {
+                            return Err(DecoderError::UnexpectedEof);
+                        }
+                    }
+                    Err(err) => {
+                        return Err(err);
+                    }
+                },
+            }
+            self.reader.consume(consume_len_utf8);
+            consume_len_utf8 = 0;
+        }
+        if !matches!(state, MultilineStringState::Finished) {
+            return Err(DecoderError::UnexpectedEof);
+        }
+        Ok(string)
+    }
+
+    fn parse_path_expression(&mut self) -> Result<Vec<String>, DecoderError> {
+        unimplemented!()
     }
 }
 
@@ -276,6 +428,106 @@ mod tests {
         });
         let mut parser = Parser::new(read);
         let s = parser.parse_quoted_string()?;
+        assert_eq!(s, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("a.b.c", "a.b.c", None)]
+    #[case("a.b.c//", "a.b.c", Some("//"))]
+    #[case("a.b.c/b", "a.b.c/b", None)]
+    #[case("hello#world", "hello", Some("#world"))]
+    #[case("你 好", "你", Some(" 好"))]
+    #[case("你 \\r\n不好", "你", Some(" \\r\n不好"))]
+    #[case("你 \r\n不好", "你", Some(" \r\n不好"))]
+    fn test_valid_unquoted_string(
+        #[case] input: &str,
+        #[case] expected: &str,
+        #[case] remians: Option<&str>,
+    ) -> Result<(), DecoderError> {
+        let read = SliceRead::new(input);
+        let mut parser = Parser::new(read);
+        let s = parser.parse_unquoted_string()?;
+        assert_eq!(s, expected);
+        assert_eq!(parser.reader.peek_chunk(), remians);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(vec!["Hello", "World"], "HelloWorld")]
+    #[case(vec!["Hello", "World", "!"], "HelloWorld")]
+    #[case(vec!["Hello", "World", "vs", "How", "are", "you"], "HelloWorldvsHowareyou")]
+    #[case(vec!["a.", "b", ".", "你", "/", "u","DE00",""],"a.b.你/uDE00")]
+    fn test_unquoted_string_increment_parse(
+        #[case] input: Vec<&str>,
+        #[case] expected: &str,
+    ) -> Result<(), DecoderError> {
+        let mut input = input
+            .into_iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        let read = TestRead::new(vec![], move || {
+            if input.is_empty() {
+                vec![]
+            } else {
+                input.remove(0)
+            }
+        });
+        let mut parser = Parser::new(read);
+        let s = parser.parse_unquoted_string()?;
+        assert_eq!(s, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(r#""""a.bbc""""#, "a.bbc", None)]
+    #[case(r#""""a.bbc😀"""😀"#, "a.bbc😀", Some("😀"))]
+    #[case(r#""""a.b\r\nbc""""#, "a.b\\r\\nbc", None)]
+    fn test_valid_multiline_string(
+        #[case] input: &str,
+        #[case] expected: &str,
+        #[case] remians: Option<&str>,
+    ) -> Result<(), DecoderError> {
+        let read = SliceRead::new(input);
+        let mut parser = Parser::new(read);
+        let s = parser.parse_multiline_string()?;
+        assert_eq!(s, expected);
+        assert_eq!(parser.reader.peek_chunk(), remians);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(r#""#)]
+    #[case(r#""""Hello"""#)]
+    #[case(r#"""Hello"""#)]
+    #[case(r#""Hello""""#)]
+    fn test_invalid_multiline_string(#[case] input: &str) {
+        let read = SliceRead::new(input);
+        let mut parser = Parser::new(read);
+        let result = parser.parse_multiline_string();
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    #[case(vec![r#"""#,r#""""#, "Hello","World\"",r#""""#], "HelloWorld")]
+    #[case(vec![r#"""#,r#""""#, "Hello","World\"\"",r#"""#], "HelloWorld")]
+    fn test_multiline_string_increment_parse(
+        #[case] input: Vec<&str>,
+        #[case] expected: &str,
+    ) -> Result<(), DecoderError> {
+        let mut input = input
+            .into_iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        let read = TestRead::new(vec![], move || {
+            if input.is_empty() {
+                vec![]
+            } else {
+                input.remove(0)
+            }
+        });
+        let mut parser = Parser::new(read);
+        let s = parser.parse_multiline_string()?;
         assert_eq!(s, expected);
         Ok(())
     }
