@@ -1,5 +1,5 @@
 use crate::parser::pure::{
-    leading_horizontal_whitespace,
+    is_hocon_horizontal_whitespace, leading_horizontal_whitespace,
     read::{DecoderError, Read},
 };
 
@@ -38,6 +38,32 @@ impl<R: Read> Parser<R> {
                 }
             }
         }
+    }
+
+    pub(crate) fn parse_leading_horizontal_whitespace2<'a>(
+        &mut self,
+        scratch: &'a mut Vec<u8>,
+    ) -> Result<&'a str, DecoderError> {
+        loop {
+            match self.reader.peek() {
+                Ok(ch) => {
+                    if is_hocon_horizontal_whitespace(ch) {
+                        let (_, bytes) = self.reader.next()?;
+                        scratch.extend_from_slice(bytes);
+                    } else {
+                        break;
+                    }
+                }
+                Err(DecoderError::Eof) => {
+                    break;
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
+        let s = unsafe { str::from_utf8_unchecked(scratch) };
+        Ok(s)
     }
 
     /// Returns true when it reaches the end of the input.

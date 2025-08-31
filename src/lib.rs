@@ -1,3 +1,5 @@
+extern crate core;
+
 use ::serde::{Serialize, de::DeserializeOwned};
 
 use crate::value::Value;
