@@ -1,5 +1,5 @@
 use crate::parser::pure::{
-    horizontal_whitespace,
+    leading_horizontal_whitespace,
     read::{DecoderError, Read},
 };
 
@@ -13,14 +13,17 @@ impl<R: Read> Parser<R> {
         Parser { reader }
     }
 
-    pub(crate) fn parse_horizontal_whitespace<F>(&mut self, callback: F) -> Result<(), DecoderError>
+    pub(crate) fn parse_leading_horizontal_whitespace<F>(
+        &mut self,
+        mut callback: F,
+    ) -> Result<(), DecoderError>
     where
-        F: Fn(&str) -> Result<(), DecoderError>,
+        F: FnMut(&str) -> Result<(), DecoderError>,
     {
         loop {
             match self.reader.peek_chunk() {
                 Some(s) => {
-                    let (first, _) = horizontal_whitespace(s);
+                    let (first, _) = leading_horizontal_whitespace(s);
                     if first.is_empty() {
                         return Ok(());
                     }
@@ -28,14 +31,29 @@ impl<R: Read> Parser<R> {
                     callback(first)?;
                     self.reader.consume(len);
                 }
-                None => match self.reader.fill_buf() {
-                    Ok(_) => {}
-                    Err(DecoderError::Eof) => {
-                        return Ok(());
+                None => {
+                    if self.fill_buf()? {
+                        break Ok(());
                     }
-                    Err(e) => return Err(e),
-                },
+                }
             }
         }
     }
+
+    /// Returns true when it reaches the end of the input.
+    pub(crate) fn fill_buf(&mut self) -> Result<bool, DecoderError> {
+        let mut eof = false;
+        match self.reader.fill_buf() {
+            Ok(_) => {}
+            Err(DecoderError::Eof) => {
+                eof = true;
+            }
+            Err(e) => return Err(e),
+        }
+        Ok(eof)
+    }
+}
+
+pub(crate) fn empty_callback(_s: &str) -> Result<(), DecoderError> {
+    Ok(())
 }

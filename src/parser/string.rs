@@ -19,10 +19,11 @@
 //! allowing precise error handling and composition with other parsers in the HOCON parser crate.
 
 use crate::parser::{
-    hocon_horizontal_space0, horizontal_ending, is_hocon_horizontal_whitespace, is_hocon_whitespace,
-    R,
+    R, hocon_horizontal_space0, horizontal_ending, is_hocon_horizontal_whitespace,
+    is_hocon_whitespace,
 };
 use crate::raw::raw_string::{ConcatString, RawString};
+use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until, take_while, take_while_m_n};
 use nom::character::char;
@@ -30,7 +31,6 @@ use nom::character::complete::anychar;
 use nom::combinator::{map, map_opt, not, opt, peek, value, verify};
 use nom::multi::{fold, many1, separated_list1};
 use nom::sequence::{delimited, preceded};
-use nom::Parser;
 use std::ops::{Deref, DerefMut};
 
 /// Characters that are forbidden in unquoted strings and keys in HOCON.
@@ -344,6 +344,7 @@ fn parse_path(input: &str) -> R<'_, Vec<Path>> {
     )
     .map(|mut path| {
         path.last_mut().map(|p| {
+            // FIXME: Only Unquoted string should be trimmed
             let trimmed_len = p.trim_end_matches(is_hocon_horizontal_whitespace).len();
             p.truncate(trimmed_len);
         });
@@ -378,9 +379,7 @@ pub(crate) fn parse_key(input: &str) -> R<'_, RawString> {
                 let mut keys = Vec::with_capacity(paths.len());
                 let last_index = paths.len().saturating_sub(1);
                 for (index, path) in paths.iter().enumerate() {
-                    let dot = if index != last_index {
-                        Some(".")
-                    } else { None };
+                    let dot = if index != last_index { Some(".") } else { None };
                     let key = match path {
                         Path::Quoted(s) => (RawString::quoted(s), dot),
                         Path::Unquoted(s) => (RawString::unquoted(s), dot),
@@ -455,8 +454,8 @@ mod tests {
     use rstest::rstest;
 
     use crate::parser::string::{
-        parse_multiline_string, parse_quoted_string, parse_string, parse_unquoted_string,
-        FORBIDDEN_CHARACTERS,
+        FORBIDDEN_CHARACTERS, parse_multiline_string, parse_quoted_string, parse_string,
+        parse_unquoted_string,
     };
     #[rstest]
     #[case("abc", "abc", "")]

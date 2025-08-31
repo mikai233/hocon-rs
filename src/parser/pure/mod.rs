@@ -1,3 +1,6 @@
+use memchr::memchr;
+
+mod comment;
 mod include;
 mod number;
 mod parser;
@@ -32,15 +35,29 @@ fn is_horizontal_ending(s: &str) -> bool {
 }
 
 #[inline]
-fn whitespace(s: &str) -> (&str, &str) {
+fn leading_whitespace(s: &str) -> (&str, &str) {
     let split_index = s.find(|c: char| !is_hocon_whitespace(c)).unwrap_or(s.len());
     s.split_at(split_index)
 }
 
 #[inline]
-fn horizontal_whitespace(s: &str) -> (&str, &str) {
+fn leading_horizontal_whitespace(s: &str) -> (&str, &str) {
     let split_index = s
         .find(|c: char| !is_hocon_horizontal_whitespace(c))
         .unwrap_or(s.len());
     s.split_at(split_index)
+}
+
+fn find_line_break(buf: &[u8]) -> Option<(usize, usize)> {
+    if let Some(pos) = memchr(b'\n', buf) {
+        if pos > 0 && buf[pos - 1] == b'\r' {
+            // Windows \r\n
+            Some((pos - 1, 2))
+        } else {
+            // Unix/macOS \n
+            Some((pos, 1))
+        }
+    } else {
+        None
+    }
 }

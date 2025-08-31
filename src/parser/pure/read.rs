@@ -11,8 +11,20 @@ pub enum DecoderError {
     Incomplete,
     InvalidEscape,
     UnexpectedEof,
-    UnexpectedToken,
+    UnexpectedToken {
+        expected: &'static str,
+        found_beginning: char,
+    },
     Eof,
+}
+
+impl DecoderError {
+    pub(crate) fn unexpected_token(expected: &'static str, s: &str) -> Self {
+        DecoderError::UnexpectedToken {
+            expected,
+            found_beginning: s.chars().next().unwrap_or_default(),
+        }
+    }
 }
 
 impl From<io::Error> for DecoderError {
@@ -57,6 +69,19 @@ pub trait Read {
         } else {
             self.peek_chunk()
                 .map_or(false, |s| s.char_indices().nth(n).is_some())
+        }
+    }
+
+    fn peek_at_least_n(&mut self, n: usize) -> Result<&str, DecoderError> {
+        if self.has_at_least_n_chars(n) {
+            Ok(self.peek_chunk().unwrap())
+        } else {
+            self.fill_buf()?;
+            if self.has_at_least_n_chars(n) {
+                Ok(self.peek_chunk().unwrap())
+            } else {
+                return Err(DecoderError::Eof);
+            }
         }
     }
 }
@@ -212,7 +237,7 @@ pub(crate) struct TestRead {
 }
 
 impl TestRead {
-    pub fn new<F>(slice: Vec<u8>, fill_buf: F) -> Self
+    pub(crate) fn new<F>(slice: Vec<u8>, fill_buf: F) -> Self
     where
         F: FnMut() -> Vec<u8> + 'static,
     {
@@ -221,6 +246,20 @@ impl TestRead {
             index: 0,
             fill_buf: Box::new(fill_buf),
         }
+    }
+
+    pub(crate) fn from_input(input: Vec<&str>) -> Self {
+        let mut input = input
+            .into_iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect::<Vec<_>>();
+        TestRead::new(vec![], move || {
+            if input.is_empty() {
+                vec![]
+            } else {
+                input.remove(0)
+            }
+        })
     }
 }
 
