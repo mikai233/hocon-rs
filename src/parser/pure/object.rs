@@ -13,6 +13,17 @@ use crate::{
     },
 };
 
+#[macro_export]
+macro_rules! try_peek {
+    ($reader:expr) => {
+        match $reader.peek() {
+            Ok(ch) => ch,
+            Err(DecoderError::Eof) => break,
+            Err(err) => return Err(err),
+        }
+    };
+}
+
 impl<R: Read> Parser<R> {
     pub(crate) fn parse_key(&mut self) -> Result<RawString, DecoderError> {
         self.drop_horizontal_whitespace()?;
@@ -25,15 +36,7 @@ impl<R: Read> Parser<R> {
         let mut scratch = vec![];
         let mut spaces = vec![];
         loop {
-            let ch = match self.reader.peek() {
-                Ok(ch) => ch,
-                Err(DecoderError::Eof) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
-            };
+            let ch = try_peek!(self.reader);
             match ch {
                 '[' => {
                     // Parse array
@@ -49,11 +52,7 @@ impl<R: Read> Parser<R> {
                 }
                 '"' => {
                     // Parse quoted string or multi-line string
-                    let v = if let Ok((ch1, ch2, ch3)) = self.reader.peek3()
-                        && ch1 == '"'
-                        && ch2 == '"'
-                        && ch3 == '"'
-                    {
+                    let v = if let Ok(chars) = self.reader.peek_n::<3>() && chars == ['"', '"', '"'] {
                         let multiline = self.parse_multiline_string()?;
                         RawValue::String(RawString::MultilineString(multiline))
                     } else {

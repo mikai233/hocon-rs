@@ -1,3 +1,6 @@
+use crate::raw::field::ObjectField;
+use crate::raw::raw_string::RawString;
+use crate::raw::raw_value::RawValue;
 use crate::{
     parser::pure::{
         is_hocon_horizontal_whitespace, is_hocon_whitespace,
@@ -9,11 +12,22 @@ use crate::{
 #[derive(Debug)]
 pub(crate) struct Parser<R: Read> {
     pub(crate) reader: R,
+    pub(crate) stack: Vec<Frame>,
+}
+
+#[derive(Debug)]
+enum Frame {
+    Array(Vec<RawValue>),
+    Object {
+        entries: Vec<ObjectField>,
+        expecting_key: bool,
+        current_key: Option<RawString>,
+    },
 }
 
 impl<R: Read> Parser<R> {
     pub(crate) fn new(reader: R) -> Self {
-        Parser { reader }
+        Parser { reader, stack: Vec::new() }
     }
 
     pub(crate) fn parse_horizontal_whitespace<'a>(

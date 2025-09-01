@@ -24,6 +24,8 @@ pub enum RawString {
     MultilineString(String),
     /// Represents a sequence of strings that are implicitly concatenated.
     /// This is also used to represent path expressions.
+    /// FIXME change this to PathExpression, and the string concat should
+    /// use the [crate::raw::concat::Concat] struct
     ConcatString(ConcatString),
 }
 

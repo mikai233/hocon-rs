@@ -1,12 +1,9 @@
 use crate::parser::pure::is_hocon_whitespace;
-use crate::{
-    parser::pure::{
-        is_hocon_horizontal_whitespace,
-        parser::Parser,
-        read::{DecoderError, Read},
-    },
-    raw::raw_string::RawString,
-};
+use crate::{parser::pure::{
+    is_hocon_horizontal_whitespace,
+    parser::Parser,
+    read::{DecoderError, Read},
+}, raw::raw_string::RawString, try_peek};
 
 const FORBIDDEN_CHARACTERS: [char; 19] = [
     '$', '"', '{', '}', '[', ']', ':', '=', ',', '+', '#', '`', '^', '?', '!', '@', '*', '&', '\\',
@@ -116,15 +113,7 @@ impl<R: Read> Parser<R> {
     fn parse_unquoted(&mut self, allow_dot: bool) -> Result<String, DecoderError> {
         let mut scratch = vec![];
         loop {
-            let ch = match self.reader.peek() {
-                Ok(ch) => ch,
-                Err(DecoderError::Eof) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
-            };
+            let ch = try_peek!(self.reader);
             match ch {
                 '/' => match self.reader.peek2() {
                     Ok((_, ch2)) => {
@@ -175,22 +164,28 @@ impl<R: Read> Parser<R> {
 
     pub(crate) fn parse_multiline_string(&mut self) -> Result<String, DecoderError> {
         let mut scratch = vec![];
-        let (ch1, ch2, ch3) = self.reader.peek3()?;
-        if ch1 != '"' || ch2 != '"' || ch3 != '"' {
+        let chars = self.reader.peek_n::<3>()?;
+        let triple_quote = ['"', '"', '"'];
+        if chars != triple_quote {
+            let (_, ch) = chars
+                .iter()
+                .enumerate()
+                .find(|(index, ch)| &&triple_quote[*index] != ch)
+                .unwrap();
             return Err(DecoderError::UnexpectedToken {
-                expected: "\"",
-                found_beginning: ch1,
+                expected: "\"\"\"",
+                found_beginning: *ch,
             });
         }
         for _ in 0..3 {
             self.reader.next()?;
         }
         loop {
-            let (ch1, ch2, ch3) = self.reader.peek3()?;
-            if ch1 == '"' && ch2 == '"' && ch3 == '"' {
-                self.reader.next()?;
-                self.reader.next()?;
-                self.reader.next()?;
+            let chars = self.reader.peek_n::<3>()?;
+            if chars == ['"', '"', '"'] {
+                for _ in chars {
+                    self.reader.next()?;
+                }
                 break;
             }
             let (_, bytes) = self.reader.next()?;

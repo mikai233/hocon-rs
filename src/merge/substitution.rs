@@ -7,6 +7,7 @@ use derive_more::Constructor;
 
 use crate::path::Path;
 
+// FIXME remove the space variable
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Constructor)]
 pub(crate) struct Substitution {
     pub(crate) path: Rc<Path>,
