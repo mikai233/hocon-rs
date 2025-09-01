@@ -1,3 +1,4 @@
+use crate::parser::pure::is_hocon_whitespace;
 use crate::{
     parser::pure::{
         is_hocon_horizontal_whitespace,
@@ -152,7 +153,7 @@ impl<R: Read> Parser<R> {
                     }
                 }
                 ch => {
-                    if !FORBIDDEN_CHARACTERS.contains(&ch) && !is_hocon_horizontal_whitespace(ch) {
+                    if !FORBIDDEN_CHARACTERS.contains(&ch) && !is_hocon_whitespace(ch) {
                         let (_, bytes) = self.reader.next()?;
                         scratch.extend_from_slice(bytes);
                     } else {
@@ -162,7 +163,10 @@ impl<R: Read> Parser<R> {
             }
         }
         if scratch.is_empty() {
-            Err(DecoderError::UnexpectedEof)
+            Err(DecoderError::UnexpectedToken {
+                expected: "a valid unquoted string",
+                found_beginning: '\0',
+            })
         } else {
             let s = unsafe { str::from_utf8_unchecked(&scratch) };
             Ok(s.to_string())
@@ -199,10 +203,16 @@ impl<R: Read> Parser<R> {
     pub(crate) fn parse_path_expression(&mut self) -> Result<RawString, DecoderError> {
         let mut paths = vec![];
         let mut scratch = vec![];
-        self.parse_leading_horizontal_whitespace2(&mut scratch)?;
+        let ch = self.reader.peek()?;
+        if is_hocon_horizontal_whitespace(ch) {
+            return Err(DecoderError::UnexpectedToken {
+                expected: "a valid path expression",
+                found_beginning: ch,
+            });
+        }
         loop {
             scratch.clear();
-            self.parse_leading_horizontal_whitespace2(&mut scratch)?;
+            self.parse_horizontal_whitespace(&mut scratch)?;
             let ch = match self.reader.peek() {
                 Ok(ch) => ch,
                 Err(DecoderError::Eof) => {
@@ -222,11 +232,7 @@ impl<R: Read> Parser<R> {
             let path = match ch {
                 '"' => {
                     // quoted string or multiline string
-                    if let Ok((ch1, ch2, ch3)) = self.reader.peek3()
-                        && ch1 == '"'
-                        && ch2 == '"'
-                        && ch3 == '"'
-                    {
+                    if let Ok(chars) = self.reader.peek_n::<3>() && chars == ['"', '"', '"'] {
                         self.parse_multiline_string()?
                     } else {
                         self.parse_quoted_string()?
@@ -239,7 +245,7 @@ impl<R: Read> Parser<R> {
             // We always need to parse the ending whitespace after a path, because we don't
             // know if there are any valid path expressions after it.
             scratch.clear();
-            let ending_space = self.parse_leading_horizontal_whitespace2(&mut scratch)?;
+            let ending_space = self.parse_horizontal_whitespace(&mut scratch)?;
             let ch = match self.reader.peek() {
                 Ok(ch) => ch,
                 Err(DecoderError::Eof) => {
@@ -250,7 +256,8 @@ impl<R: Read> Parser<R> {
                     return Err(err);
                 }
             };
-            if ch == ':' || ch == '{' || ch == '=' || ch == '}' {
+            const ENDING: [char; 5] = [':', '{', '=', '}', '+'];
+            if ENDING.contains(&ch) {
                 paths.push(path);
                 break;
             } else if ch == '.' {
@@ -355,6 +362,7 @@ mod tests {
     #[case("你 好", "你", Some(" 好"))]
     #[case("你 \\r\n不好", "你", Some(" \\r\n不好"))]
     #[case("你 \r\n不好", "你", Some(" \r\n不好"))]
+    #[case("a，\n", "a，", Some("\n"))]
     fn test_valid_unquoted_string(
         #[case] input: &str,
         #[case] expected: &str,
@@ -433,7 +441,6 @@ mod tests {
     #[case(r#"a.b.c "#, "a.b.c", None)]
     #[case(r#"a. b.c "#, "a. b.c", None)]
     #[case(r#"a. "..".c "#, "a. ...c", None)]
-    #[case(r#"  a. "..".c   "#, "a. ...c", None)]
     #[case(r#"a.b.c :"#, "a.b.c", Some(":"))]
     #[case(r#"a.b.c ="#, "a.b.c", Some("="))]
     #[case(r#"a.b.c{"#, "a.b.c", Some("{"))]

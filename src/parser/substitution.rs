@@ -36,12 +36,12 @@ mod tests {
     use crate::parser::substitution::parse_substitution;
 
     #[rstest]
-    #[case("${? \"a .\".b. c}", "${?\"a .\".b. c}", "")]
+    #[case("${? \"a .\".b. c}", "${?a ..b. c}", "")]
     #[case("${? a.b.c}", "${?a.b.c}", "")]
-    #[case("${ \"a .\".b. c / }", "${\"a .\".b. c /}", "")]
+    #[case("${ \"a .\".b. c / }", "${a ..b. c /}", "")]
     #[case("${foo}", "${foo}", "")]
-    #[case("${\"\".foo}abc", "${\"\".foo}", "abc")]
-    #[case("${\"\"\"a\"\"\".\" b.\". c }", "${\"\"\"a\"\"\".\" b.\". c}", "")]
+    #[case("${\"\".foo}abc", "${.foo}", "abc")]
+    #[case("${\"\"\"a\"\"\".\" b.\". c }", "${a. b.. c}", "")]
     #[case("${foo.bar} hello", "${foo.bar}", "hello")]
     #[case("${foo }  ", "${foo}", "")]
     fn test_valid_substitution(

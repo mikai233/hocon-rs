@@ -1,11 +1,14 @@
 use memchr::memchr;
 
+mod array;
 mod comment;
 mod include;
 mod number;
+mod object;
 mod parser;
 mod read;
 mod string;
+mod substitution;
 
 #[inline]
 fn is_hocon_whitespace(c: char) -> bool {
@@ -17,21 +20,29 @@ fn is_hocon_whitespace(c: char) -> bool {
 
 #[inline]
 fn is_hocon_horizontal_whitespace(c: char) -> bool {
-    is_hocon_whitespace(c) && c != '\r' && c != '\n'
+    is_hocon_whitespace(c) && c != '\n'
 }
 
 #[inline]
-fn is_horizontal_ending(s: &str) -> bool {
+fn token_horizontal_ending_position(s: &str) -> Option<usize> {
+    if s.is_empty() {
+        return None;
+    }
     for (i, c) in s.char_indices() {
         if !is_hocon_horizontal_whitespace(c) {
             let remaining = &s[i..];
-            return remaining.is_empty()
-                || matches!(remaining.chars().next(), Some(',') | Some('}') | Some(']'))
+            let ending =
+                // safe: we only check ASCII delimiters ',', '}', ']', '\n'
+                matches!(remaining.as_bytes()[0], b',' | b'}' | b']' | b'\n')
                 || remaining.starts_with("//")
-                || remaining.starts_with('#');
+                    || remaining.starts_with('#')
+                    || remaining.starts_with("\r\n");
+            if ending {
+                return Some(i);
+            }
         }
     }
-    true
+    None
 }
 
 #[inline]

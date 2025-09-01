@@ -1,87 +1,85 @@
 use crate::{
     parser::pure::{
-        find_line_break,
         parser::Parser,
         read::{DecoderError, Read},
     },
     raw::comment::CommentType,
 };
 
-enum CommentState {
-    Start,
-    InProgress,
-    NeedsMore,
-    End,
-}
-
 impl<R: Read> Parser<R> {
     pub(crate) fn parse_comment(&mut self) -> Result<(CommentType, String), DecoderError> {
-        let mut comment = String::new();
-        let mut ty = CommentType::DoubleSlash;
-        let mut state = CommentState::Start;
-        let mut consume_len_utf8 = 0;
+        let mut scratch = vec![];
+        let ch = self.reader.peek()?;
+        let ty = if ch == '#' {
+            self.reader.next()?;
+            CommentType::Hash
+        } else if let Ok((ch1, ch2)) = self.reader.peek2()
+            && ch1 == '/'
+            && ch2 == '/'
+        {
+            self.reader.next()?;
+            self.reader.next()?;
+            CommentType::DoubleSlash
+        } else {
+            return Err(DecoderError::UnexpectedToken {
+                expected: "# or //",
+                found_beginning: ch,
+            });
+        };
         loop {
-            match self.reader.peek_chunk() {
-                Some(s) => match state {
-                    CommentState::Start => {
-                        if s.starts_with("//") {
-                            state = CommentState::InProgress;
-                            consume_len_utf8 += "//".len();
-                        } else if s.starts_with('#') {
-                            state = CommentState::InProgress;
-                            ty = CommentType::Hash;
-                            consume_len_utf8 += '#'.len_utf8();
-                        } else {
-                            return Err(DecoderError::unexpected_token("// or #", s));
+            match self.reader.peek() {
+                Ok(ch) => {
+                    if ch == '\r' {
+                        match self.reader.peek2() {
+                            Ok((_, ch2)) => {
+                                if ch2 != '\n' {
+                                    let (_, bytes) = self.reader.next()?;
+                                    scratch.extend_from_slice(bytes);
+                                } else {
+                                    break;
+                                }
+                            }
+                            Err(DecoderError::Eof) => {
+                                let (_, bytes) = self.reader.next()?;
+                                scratch.extend_from_slice(bytes);
+                            }
+                            Err(err) => {
+                                return Err(err);
+                            }
                         }
-                    }
-                    CommentState::InProgress => match find_line_break(s.as_bytes()) {
-                        Some((pos, _)) => {
-                            comment.push_str(&s[..pos]);
-                            consume_len_utf8 += pos;
-                            state = CommentState::End;
-                        }
-                        None => {
-                            let is_carriage_return =
-                                s.as_bytes().last().map_or(false, |&b| b == b'\r');
-                            let s = if is_carriage_return {
-                                state = CommentState::NeedsMore;
-                                &s[..s.len() - 1]
-                            } else {
-                                s
-                            };
-                            comment.push_str(s);
-                            consume_len_utf8 += s.len();
-                        }
-                    },
-                    CommentState::NeedsMore => match self.reader.fill_buf() {
-                        Ok(_) => {
-                            state = CommentState::InProgress;
-                        }
-                        Err(err) => {
-                            return Err(err);
-                        }
-                    },
-                    CommentState::End => {
+                    } else if ch != '\n' {
+                        let (_, bytes) = self.reader.next()?;
+                        scratch.extend_from_slice(bytes);
+                    } else {
                         break;
                     }
-                },
-                None => match self.reader.fill_buf() {
-                    Ok(_) => {}
-                    Err(DecoderError::Eof) => {
-                        state = CommentState::End;
-                        break;
-                    }
-                    Err(err) => return Err(err),
-                },
+                }
+                Err(DecoderError::Eof) => {
+                    break;
+                }
+                Err(err) => {
+                    return Err(err);
+                }
             }
-            self.reader.consume(consume_len_utf8);
-            consume_len_utf8 = 0;
         }
-        if !matches!(state, CommentState::End) {
-            return Err(DecoderError::UnexpectedEof);
+
+        let s = unsafe { str::from_utf8_unchecked(&scratch) };
+        Ok((ty, s.to_string()))
+    }
+
+    pub(crate) fn drop_comments(&mut self) -> Result<(), DecoderError> {
+        loop {
+            self.drop_whitespace()?;
+            match self.parse_comment() {
+                Ok(_) => {}
+                Err(DecoderError::Eof) | Err(DecoderError::UnexpectedToken { .. }) => {
+                    break Ok(());
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
         }
-        Ok((ty, comment))
     }
 }
 

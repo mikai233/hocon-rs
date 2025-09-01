@@ -1,6 +1,6 @@
 use derive_more::{Constructor, Deref, DerefMut};
 use itertools::Itertools;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use crate::{
     path::Path,
@@ -14,7 +14,7 @@ use crate::{
 ///
 /// This enum covers the three standard HOCON string types, plus an additional variant
 /// to handle string concatenations and path expressions.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 pub enum RawString {
     /// A string literal enclosed in double quotes.
     QuotedString(String),
@@ -33,7 +33,7 @@ pub enum RawString {
 /// This allows the parser to represent `HOCON`'s string concatenation
 /// (`"hello" "world"`) and path expressions (`a.b.c`) in a unified way,
 /// preserving the individual segments.
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Constructor, Deref, DerefMut)]
+#[derive(Clone, Eq, PartialEq, Hash, Constructor, Deref, DerefMut)]
 pub struct ConcatString(Vec<(RawString, Option<String>)>);
 
 impl ConcatString {
@@ -66,6 +66,25 @@ impl ConcatString {
     /// single-value representation for further use.
     pub fn merge(self) -> crate::Result<RawString> {
         Ok(RawString::quoted(self.to_string()))
+    }
+}
+
+impl Debug for ConcatString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (string, space) in self.iter() {
+            match string {
+                RawString::ConcatString(s) => {
+                    write!(f, "{:?}", s)?;
+                }
+                other => {
+                    write!(f, "{:?}", other)?;
+                }
+            }
+            if let Some(space) = space {
+                write!(f, "{}", space)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -192,6 +211,25 @@ impl Display for RawString {
             RawString::UnquotedString(s) => write!(f, "{}", s),
             RawString::MultilineString(s) => write!(f, "{}", s),
             RawString::ConcatString(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl Debug for RawString {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::QuotedString(s) => {
+                write!(f, "\"{}\"", s)
+            }
+            Self::UnquotedString(s) => {
+                write!(f, "{}", s)
+            }
+            Self::MultilineString(s) => {
+                write!(f, "\"\"\"{}\"\"\"", s)
+            }
+            Self::ConcatString(s) => {
+                write!(f, "{:?}", s)
+            }
         }
     }
 }

@@ -1,6 +1,9 @@
-use crate::parser::pure::{
-    is_hocon_horizontal_whitespace, leading_horizontal_whitespace,
-    read::{DecoderError, Read},
+use crate::{
+    parser::pure::{
+        is_hocon_horizontal_whitespace, is_hocon_whitespace,
+        read::{DecoderError, Read},
+    },
+    raw::raw_object::RawObject,
 };
 
 #[derive(Debug)]
@@ -13,34 +16,7 @@ impl<R: Read> Parser<R> {
         Parser { reader }
     }
 
-    pub(crate) fn parse_leading_horizontal_whitespace<F>(
-        &mut self,
-        mut callback: F,
-    ) -> Result<(), DecoderError>
-    where
-        F: FnMut(&str) -> Result<(), DecoderError>,
-    {
-        loop {
-            match self.reader.peek_chunk() {
-                Some(s) => {
-                    let (first, _) = leading_horizontal_whitespace(s);
-                    if first.is_empty() {
-                        return Ok(());
-                    }
-                    let len = first.len();
-                    callback(first)?;
-                    self.reader.consume(len);
-                }
-                None => {
-                    if self.fill_buf()? {
-                        break Ok(());
-                    }
-                }
-            }
-        }
-    }
-
-    pub(crate) fn parse_leading_horizontal_whitespace2<'a>(
+    pub(crate) fn parse_horizontal_whitespace<'a>(
         &mut self,
         scratch: &'a mut Vec<u8>,
     ) -> Result<&'a str, DecoderError> {
@@ -66,20 +42,127 @@ impl<R: Read> Parser<R> {
         Ok(s)
     }
 
-    /// Returns true when it reaches the end of the input.
-    pub(crate) fn fill_buf(&mut self) -> Result<bool, DecoderError> {
-        let mut eof = false;
-        match self.reader.fill_buf() {
-            Ok(_) => {}
-            Err(DecoderError::Eof) => {
-                eof = true;
+    pub(crate) fn drop_horizontal_whitespace(&mut self) -> Result<(), DecoderError> {
+        loop {
+            match self.reader.peek() {
+                Ok(ch) => {
+                    if is_hocon_horizontal_whitespace(ch) {
+                        self.reader.next()?;
+                    } else {
+                        break;
+                    }
+                }
+                Err(DecoderError::Eof) => {
+                    break;
+                }
+                Err(err) => {
+                    return Err(err);
+                }
             }
-            Err(e) => return Err(e),
         }
-        Ok(eof)
+        Ok(())
+    }
+
+    pub(crate) fn drop_whitespace(&mut self) -> Result<(), DecoderError> {
+        loop {
+            match self.reader.peek() {
+                Ok(ch) => {
+                    if is_hocon_whitespace(ch) {
+                        self.reader.next()?;
+                    } else {
+                        break;
+                    }
+                }
+                Err(DecoderError::Eof) => {
+                    break;
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn drop_comma_separator(&mut self) -> Result<bool, DecoderError> {
+        match self.reader.peek() {
+            Ok(ch) => {
+                if ch == ',' {
+                    self.reader.next()?;
+                }
+            }
+            Err(DecoderError::Eof) => return Ok(true),
+            Err(err) => {
+                return Err(err);
+            }
+        }
+        Ok(false)
+    }
+
+    pub(crate) fn parse(mut self) -> Result<RawObject, DecoderError> {
+        self.drop_whitespace()?;
+        let raw_obj = match self.reader.peek() {
+            Ok(ch) => {
+                if ch == '{' {
+                    self.parse_object()?
+                } else {
+                    self.parse_root_object()?
+                }
+            }
+            Err(DecoderError::Eof) => {
+                return Ok(RawObject::default());
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        };
+        self.drop_whitespace()?;
+        match self.reader.peek() {
+            Ok(ch) => {
+                return Err(DecoderError::UnexpectedToken {
+                    expected: "end of file",
+                    found_beginning: ch,
+                });
+            }
+            Err(DecoderError::Eof) => {}
+            Err(err) => {
+                return Err(err);
+            }
+        }
+        Ok(raw_obj)
     }
 }
 
-pub(crate) fn empty_callback(_s: &str) -> Result<(), DecoderError> {
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use std::io::BufReader;
+
+    use rstest::rstest;
+
+    use crate::parser::pure::{
+        parser::Parser,
+        read::{DecoderError, StreamRead},
+    };
+
+    #[rstest]
+    #[case("resources/base.conf")]
+    #[case("resources/concat.conf")]
+    #[case("resources/concat2.conf")]
+    #[case("resources/concat3.conf")]
+    #[case("resources/demo.conf")]
+    #[case("resources/deserialize.conf")]
+    #[case("resources/empty.conf")]
+    #[case("resources/included.conf")]
+    #[case("resources/main.conf")]
+    // #[case("resources/max_depth.conf")]
+    fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<(), DecoderError> {
+        use crate::parser::pure::read::MIN_BUFFER_SIZE;
+
+        let file = std::fs::File::open(path)?;
+        let read: StreamRead<_, MIN_BUFFER_SIZE> = StreamRead::new(BufReader::new(file));
+        let parser = Parser::new(read);
+        let raw = parser.parse()?;
+        tracing::debug!("{}", raw);
+        Ok(())
+    }
 }

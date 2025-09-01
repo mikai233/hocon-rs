@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
+use crate::parser::pure::token_horizontal_ending_position;
 use crate::Result;
-use crate::parser::pure::is_horizontal_ending;
 
 fn split_leading_number(s: &str) -> Option<(&str, &str)> {
     let mut chars = s.char_indices().peekable();
@@ -72,10 +72,10 @@ fn split_leading_number(s: &str) -> Option<(&str, &str)> {
 fn parse_number(s: &str) -> Option<Result<(serde_json::Number, &str)>> {
     match split_leading_number(s) {
         None => None,
-        Some((number_str, remain)) => {
-            if is_horizontal_ending(remain) {
+        Some((number_str, remains)) => {
+            if remains.is_empty() || token_horizontal_ending_position(remains).is_some() {
                 let result = serde_json::Number::from_str(&number_str)
-                    .map(|n| (n, remain))
+                    .map(|n| (n, remains))
                     .map_err(|e| crate::error::Error::from(e));
                 Some(result)
             } else {

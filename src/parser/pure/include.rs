@@ -1,147 +1,123 @@
 use crate::{
     parser::pure::{
-        leading_horizontal_whitespace,
-        parser::{empty_callback, Parser},
+        parser::Parser,
         read::{DecoderError, Read},
     },
     raw::include::{Inclusion, Location},
 };
 
-enum InclusionState {
-    Start,
-    BeginRequired,
-    BeginLocation,
-    Path,
-    EndLocation,
-    EndRequired,
-    NeedsMore(Box<InclusionState>),
-    Finished,
-}
+pub(crate) const INCLUDE: [char; 7] = ['i', 'n', 'c', 'l', 'u', 'd', 'e'];
 
 impl<R: Read> Parser<R> {
     pub(crate) fn parse_include(&mut self) -> Result<Inclusion, DecoderError> {
         let mut location: Option<Location> = None;
         let mut required = false;
-        let mut path = String::new();
-        let mut state = InclusionState::Start;
-        let mut consume_len_utf8 = 0;
-        loop {
-            match self.reader.peek_chunk() {
-                Some(s) => match state {
-                    InclusionState::Start => {
-                        if s.starts_with("include") {
-                            state = InclusionState::BeginRequired;
-                            consume_len_utf8 += 7;
-                        } else if s.starts_with('i') {
-                            state = InclusionState::NeedsMore(Box::new(state));
-                        } else {
-                            return Err(DecoderError::unexpected_token("include", s));
-                        }
-                    }
-                    InclusionState::BeginRequired => {
-                        let (f, s) = leading_horizontal_whitespace(s);
-                        if s.starts_with("required(") {
-                            required = true;
-                            state = InclusionState::BeginLocation;
-                            consume_len_utf8 += f.len();
-                            consume_len_utf8 += 9;
-                        } else if s.starts_with('r') || s.is_empty() {
-                            state = InclusionState::NeedsMore(Box::new(state));
-                        } else {
-                            state = InclusionState::BeginLocation;
-                        }
-                    }
-                    InclusionState::BeginLocation => {
-                        let (f, s) = leading_horizontal_whitespace(s);
-                        if s.starts_with("file(") {
-                            location = Some(Location::File);
-                            state = InclusionState::Path;
-                            consume_len_utf8 += f.len();
-                            consume_len_utf8 += 5;
-                        } else if s.starts_with("url(") {
-                            location = Some(Location::Url);
-                            state = InclusionState::Path;
-                            consume_len_utf8 += f.len();
-                            consume_len_utf8 += 4;
-                        } else if s.starts_with("classpath(") {
-                            location = Some(Location::Classpath);
-                            state = InclusionState::Path;
-                            consume_len_utf8 += f.len();
-                            consume_len_utf8 += 10;
-                        } else if s.is_empty()
-                            || s.starts_with('f')
-                            || s.starts_with('u')
-                            || s.starts_with('c')
-                        {
-                            state = InclusionState::NeedsMore(Box::new(state));
-                        } else {
-                            state = InclusionState::Path;
-                        }
-                    }
-                    InclusionState::Path => {
-                        self.parse_leading_horizontal_whitespace(empty_callback)?;
-                        path = self.parse_quoted_string()?;
-                        if location.is_some() {
-                            state = InclusionState::EndLocation;
-                        } else if required {
-                            state = InclusionState::EndRequired;
-                        } else {
-                            state = InclusionState::Finished;
-                        }
-                    }
-                    InclusionState::EndLocation => {
-                        let (f, s) = leading_horizontal_whitespace(s);
-                        if s.starts_with(')') {
-                            consume_len_utf8 += f.len();
-                            consume_len_utf8 += 1;
-                            if required {
-                                state = InclusionState::EndRequired;
-                            } else {
-                                state = InclusionState::Finished;
-                            }
-                        } else if s.is_empty() {
-                            state = InclusionState::NeedsMore(Box::new(state));
-                        } else {
-                            return Err(DecoderError::unexpected_token(")", s));
-                        }
-                    }
-                    InclusionState::EndRequired => {
-                        let (f, s) = leading_horizontal_whitespace(s);
-                        if s.starts_with(')') {
-                            consume_len_utf8 += f.len();
-                            consume_len_utf8 += 1;
-                            state = InclusionState::Finished
-                        } else if s.is_empty() {
-                            state = InclusionState::NeedsMore(Box::new(state));
-                        } else {
-                            return Err(DecoderError::unexpected_token(")", s));
-                        }
-                    }
-                    InclusionState::NeedsMore(previous) => {
-                        let eof = self.fill_buf()?;
-                        if eof {
-                            return Err(DecoderError::UnexpectedEof);
-                        } else {
-                            state = *previous;
-                        }
-                    }
-                    InclusionState::Finished => {
-                        break;
-                    }
-                },
-                None => {
-                    if self.fill_buf()? {
-                        break;
-                    }
+        let ch = self.reader.peek()?;
+        if ch != 'i' {
+            return Err(DecoderError::UnexpectedToken {
+                expected: "include",
+                found_beginning: ch,
+            });
+        }
+        // At this point, we still don't know if it's an include or something else,
+        // so we need to use peek instead of consuming it
+        const N: usize = 7;
+        let chars = self.reader.peek_n::<N>()?;
+        if chars != INCLUDE {
+            let (_, ch) = chars
+                .iter()
+                .enumerate()
+                .find(|(index, ch)| &&INCLUDE[*index] != ch)
+                .unwrap();
+            return Err(DecoderError::UnexpectedToken {
+                expected: "include",
+                found_beginning: *ch,
+            });
+        }
+        for _ in 0..N {
+            self.reader.next()?;
+        }
+
+        self.drop_horizontal_whitespace()?;
+        let ch = self.reader.peek()?;
+        if ch == 'r' {
+            for ele in ['r', 'e', 'q', 'u', 'i', 'r', 'e', 'd', '('] {
+                let (next, _) = self.reader.next()?;
+                if ele != next {
+                    return Err(DecoderError::UnexpectedToken {
+                        expected: "required(",
+                        found_beginning: next,
+                    });
                 }
             }
-            self.reader.consume(consume_len_utf8);
-            consume_len_utf8 = 0;
+            required = true
         }
-        if !matches!(state, InclusionState::Finished) {
-            return Err(DecoderError::UnexpectedEof);
+        if required {
+            self.drop_horizontal_whitespace()?;
         }
-        let inclusion = Inclusion::new(path, required, location, None);
+        let ch = self.reader.peek()?;
+        match ch {
+            'f' => {
+                for ele in ['f', 'i', 'l', 'e', '('] {
+                    let (next, _) = self.reader.next()?;
+                    if ele != next {
+                        return Err(DecoderError::UnexpectedToken {
+                            expected: "file(",
+                            found_beginning: next,
+                        });
+                    }
+                }
+                location = Some(Location::File);
+            }
+            'u' => {
+                for ele in ['u', 'r', 'l', '('] {
+                    let (next, _) = self.reader.next()?;
+                    if ele != next {
+                        return Err(DecoderError::UnexpectedToken {
+                            expected: "url(",
+                            found_beginning: next,
+                        });
+                    }
+                }
+                location = Some(Location::Url);
+            }
+            'c' => {
+                for ele in ['c', 'l', 'a', 's', 's', 'p', 'a', 't', 'h', '('] {
+                    let (next, _) = self.reader.next()?;
+                    if ele != next {
+                        return Err(DecoderError::UnexpectedToken {
+                            expected: "classpath(",
+                            found_beginning: next,
+                        });
+                    }
+                }
+                location = Some(Location::Classpath);
+            }
+            '"' => {}
+            ch => {
+                return Err(DecoderError::UnexpectedToken {
+                    expected: "file( or classpath( or url( or \"",
+                    found_beginning: ch,
+                });
+            }
+        }
+        if location.is_some() {
+            self.drop_horizontal_whitespace()?;
+        }
+        let include_path = self.parse_quoted_string()?;
+        for _ in [location.is_some(), required].iter().filter(|x| **x) {
+            self.drop_horizontal_whitespace()?;
+            let ch = self.reader.peek()?;
+            if ch != ')' {
+                return Err(DecoderError::UnexpectedToken {
+                    expected: ")",
+                    found_beginning: ch,
+                });
+            } else {
+                self.reader.next()?;
+            }
+        }
+        let inclusion = Inclusion::new(include_path, required, location, None);
         Ok(inclusion)
     }
 }
