@@ -4,6 +4,23 @@ use crate::raw::include::Inclusion;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("{0}")]
+    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("Invalid escape")]
+    InvalidEscape,
+    #[error(
+        "Unexpected token, expected:{}, found beginning:{}",
+        expected,
+        found_beginning
+    )]
+    UnexpectedToken {
+        expected: &'static str,
+        found_beginning: char,
+    },
+    #[error("End of file")]
+    Eof,
     #[error("Cannot convert `{from}` to `{to}`")]
     InvalidConversion {
         from: &'static str,
@@ -11,11 +28,9 @@ pub enum Error {
     },
     #[error("Invalid path expression: {0}")]
     InvalidPathExpression(&'static str),
-    #[error("Parse error: {0}")]
-    ParseError(String),
-    #[error("{0}")]
-    SerdeJsonError(#[from] serde_json::Error),
-    #[error("Cannot concatenation different type {left_ty}:{left} and {right_ty}:{right} at {path}")]
+    #[error(
+        "Cannot concatenation different type {left_ty}:{left} and {right_ty}:{right} at {path}"
+    )]
     ConcatenationDifferentType {
         path: String,
         left: String,
@@ -38,7 +53,7 @@ pub enum Error {
     #[error("Object nesting depth exceeded the limit of {max_depth} levels")]
     RecursionDepthExceeded { max_depth: u32 },
     #[error("Inclusion: {inclusion} error: {error}")]
-    InclusionError {
+    Include {
         inclusion: Inclusion,
         error: Box<Error>,
     },
@@ -46,17 +61,19 @@ pub enum Error {
     CycleSubstitution(String),
     #[error("{0}")]
     DeserializeError(String),
-    #[error("{message}")]
-    ConfigNotFound {
-        message: String,
-        error: Option<Box<dyn std::error::Error>>,
-    },
-    #[error("Absolute path: {0} in classpath is invalid")]
-    AbsolutePathInClasspath(String),
     #[error("{0}")]
     PropertiesParseError(#[from] java_properties::PropertiesError),
     #[error("{0}")]
     UrlParseError(#[from] url::ParseError),
+}
+
+impl Error {
+    pub fn unexpected_token(expected: &'static str, found_beginning: char) -> Self {
+        Self::UnexpectedToken {
+            expected,
+            found_beginning,
+        }
+    }
 }
 
 impl serde::de::Error for Error {

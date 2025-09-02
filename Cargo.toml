@@ -6,8 +6,6 @@ edition = "2024"
 [dependencies]
 encoding_rs = "0.8.35"
 memchr = "2.7.5"
-nom = "8.0.0"
-nom-language = "0.1.0"
 ahash = "0.8.12"
 thiserror = "2.0.12"
 serde = { version = "1.0.219" }
@@ -32,6 +30,11 @@ tracing = "0.1.41"
 ctor = "0.5.0"
 serde = { version = "1.0.219", features = ["derive"] }
 rstest = "0.26.1"
+criterion = "0.7.0"
+
+[[bench]]
+name = "parser_bench"
+harness = false
 
 [features]
 # url = ["reqwest"]

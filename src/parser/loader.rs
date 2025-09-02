@@ -1,30 +1,50 @@
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-use crate::parser::error::HoconParseError;
+use crate::Result;
+use crate::config_options::ConfigOptions;
+use crate::error::Error;
+use crate::parser::parser::HoconParser;
+use crate::parser::read::{DEFAULT_BUFFER, StreamRead};
 use crate::{
-    parser::{config_parse_options::ConfigParseOptions, parse},
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
     syntax::Syntax,
 };
 use itertools::Itertools;
-use nom::Needed;
-use nom_language::error::convert_error;
 
+#[derive(Default)]
 struct ConfigPath {
-    path: PathBuf,
-    syntax: Syntax,
+    hcon: Option<PathBuf>,
+    json: Option<PathBuf>,
+    properties: Option<PathBuf>,
 }
 
-fn load_config_paths(path: impl AsRef<Path>) -> Vec<ConfigPath> {
+impl ConfigPath {
+    fn set_path(&mut self, path: PathBuf, syntax: Syntax) {
+        match syntax {
+            Syntax::Hocon => {
+                self.hcon = Some(path);
+            }
+            Syntax::Json => {
+                self.json = Some(path);
+            }
+            Syntax::Properties => {
+                self.properties = Some(path);
+            }
+        }
+    }
+}
+
+fn find_config_path(path: impl AsRef<Path>) -> Result<ConfigPath> {
     let path = path.as_ref();
-    let syntax = if let Some(extension) = path.extension()
+    let extension_syntax = if let Some(extension) = path.extension()
         && let Some(extension) = extension.to_str()
     {
-        if extension.eq_ignore_ascii_case("json") {
+        if extension == "json" {
             Some(Syntax::Json)
-        } else if extension.eq_ignore_ascii_case("conf") {
+        } else if extension == "conf" {
             Some(Syntax::Hocon)
-        } else if extension.eq_ignore_ascii_case("properties") {
+        } else if extension == "properties" {
             Some(Syntax::Properties)
         } else {
             None
@@ -32,14 +52,17 @@ fn load_config_paths(path: impl AsRef<Path>) -> Vec<ConfigPath> {
     } else {
         None
     };
-    let mut result = vec![];
-    match syntax {
+    let mut config_path = ConfigPath::default();
+    match extension_syntax {
         Some(syntax) => {
-            let mut path = path.to_path_buf();
-            path.set_extension(syntax.to_string());
+            let path = path.to_path_buf();
             if path.is_file() {
-                let config_path = ConfigPath { path, syntax };
-                result.push(config_path);
+                config_path.set_path(path, syntax);
+            } else {
+                return Err(Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    path.display().to_string(),
+                )));
             }
         }
         None => {
@@ -50,89 +73,59 @@ fn load_config_paths(path: impl AsRef<Path>) -> Vec<ConfigPath> {
             let mut properties_path = path.to_path_buf();
             properties_path.set_extension("properties");
             if json_path.is_file() {
-                let config_path = ConfigPath {
-                    path: json_path,
-                    syntax: Syntax::Json,
-                };
-                result.push(config_path);
+                config_path.set_path(json_path, Syntax::Json);
             }
             if hocon_path.is_file() {
-                let config_path = ConfigPath {
-                    path: hocon_path,
-                    syntax: Syntax::Hocon,
-                };
-                result.push(config_path);
+                config_path.set_path(hocon_path, Syntax::Hocon);
             }
             if properties_path.is_file() {
-                let config_path = ConfigPath {
-                    path: properties_path,
-                    syntax: Syntax::Properties,
-                };
-                result.push(config_path);
+                config_path.set_path(properties_path, Syntax::Properties);
             }
         }
     }
-    result
+    if [
+        &config_path.hcon,
+        &config_path.json,
+        &config_path.properties,
+    ]
+    .iter()
+    .all(|p| p.is_none())
+    {
+        let message = format!(
+            "No configuration file (.conf, .json, .properties) was found at the given path: {}",
+            path.display(),
+        );
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            message,
+        )));
+    }
+    Ok(config_path)
 }
 
-pub(crate) fn load_from_path(
-    path: impl AsRef<Path>,
-    parse_opts: ConfigParseOptions,
-) -> crate::Result<RawObject> {
-    let path_ref = path.as_ref();
-    let paths = load_config_paths(path_ref);
-    fn construct_error(path: &Path, io: Option<std::io::Error>) -> crate::error::Error {
-        let message = format!(
-            "No configuration file (.conf, .json, .properties) was found at the given path: {}",
-            path.display()
-        );
-        crate::error::Error::ConfigNotFound {
-            message,
-            error: io.map(|e| Box::new(e) as Box<dyn std::error::Error>),
-        }
-    }
-    if paths.is_empty() {
-        let message = format!(
-            "No configuration file (.conf, .json, .properties) was found at the given path: {}",
-            path_ref.display()
-        );
-        let error = crate::error::Error::ConfigNotFound {
-            message,
-            error: None,
-        };
-        return Err(error);
-    }
+pub(crate) fn load_from_path(path: impl AsRef<Path>, options: ConfigOptions) -> Result<RawObject> {
+    let config_path = find_config_path(&path)?;
     let mut result = vec![];
-    for ConfigPath { path, syntax } in paths {
-        let raw = match syntax {
-            Syntax::Hocon => match std::fs::read_to_string(&path) {
-                Ok(data) => load_hocon(&data, parse_opts.clone())?,
-                Err(error) => {
-                    return Err(construct_error(&path, Some(error)));
-                }
-            },
-            Syntax::Json => match std::fs::File::open(&path) {
-                Ok(file) => {
-                    let reader = std::io::BufReader::new(file);
-                    load_json(reader)?
-                }
-                Err(error) => {
-                    return Err(construct_error(&path, Some(error)));
-                }
-            },
-            Syntax::Properties => match std::fs::File::open(&path) {
-                Ok(file) => {
-                    let reader = std::io::BufReader::new(file);
-                    load_properties(reader)?
-                }
-                Err(error) => {
-                    return Err(construct_error(&path, Some(error)));
-                }
-            },
-        };
-        result.push((raw, syntax));
+    if let Some(hocon) = config_path.hcon {
+        let file = std::fs::File::open(hocon)?;
+        let reader = std::io::BufReader::new(file);
+        let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(reader);
+        let raw_obj = parse_hocon(read, options.clone())?;
+        result.push((raw_obj, Syntax::Hocon));
     }
-    let cmp = parse_opts.options.compare;
+    if let Some(json) = config_path.json {
+        let file = std::fs::File::open(json)?;
+        let reader = std::io::BufReader::new(file);
+        let raw_obj = parse_json(reader)?;
+        result.push((raw_obj, Syntax::Json));
+    }
+    if let Some(properties) = config_path.properties {
+        let file = std::fs::File::open(properties)?;
+        let reader = std::io::BufReader::new(file);
+        let raw_obj = parse_properties(reader)?;
+        result.push((raw_obj, Syntax::Json));
+    }
+    let cmp = &options.compare;
     let raw = result
         .into_iter()
         .sorted_by(|(_, s1), (_, s2)| cmp(s1, s2))
@@ -143,10 +136,7 @@ pub(crate) fn load_from_path(
     Ok(raw)
 }
 
-pub(crate) fn load_from_url(
-    url: url::Url,
-    parse_opts: ConfigParseOptions,
-) -> crate::Result<RawObject> {
+pub(crate) fn load_from_url(url: url::Url, options: ConfigOptions) -> Result<RawObject> {
     let client = reqwest::blocking::Client::new();
     match client.get(url).send() {
         Ok(response) => {
@@ -182,76 +172,56 @@ pub(crate) fn load_from_url(
                 };
             let syntax = extension_syntax.or(header_syntax).unwrap_or(Syntax::Hocon);
             match syntax {
-                Syntax::Hocon => match response.text() {
-                    Ok(data) => load_hocon(&data, parse_opts),
-                    Err(error) => {
-                        let message = format!(
-                            "Can't get response content from {}, error: {}",
-                            error.url().unwrap().as_str(),
-                            error
-                        );
-                        let error = Box::new(error);
-                        Err(crate::error::Error::ConfigNotFound {
-                            message,
-                            error: Some(error),
-                        })
-                    }
-                },
-                Syntax::Json => load_json(response),
-                Syntax::Properties => load_properties(response),
+                Syntax::Hocon => {
+                    let read: StreamRead<_, 4096> = StreamRead::new(BufReader::new(response));
+                    parse_hocon(read, options)
+                }
+                Syntax::Json => parse_json(response),
+                Syntax::Properties => parse_properties(response),
             }
         }
-        Err(error) => {
-            let message = format!(
-                "Url resource not found: {}, error: {}",
-                error.url().unwrap().as_str(),
-                error
-            );
-            let error = Box::new(error);
-            Err(crate::error::Error::ConfigNotFound {
-                message,
-                error: Some(error),
-            })
-        }
+        Err(error) => Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            error,
+        ))),
     }
 }
 
 pub(crate) fn load_from_classpath(
     path: impl AsRef<Path>,
-    parse_opts: ConfigParseOptions,
-) -> crate::Result<RawObject> {
+    options: ConfigOptions,
+) -> Result<RawObject> {
     let path = path.as_ref();
     if path.is_absolute() {
-        return Err(crate::error::Error::AbsolutePathInClasspath(
-            path.display().to_string(),
-        ));
+        return Err(Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Absolute path in classpath",
+        )));
     }
-    if !parse_opts.options.classpath.is_empty() {
-        for classpath in &parse_opts.options.classpath {
-            let candidate = Path::new(classpath).join(path);
-            match load_from_path(&candidate, parse_opts.clone()) {
-                Ok(raw) => {
-                    return Ok(raw);
-                }
-                Err(crate::error::Error::ConfigNotFound { .. }) => {}
-                error => {
-                    return error;
-                }
+    for classpath in &*options.classpath {
+        let candidate = Path::new(classpath).join(path);
+        match load_from_path(&candidate, options.clone()) {
+            Ok(raw) => {
+                return Ok(raw);
+            }
+            Err(crate::error::Error::Io(_)) => {}
+            error => {
+                return error;
             }
         }
     }
     let message = format!(
         "No configuration file (.conf, .json, .properties) was found at the given path: {} in classpath: [{}]",
         path.display(),
-        parse_opts.options.classpath.join(", ")
+        options.classpath.join(", ")
     );
-    return Err(crate::error::Error::ConfigNotFound {
+    return Err(Error::Io(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
         message,
-        error: None,
-    });
+    )));
 }
 
-fn load_json<R>(reader: R) -> crate::Result<RawObject>
+fn parse_json<R>(reader: R) -> Result<RawObject>
 where
     R: std::io::Read,
 {
@@ -267,39 +237,14 @@ where
     }
 }
 
-pub(crate) fn load_hocon(
-    s: impl AsRef<str>,
-    options: ConfigParseOptions,
-) -> crate::Result<RawObject> {
-    let s = s.as_ref();
-    let raw_object = match parse(s, options) {
-        Ok((_, raw)) => raw,
-        Err(error) => {
-            return match error {
-                nom::Err::Incomplete(i) => {
-                    let size = match i {
-                        Needed::Unknown => "Unknown".to_string(),
-                        Needed::Size(s) => s.get().to_string(),
-                    };
-                    Err(crate::error::Error::ParseError(format!(
-                        "Incomplete parse: {}",
-                        size
-                    )))
-                }
-                nom::Err::Error(e) | nom::Err::Failure(e) => match e {
-                    HoconParseError::Nom(e) => {
-                        let err_msg = convert_error(s, e);
-                        Err(crate::error::Error::ParseError(err_msg))
-                    }
-                    HoconParseError::Other(error) => Err(error),
-                },
-            };
-        }
-    };
-    Ok(raw_object)
+pub(crate) fn parse_hocon<R>(read: R, options: ConfigOptions) -> Result<RawObject>
+where
+    R: crate::parser::read::Read,
+{
+    HoconParser::with_options(read, options).parse()
 }
 
-fn load_properties<R>(reader: R) -> crate::Result<RawObject>
+fn parse_properties<R>(reader: R) -> crate::Result<RawObject>
 where
     R: std::io::Read,
 {
@@ -312,7 +257,7 @@ where
     Ok(raw_object)
 }
 
-fn load_environments() -> RawObject {
+fn parse_environments() -> RawObject {
     let mut raw = RawObject::default();
     for (key, value) in std::env::vars() {
         raw.push(ObjectField::key_value(key, RawValue::quoted_string(value)));
@@ -320,20 +265,17 @@ fn load_environments() -> RawObject {
     raw
 }
 
-pub(crate) fn load(
-    path: impl AsRef<Path>,
-    parse_opts: ConfigParseOptions,
-) -> crate::Result<RawObject> {
-    let env_raw = if parse_opts.options.use_system_environment {
-        Some(load_environments())
+pub(crate) fn load(path: impl AsRef<Path>, options: ConfigOptions) -> Result<RawObject> {
+    let env_raw = if options.use_system_environment {
+        Some(parse_environments())
     } else {
         None
     };
     let path = path.as_ref();
-    let raw = match load_from_path(path, parse_opts.clone()) {
+    let raw = match load_from_path(path, options.clone()) {
         Ok(raw) => raw,
-        Err(crate::error::Error::ConfigNotFound { .. }) => {
-            load_from_classpath(path, parse_opts.into())?
+        Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
+            load_from_classpath(path, options)?
         }
         error => {
             return error;

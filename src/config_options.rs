@@ -1,20 +1,40 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, rc::Rc};
 
 use crate::syntax::Syntax;
-use derive_more::Constructor;
 
-#[derive(Clone, Constructor)]
+#[derive(Clone)]
 pub struct ConfigOptions {
     pub use_system_environment: bool,
-    pub compare: Arc<Box<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>>,
-    pub classpath: Vec<String>,
+    pub compare: Rc<Box<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>>,
+    pub classpath: Rc<Vec<String>>,
+}
+
+impl ConfigOptions {
+    pub fn new(use_system_env: bool, classpath: Vec<String>) -> Self {
+        Self {
+            use_system_environment: use_system_env,
+            compare: Rc::new(Box::new(Syntax::cmp)),
+            classpath: Rc::new(classpath),
+        }
+    }
+
+    pub fn with_compare<C>(use_system_env: bool, classpath: Vec<String>, compare: C) -> Self
+    where
+        C: Fn(&Syntax, &Syntax) -> std::cmp::Ordering + 'static,
+    {
+        Self {
+            use_system_environment: use_system_env,
+            compare: Rc::new(Box::new(compare)),
+            classpath: Rc::new(classpath),
+        }
+    }
 }
 
 impl Default for ConfigOptions {
     fn default() -> Self {
         Self {
             use_system_environment: false,
-            compare: Arc::new(Box::new(Syntax::cmp)),
+            compare: Rc::new(Box::new(Syntax::cmp)),
             classpath: Default::default(),
         }
     }
@@ -32,7 +52,7 @@ impl Debug for ConfigOptions {
 impl PartialEq for ConfigOptions {
     fn eq(&self, other: &Self) -> bool {
         self.use_system_environment == other.use_system_environment
-            && Arc::ptr_eq(&self.compare, &other.compare)
+            && Rc::ptr_eq(&self.compare, &other.compare)
             && self.classpath == other.classpath
     }
 }

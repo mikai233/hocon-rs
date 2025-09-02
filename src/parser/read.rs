@@ -1,76 +1,43 @@
 use std::io::{self};
 use std::str;
 
+use crate::Result;
+use crate::error::Error;
 use encoding_rs::{Decoder, UTF_8};
-use nom::AsBytes;
 
 // We should peek at least 7 bytes because the include token has a length of 7 bytes.
 pub(crate) const MIN_BUFFER_SIZE: usize = 7;
+pub(crate) const DEFAULT_BUFFER: usize = 4096;
 
-#[derive(Debug)]
-pub enum DecoderError {
-    Io(io::Error),
-    Utf8(str::Utf8Error),
-    Serde(serde_json::Error),
-    Incomplete,
-    InvalidEscape,
-    UnexpectedToken {
-        expected: &'static str,
-        found_beginning: char,
-    },
-    Eof,
-}
-
-impl DecoderError {
-    pub(crate) fn unexpected_token(expected: &'static str, s: &str) -> Self {
-        DecoderError::UnexpectedToken {
-            expected,
-            found_beginning: s.chars().next().unwrap_or_default(),
-        }
-    }
-}
-
-impl From<io::Error> for DecoderError {
-    fn from(err: io::Error) -> Self {
-        DecoderError::Io(err)
-    }
-}
-
-impl From<str::Utf8Error> for DecoderError {
-    fn from(err: str::Utf8Error) -> Self {
-        DecoderError::Utf8(err)
-    }
-}
-
-impl From<serde_json::Error> for DecoderError {
-    fn from(value: serde_json::Error) -> Self {
-        DecoderError::Serde(value)
-    }
+#[derive(Debug, Clone, Copy)]
+pub struct Position {
+    pub line: usize,
+    pub column: usize,
 }
 
 pub trait Read {
-    fn peek_chunk(&self) -> Option<&str>;
+    fn fill_buf(&mut self) -> Result<()>;
 
-    fn fill_buf(&mut self) -> Result<(), DecoderError>;
+    fn position(&self) -> Position;
 
-    fn peek_n<const N: usize>(&mut self) -> Result<[char; N], DecoderError>;
+    fn peek_n<const N: usize>(&mut self) -> Result<[char; N]>;
 
-    fn peek(&mut self) -> Result<char, DecoderError> {
+    fn peek(&mut self) -> Result<char> {
         let chars = self.peek_n::<1>()?;
         Ok(chars[0])
     }
 
-    fn peek2(&mut self) -> Result<(char, char), DecoderError> {
+    fn peek2(&mut self) -> Result<(char, char)> {
         let chars = self.peek_n::<2>()?;
         Ok((chars[0], chars[1]))
     }
 
-    fn peek3(&mut self) -> Result<(char, char, char), DecoderError> {
+    fn peek3(&mut self) -> Result<(char, char, char)> {
         let chars = self.peek_n::<3>()?;
         Ok((chars[0], chars[1], chars[2]))
     }
 
-    fn next(&mut self) -> Result<(char, &[u8]), DecoderError>;
+    fn next(&mut self) -> Result<(char, &[u8])>;
 }
 
 #[inline]
@@ -99,7 +66,7 @@ fn decode_first_char(slice: &[u8]) -> Option<(char, usize)> {
     }
 }
 
-pub struct StreamRead<R: std::io::Read, const N: usize> {
+pub struct StreamRead<R: std::io::Read, const N: usize = 8192> {
     inner: R,
     decoder: Decoder,
     buffer: [u8; N],
@@ -126,9 +93,9 @@ impl<R: std::io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
         }
     }
 
-    fn fill_buf(&mut self) -> Result<(), DecoderError> {
+    fn fill_buf(&mut self) -> Result<()> {
         if self.eof {
-            return Err(DecoderError::Eof);
+            return Err(Error::Eof);
         }
 
         // 回收前面已消费的空间，类似滑动窗口
@@ -150,9 +117,11 @@ impl<R: std::io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
                 let (_, _, written, err) = self.decoder.decode_to_utf8(b"", empty_buf, true);
                 self.decoded_end += written;
                 if err {
-                    return Err(
-                        io::Error::new(io::ErrorKind::InvalidData, "无效的UTF-8序列").into(),
-                    );
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Invalid UTF-8 sequence",
+                    )
+                    .into());
                 }
                 break;
             }
@@ -163,7 +132,9 @@ impl<R: std::io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
             self.decoded_end += written;
 
             if err {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "无效的UTF-8序列").into());
+                return Err(
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-8 sequence").into(),
+                );
             }
 
             if self.decoded_end > 0 {
@@ -176,20 +147,12 @@ impl<R: std::io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
 }
 
 impl<R: std::io::BufRead, const BUFFER: usize> Read for StreamRead<R, BUFFER> {
-    fn peek_chunk(&self) -> Option<&str> {
-        if self.decoded_start == self.decoded_end {
-            return None;
-        }
-        let slice = &self.buffer[self.decoded_start..self.decoded_end];
-        Some(unsafe { str::from_utf8_unchecked(slice) })
-    }
-
-    fn fill_buf(&mut self) -> Result<(), DecoderError> {
+    fn fill_buf(&mut self) -> Result<()> {
         self.fill_buf()
     }
 
     #[inline]
-    fn peek_n<const N: usize>(&mut self) -> Result<[char; N], DecoderError> {
+    fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
         debug_assert!(N > 0 && N <= BUFFER);
 
         let mut out: [char; N] = ['\0'; N];
@@ -212,7 +175,7 @@ impl<R: std::io::BufRead, const BUFFER: usize> Read for StreamRead<R, BUFFER> {
 
                 // 仍然没有数据 => EOF
                 if self.decoded_start == self.decoded_end {
-                    return Err(DecoderError::Eof);
+                    return Err(Error::Eof);
                 }
 
                 // 继续从“已前进 off 字节”的位置接着解码
@@ -237,18 +200,18 @@ impl<R: std::io::BufRead, const BUFFER: usize> Read for StreamRead<R, BUFFER> {
             // 如果这里拿不到字符，多半是遇到“被截断的多字节字符”，再填充一次继续
             self.fill_buf()?;
             if self.decoded_start == self.decoded_end {
-                return Err(DecoderError::Eof);
+                return Err(Error::Eof);
             }
             // 回到循环顶部，保持 off 不变，接着从相同逻辑位置继续
         }
     }
 
-    fn next(&mut self) -> Result<(char, &[u8]), DecoderError> {
+    fn next(&mut self) -> Result<(char, &[u8])> {
         if self.decoded_start == self.decoded_end {
             self.fill_buf()?;
         }
         let slice = &self.buffer[self.decoded_start..self.decoded_end];
-        let (ch, len_utf8) = decode_first_char(slice).ok_or(DecoderError::Eof)?;
+        let (ch, len_utf8) = decode_first_char(slice).ok_or(Error::Eof)?;
         if ch == '\n' {
             self.start_of_line += self.col + 1;
             self.line += 1;
@@ -264,35 +227,92 @@ impl<R: std::io::BufRead, const BUFFER: usize> Read for StreamRead<R, BUFFER> {
         }
         Ok((ch, bytes))
     }
+
+    fn position(&self) -> Position {
+        Position {
+            line: self.line,
+            column: self.col,
+        }
+    }
 }
 
 pub struct SliceRead<'a> {
-    slice: &'a str,
+    slice: &'a [u8],
     index: usize,
 }
 
 impl<'a> SliceRead<'a> {
-    pub fn new(slice: &'a str) -> Self {
+    pub fn new(slice: &'a [u8]) -> Self {
         SliceRead { slice, index: 0 }
+    }
+
+    fn position_of_index(&self, i: usize) -> Position {
+        let start_of_line = match memchr::memrchr(b'\n', &self.slice[..i]) {
+            Some(position) => position + 1,
+            None => 0,
+        };
+        Position {
+            line: 1 + memchr::memchr_iter(b'\n', &self.slice[..start_of_line]).count(),
+            column: i - start_of_line,
+        }
     }
 }
 
 impl<'a> Read for SliceRead<'a> {
-    fn peek_chunk(&self) -> Option<&str> {
-        if self.index == self.slice.len() {
-            return None;
-        }
-        Some(&self.slice[self.index..])
-    }
-
-    fn fill_buf(&mut self) -> Result<(), DecoderError> {
-        Err(DecoderError::Eof)
+    fn fill_buf(&mut self) -> Result<()> {
+        Err(Error::Eof)
     }
 
     #[inline]
-    fn peek_n<const N: usize>(&mut self) -> Result<[char; N], DecoderError> {
+    fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
         debug_assert!(N > 0);
-        let mut slice = &self.slice[self.index..];
+        unimplemented!()
+    }
+
+    fn next(&mut self) -> Result<(char, &[u8])> {
+        unimplemented!()
+    }
+
+    fn position(&self) -> Position {
+        self.position_of_index(self.index)
+    }
+}
+
+pub struct StrRead<'a> {
+    s: &'a str,
+    index: usize,
+}
+
+impl<'a> StrRead<'a> {
+    pub fn new(s: &'a str) -> Self {
+        Self { s, index: 0 }
+    }
+
+    pub fn position_of_index(&self, i: usize) -> Position {
+        let start_of_line = match memchr::memrchr(b'\n', &self.s[..i].as_bytes()) {
+            Some(position) => position + 1,
+            None => 0,
+        };
+        Position {
+            line: 1 + memchr::memchr_iter(b'\n', &self.s[..start_of_line].as_bytes()).count(),
+            column: i - start_of_line,
+        }
+    }
+
+    pub fn rest(&self) -> &str {
+        &self.s[self.index..]
+    }
+}
+
+impl<'a> Read for StrRead<'a> {
+    fn fill_buf(&mut self) -> Result<()> {
+        Err(Error::Eof)
+    }
+
+    #[inline]
+    fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
+        debug_assert!(N > 0);
+        let mut slice = &self.s[self.index..];
         let mut chars: [char; N] = ['\0'; N]; // 先用零初始化
         let mut idx = 0;
 
@@ -302,22 +322,26 @@ impl<'a> Read for SliceRead<'a> {
                 slice = &slice[len..];
                 idx += 1;
             } else {
-                return Err(DecoderError::Eof);
+                return Err(Error::Eof);
             }
         }
 
         Ok(chars)
     }
 
-    fn next(&mut self) -> Result<(char, &[u8]), DecoderError> {
-        if self.index == self.slice.len() {
-            return Err(DecoderError::Eof);
+    fn next(&mut self) -> Result<(char, &[u8])> {
+        if self.index == self.s.len() {
+            return Err(Error::Eof);
         }
-        let slice = &self.slice[self.index..];
-        let (ch, len_utf8) = decode_first_char(slice.as_bytes()).ok_or(DecoderError::Eof)?;
+        let slice = &self.s[self.index..];
+        let (ch, len_utf8) = decode_first_char(slice.as_bytes()).ok_or(Error::Eof)?;
         let bytes = slice[..len_utf8].as_bytes();
         self.index += len_utf8;
         Ok((ch, bytes))
+    }
+
+    fn position(&self) -> Position {
+        self.position_of_index(self.index)
     }
 }
 
@@ -352,20 +376,29 @@ impl TestRead {
             }
         })
     }
+
+    pub(crate) fn position_of_index(&self, i: usize) -> Position {
+        let start_of_line = match memchr::memrchr(b'\n', &self.slice[..i]) {
+            Some(position) => position + 1,
+            None => 0,
+        };
+        Position {
+            line: 1 + memchr::memchr_iter(b'\n', &self.slice[..start_of_line]).count(),
+            column: i - start_of_line,
+        }
+    }
+
+    pub(crate) fn rest(&mut self) -> &str {
+        while let Ok(_) = self.fill_buf() {}
+        unsafe { str::from_utf8_unchecked(&self.slice[self.index..]) }
+    }
 }
 
 impl Read for TestRead {
-    fn peek_chunk(&self) -> Option<&str> {
-        if self.index == self.slice.len() {
-            return None;
-        }
-        Some(std::str::from_utf8(&self.slice[self.index..]).unwrap())
-    }
-
-    fn fill_buf(&mut self) -> Result<(), DecoderError> {
+    fn fill_buf(&mut self) -> Result<()> {
         let buf = (self.fill_buf)();
         if buf.is_empty() {
-            Err(DecoderError::Eof)
+            Err(Error::Eof)
         } else {
             self.slice.extend(buf);
             Ok(())
@@ -373,7 +406,7 @@ impl Read for TestRead {
     }
 
     #[inline]
-    fn peek_n<const N: usize>(&mut self) -> Result<[char; N], DecoderError> {
+    fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
         debug_assert!(N > 0);
 
         let mut out: [char; N] = ['\0'; N];
@@ -396,7 +429,7 @@ impl Read for TestRead {
 
                 // 仍然没有数据 => EOF
                 if self.index == self.slice.len() {
-                    return Err(DecoderError::Eof);
+                    return Err(Error::Eof);
                 }
 
                 // 继续从“已前进 off 字节”的位置接着解码
@@ -421,21 +454,25 @@ impl Read for TestRead {
             // 如果这里拿不到字符，多半是遇到“被截断的多字节字符”，再填充一次继续
             self.fill_buf()?;
             if self.index == self.slice.len() {
-                return Err(DecoderError::Eof);
+                return Err(Error::Eof);
             }
             // 回到循环顶部，保持 off 不变，接着从相同逻辑位置继续
         }
     }
 
-    fn next(&mut self) -> Result<(char, &[u8]), DecoderError> {
+    fn next(&mut self) -> Result<(char, &[u8])> {
         if self.index == self.slice.len() {
             self.fill_buf()?;
         }
         let slice = &self.slice[self.index..];
-        let (ch, len_utf8) = decode_first_char(slice).ok_or(DecoderError::Eof)?;
-        let bytes = slice[..len_utf8].as_bytes();
+        let (ch, len_utf8) = decode_first_char(slice).ok_or(Error::Eof)?;
+        let bytes = &slice[..len_utf8];
         self.index += len_utf8;
         Ok((ch, bytes))
+    }
+
+    fn position(&self) -> Position {
+        self.position_of_index(self.index)
     }
 }
 
@@ -443,11 +480,12 @@ pub(crate) type TestStreamRead<R> = StreamRead<R, 3>;
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::pure::read::{DecoderError, Read, StreamRead, TestRead};
+    use crate::Result;
+    use crate::parser::read::{Read, StreamRead, TestRead};
     use std::io::BufReader;
 
     #[test]
-    fn test_slice_peek() -> Result<(), DecoderError> {
+    fn test_slice_peek() -> Result<()> {
         let input = vec!["h", "e", "l", "l", "o"];
         let mut read = TestRead::from_input(input);
         let ch = read.peek()?;
@@ -463,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stream_peek() -> Result<(), DecoderError> {
+    fn test_stream_peek() -> Result<()> {
         let input = "hello world";
         let mut read: StreamRead<_, 4> = StreamRead::new(BufReader::new(input.as_bytes()));
         let ch = read.peek()?;

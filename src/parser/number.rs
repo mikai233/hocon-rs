@@ -1,116 +1,86 @@
-use crate::parser::{horizontal_ending, R};
-use nom::branch::alt;
-use nom::character::complete::{char, digit1};
-use nom::combinator::{opt, recognize};
-use nom::sequence::{pair, terminated};
-use nom::Parser;
-use serde_json::Number;
 use std::str::FromStr;
 
-/// Parses a numeric literal in HOCON, including integers, decimals,
-/// and numbers in scientific notation.
-///
-/// The parser does not convert the value to a numeric type; instead it returns
-/// the original string slice that matches the number.
-///
-/// It supports:
-/// - An optional leading minus sign (`-`)
-/// - Digits before and/or after a decimal point (`.`)
-/// - Numbers starting with a decimal point (e.g., `.123`)
-/// - An optional scientific exponent part (`e` or `E`), with optional sign
-///
-/// # Parameters
-///
-/// * `input` - The input string slice to be parsed
-///
-/// # Returns
-///
-/// An [`IResult`] with:
-/// - `Ok((remaining, number_str))` if a number was successfully parsed
-///   where `number_str` is the matched substring
-/// - `Err(HoconParseError)` if the input is not a valid number
-///
-/// [`IResult`]: nom::IResult
-#[inline]
-fn number_str(input: &str) -> R<'_, &str> {
-    recognize((
-        // Optional minus sign.
-        opt(char('-')),
-        // Either a standard decimal or a number starting with a decimal point.
-        alt((
-            // Case 1: Standard decimal like `123` or `123.45`.
-            recognize((digit1, opt(pair(char('.'), digit1)))),
-            // Case 2: Starting with `.`, like `.123`.
-            recognize(pair(char('.'), digit1)),
-        )),
-        // Optional exponent part.
-        opt((
-            alt((char('e'), char('E'))),
-            opt(alt((char('+'), char('-')))),
-            digit1,
-        )),
-    ))
-    .parse_complete(input)
-}
+use crate::parser::token_horizontal_ending_position;
+use crate::Result;
 
-#[inline]
-pub(crate) fn parse_number(input: &str) -> R<'_, Number> {
-    let (remainder, num_str) = terminated(
-        number_str,
-        horizontal_ending,
-    )
-    .parse_complete(input)?;
-    match Number::from_str(num_str) {
-        Ok(number) => Ok((remainder, number)),
-        Err(error) => {
-            let error = crate::error::Error::SerdeJsonError(error);
-            Err(nom::Err::Error(crate::parser::HoconParseError::Other(
-                error,
-            )))
+fn split_leading_number(s: &str) -> Option<(&str, &str)> {
+    let mut chars = s.char_indices().peekable();
+    let mut has_digit = false;
+    let mut has_dot = false;
+    let mut exponent_start: Option<usize> = None;
+    let mut last_valid_end = 0;
+
+    // 处理可选符号
+    if let Some(&(_, c)) = chars.peek() {
+        if c == '+' || c == '-' {
+            if let Some((idx, _)) = chars.next() {
+                last_valid_end = idx;
+            }
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use std::f64;
+    while let Some(&(idx, c)) = chars.peek() {
+        match c {
+            '0'..='9' => {
+                has_digit = true;
+                last_valid_end = idx + c.len_utf8();
+                chars.next();
 
-    use rstest::rstest;
+                // 如果我们在科学计数法中，现在有有效的指数
+                if exponent_start.is_some() {
+                    exponent_start = None; // 标记为有效
+                }
+            }
+            '.' if !has_dot && exponent_start.is_none() => {
+                has_dot = true;
+                last_valid_end = idx + c.len_utf8();
+                chars.next();
+            }
+            'e' | 'E' if has_digit && exponent_start.is_none() => {
+                // 记录科学计数法开始位置
+                exponent_start = Some(idx);
+                last_valid_end = idx + c.len_utf8();
+                chars.next();
 
-    use crate::parser::number::parse_number;
-
-    #[rstest]
-    #[case("1.0", serde_json::Number::from_f64(1.0), "")]
-    #[case("-999", serde_json::Number::from_i128(-999), "")]
-    #[case("233", serde_json::Number::from_i128(233), "")]
-    #[case("-233.233", serde_json::Number::from_f64(-233.233), "")]
-    #[case("1.7976931348623157e+308", serde_json::Number::from_f64(f64::MAX), "")]
-    #[case("-1.7976931348623157e+308", serde_json::Number::from_f64(f64::MIN), "")]
-    #[case("-1E-1", serde_json::Number::from_f64(-0.1), "")]
-    #[case("-1E-1,", serde_json::Number::from_f64(-0.1), ",")]
-    #[case("-1E-1,\r\n", serde_json::Number::from_f64(-0.1), ",\r\n")]
-    #[case("-1E-1 \n", serde_json::Number::from_f64(-0.1), "\n")]
-    #[case("1.0 \n", serde_json::Number::from_f64(1.0), "\n")]
-    #[case("1.0 }\n", serde_json::Number::from_f64(1.0), "}\n")]
-    #[case("1.0 ]", serde_json::Number::from_f64(1.0), "]")]
-    fn test_valid_number(
-        #[case] input: &str,
-        #[case] expected_result: Option<serde_json::Number>,
-        #[case] expected_rest: &str,
-    ) {
-        let result = parse_number(input);
-        assert!(result.is_ok(), "expected Ok but got {:?}", result);
-        let (rest, parsed) = result.unwrap();
-        assert_eq!(Some(parsed), expected_result);
-        assert_eq!(rest, expected_rest);
+                // 检查科学计数法符号
+                if let Some(&(next_idx, next_c)) = chars.peek() {
+                    if next_c == '+' || next_c == '-' {
+                        last_valid_end = next_idx + next_c.len_utf8();
+                        chars.next();
+                    }
+                }
+            }
+            _ => break,
+        }
     }
 
-    #[rstest]
-    #[case("-1e1q")]
-    #[case("foo12")]
-    #[case("12 hello")]
-    fn test_invalid_number(#[case] input: &str) {
-        let result = parse_number(input);
-        assert!(result.is_err(), "expected Err but got {:?}", result);
+    // 如果科学计数法开始了但没有完成，回退到科学计数法之前
+    if let Some(exponent_idx) = exponent_start {
+        if chars.peek().is_some() {
+            // 还有字符，说明科学计数法未完成
+            return Some((&s[..exponent_idx], &s[exponent_idx..]));
+        }
+    }
+
+    if has_digit && last_valid_end > 0 {
+        Some((&s[..last_valid_end], &s[last_valid_end..]))
+    } else {
+        None
+    }
+}
+
+fn parse_number(s: &str) -> Option<Result<(serde_json::Number, &str)>> {
+    match split_leading_number(s) {
+        None => None,
+        Some((number_str, remains)) => {
+            if remains.is_empty() || token_horizontal_ending_position(remains).is_some() {
+                let result = serde_json::Number::from_str(&number_str)
+                    .map(|n| (n, remains))
+                    .map_err(|e| crate::error::Error::from(e));
+                Some(result)
+            } else {
+                None
+            }
+        }
     }
 }

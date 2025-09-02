@@ -3,7 +3,8 @@ use std::str::FromStr;
 use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
-use crate::parser::loader::{self, load_from_path, load_from_url, load_hocon};
+use crate::parser::loader::{self, load_from_path, load_from_url, parse_hocon};
+use crate::parser::read::StrRead;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
@@ -30,12 +31,12 @@ impl Config {
 
     pub fn load<T>(
         path: impl AsRef<std::path::Path>,
-        opts: Option<ConfigOptions>,
+        options: Option<ConfigOptions>,
     ) -> crate::Result<T>
     where
         T: DeserializeOwned,
     {
-        let raw = loader::load(&path, opts.unwrap_or_default().into())?;
+        let raw = loader::load(&path, options.unwrap_or_default())?;
         tracing::debug!("path: {} raw obj: {}", path.as_ref().display(), raw);
         Self::resolve_object::<T>(raw)
     }
@@ -128,12 +129,12 @@ impl Config {
         }
     }
 
-    pub fn parse_str<T>(s: impl AsRef<str>, opts: Option<ConfigOptions>) -> crate::Result<T>
+    pub fn parse_str<T>(s: &str, options: Option<ConfigOptions>) -> crate::Result<T>
     where
         T: DeserializeOwned,
     {
-        let parse_opts = opts.map(Into::into).unwrap_or_default();
-        let raw = load_hocon(s, parse_opts)?;
+        let read = StrRead::new(s);
+        let raw = parse_hocon(read, options.unwrap_or_default())?;
         Self::resolve_object::<T>(raw)
     }
 
@@ -239,7 +240,7 @@ mod tests {
         #[case] json: impl AsRef<std::path::Path>,
     ) -> crate::Result<()> {
         let mut options = ConfigOptions::default();
-        options.classpath = vec!["resources".to_string()];
+        options.classpath = vec!["resources".to_string()].into();
         let value = Config::load::<Value>(hocon, Some(options))?;
         let f = std::fs::File::open(json).unwrap();
         let expected_value: serde_json::Value = serde_json::from_reader(f)?;

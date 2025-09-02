@@ -1,18 +1,32 @@
+use std::cell::RefCell;
+
+use derive_more::Constructor;
+
+use crate::Result;
+use crate::config_options::ConfigOptions;
+use crate::error::Error;
+use crate::parser::read::Read;
+use crate::parser::{is_hocon_horizontal_whitespace, is_hocon_whitespace};
 use crate::raw::field::ObjectField;
+use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
-use crate::{
-    parser::pure::{
-        is_hocon_horizontal_whitespace, is_hocon_whitespace,
-        read::{DecoderError, Read},
-    },
-    raw::raw_object::RawObject,
-};
+
+#[derive(Constructor, Default)]
+pub(crate) struct Context {
+    pub(crate) include_chain: Vec<String>,
+    pub(crate) depth: usize,
+}
+
+thread_local! {
+   pub(crate) static CTX: RefCell<Context> = Context::default().into()
+}
 
 #[derive(Debug)]
-pub(crate) struct Parser<R: Read> {
+pub struct HoconParser<R: Read> {
     pub(crate) reader: R,
     pub(crate) stack: Vec<Frame>,
+    pub(crate) options: ConfigOptions,
 }
 
 #[derive(Debug)]
@@ -25,15 +39,27 @@ enum Frame {
     },
 }
 
-impl<R: Read> Parser<R> {
-    pub(crate) fn new(reader: R) -> Self {
-        Parser { reader, stack: Vec::new() }
+impl<R: Read> HoconParser<R> {
+    pub fn new(reader: R) -> Self {
+        HoconParser {
+            reader,
+            stack: Vec::new(),
+            options: Default::default(),
+        }
+    }
+
+    pub fn with_options(reader: R, options: ConfigOptions) -> Self {
+        HoconParser {
+            reader,
+            stack: Vec::new(),
+            options,
+        }
     }
 
     pub(crate) fn parse_horizontal_whitespace<'a>(
         &mut self,
         scratch: &'a mut Vec<u8>,
-    ) -> Result<&'a str, DecoderError> {
+    ) -> Result<&'a str> {
         loop {
             match self.reader.peek() {
                 Ok(ch) => {
@@ -44,7 +70,7 @@ impl<R: Read> Parser<R> {
                         break;
                     }
                 }
-                Err(DecoderError::Eof) => {
+                Err(Error::Eof) => {
                     break;
                 }
                 Err(err) => {
@@ -56,7 +82,7 @@ impl<R: Read> Parser<R> {
         Ok(s)
     }
 
-    pub(crate) fn drop_horizontal_whitespace(&mut self) -> Result<(), DecoderError> {
+    pub(crate) fn drop_horizontal_whitespace(&mut self) -> Result<()> {
         loop {
             match self.reader.peek() {
                 Ok(ch) => {
@@ -66,7 +92,7 @@ impl<R: Read> Parser<R> {
                         break;
                     }
                 }
-                Err(DecoderError::Eof) => {
+                Err(Error::Eof) => {
                     break;
                 }
                 Err(err) => {
@@ -77,7 +103,7 @@ impl<R: Read> Parser<R> {
         Ok(())
     }
 
-    pub(crate) fn drop_whitespace(&mut self) -> Result<(), DecoderError> {
+    pub(crate) fn drop_whitespace(&mut self) -> Result<()> {
         loop {
             match self.reader.peek() {
                 Ok(ch) => {
@@ -87,7 +113,7 @@ impl<R: Read> Parser<R> {
                         break;
                     }
                 }
-                Err(DecoderError::Eof) => {
+                Err(Error::Eof) => {
                     break;
                 }
                 Err(err) => {
@@ -98,14 +124,14 @@ impl<R: Read> Parser<R> {
         Ok(())
     }
 
-    pub(crate) fn drop_comma_separator(&mut self) -> Result<bool, DecoderError> {
+    pub(crate) fn drop_comma_separator(&mut self) -> Result<bool> {
         match self.reader.peek() {
             Ok(ch) => {
                 if ch == ',' {
                     self.reader.next()?;
                 }
             }
-            Err(DecoderError::Eof) => return Ok(true),
+            Err(Error::Eof) => return Ok(true),
             Err(err) => {
                 return Err(err);
             }
@@ -113,7 +139,7 @@ impl<R: Read> Parser<R> {
         Ok(false)
     }
 
-    pub(crate) fn parse(mut self) -> Result<RawObject, DecoderError> {
+    pub fn parse(&mut self) -> Result<RawObject> {
         self.drop_whitespace()?;
         let raw_obj = match self.reader.peek() {
             Ok(ch) => {
@@ -123,7 +149,7 @@ impl<R: Read> Parser<R> {
                     self.parse_root_object()?
                 }
             }
-            Err(DecoderError::Eof) => {
+            Err(Error::Eof) => {
                 return Ok(RawObject::default());
             }
             Err(err) => {
@@ -133,12 +159,9 @@ impl<R: Read> Parser<R> {
         self.drop_whitespace()?;
         match self.reader.peek() {
             Ok(ch) => {
-                return Err(DecoderError::UnexpectedToken {
-                    expected: "end of file",
-                    found_beginning: ch,
-                });
+                return Err(Error::unexpected_token("end of file", ch));
             }
-            Err(DecoderError::Eof) => {}
+            Err(Error::Eof) => {}
             Err(err) => {
                 return Err(err);
             }
@@ -151,12 +174,10 @@ impl<R: Read> Parser<R> {
 mod tests {
     use std::io::BufReader;
 
+    use crate::Result;
+    use crate::parser::parser::HoconParser;
+    use crate::parser::read::StreamRead;
     use rstest::rstest;
-
-    use crate::parser::pure::{
-        parser::Parser,
-        read::{DecoderError, StreamRead},
-    };
 
     #[rstest]
     #[case("resources/base.conf")]
@@ -168,13 +189,13 @@ mod tests {
     #[case("resources/empty.conf")]
     #[case("resources/included.conf")]
     #[case("resources/main.conf")]
+    #[case("F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf")]
     // #[case("resources/max_depth.conf")]
-    fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<(), DecoderError> {
-        use crate::parser::pure::read::MIN_BUFFER_SIZE;
-
-        let file = std::fs::File::open(path)?;
+    fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
+        use crate::parser::read::MIN_BUFFER_SIZE;
+        let file = std::fs::File::open(&path)?;
         let read: StreamRead<_, MIN_BUFFER_SIZE> = StreamRead::new(BufReader::new(file));
-        let parser = Parser::new(read);
+        let mut parser = HoconParser::new(read);
         let raw = parser.parse()?;
         tracing::debug!("{}", raw);
         Ok(())

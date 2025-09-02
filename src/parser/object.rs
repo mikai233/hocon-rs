@@ -1,216 +1,276 @@
-use crate::parser::comment::parse_comment;
-use crate::parser::config_parse_options::MAX_DEPTH;
-use crate::parser::include::parse_include;
-use crate::parser::string::parse_key;
-use crate::parser::{CONFIG, R, hocon_horizontal_space0, hocon_multi_space0, parse_value};
-use crate::raw::comment::Comment;
-use crate::raw::field::ObjectField;
-use crate::raw::raw_object::RawObject;
-use crate::raw::raw_string::RawString;
-use crate::raw::raw_value::RawValue;
-use nom::Parser;
-use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::character::complete::char;
-use nom::combinator::{map, opt, peek, value};
-use nom::error::context;
-use nom::multi::{many_m_n, many0};
-use nom::sequence::delimited;
+use crate::Result;
+use crate::error::Error;
+use crate::parser::include::INCLUDE;
+use crate::parser::is_hocon_horizontal_whitespace;
+use crate::parser::parser::HoconParser;
+use crate::parser::read::Read;
+use crate::raw::{
+    comment::Comment, field::ObjectField, raw_object::RawObject, raw_string::RawString,
+    raw_value::RawValue,
+};
+use std::str::FromStr;
 
-pub(crate) fn parse_object(input: &str) -> R<'_, RawObject> {
-    let current_depth = CONFIG.with_borrow_mut(|c| {
-        c.current_depth += 1;
-        c.current_depth
-    });
-    if current_depth > MAX_DEPTH {
-        //TODO
-        // return Err(nom::Err::Failure(crate::parser::HoconParseError::Other(
-        //     crate::error::Error::RecursionDepthExceeded {
-        //         max_depth: MAX_DEPTH,
-        //     },
-        // )));
-    }
-    let (remainder, object) = delimited(
-        (char('{'), hocon_multi_space0),
-        map(many0(object_element), |fields| {
-            RawObject::from_iter(fields.into_iter().flatten())
-        }),
-        (hocon_multi_space0, char('}')),
-    )
-    .parse_complete(input)?;
-    // CONFIG.with_borrow_mut(|c| {
-    //     c.current_depth -= 1;
-    // });
-    Ok((remainder, object))
+#[macro_export]
+macro_rules! try_peek {
+    ($reader:expr) => {
+        match $reader.peek() {
+            Ok(ch) => ch,
+            Err(crate::error::Error::Eof) => break,
+            Err(err) => return Err(err),
+        }
+    };
 }
 
-pub(crate) fn parse_root_object(input: &str) -> R<'_, RawObject> {
-    delimited(
-        hocon_multi_space0,
-        map(many0(object_element), |fields| {
-            RawObject::from_iter(fields.into_iter().flatten())
-        }),
-        hocon_multi_space0,
-    )
-    .parse_complete(input)
-}
-
-fn object_element(input: &str) -> R<'_, Vec<ObjectField>> {
-    #[inline]
-    fn newline_comments(input: &str) -> R<'_, Vec<ObjectField>> {
-        many0(delimited(
-            hocon_multi_space0,
-            parse_comment.map(|(ty, content)| {
-                ObjectField::newline_comment(Comment::new(content.to_string(), ty))
-            }),
-            hocon_multi_space0,
-        ))
-        .parse_complete(input)
+impl<R: Read> HoconParser<R> {
+    pub(crate) fn parse_key(&mut self) -> Result<RawString> {
+        self.drop_horizontal_whitespace()?;
+        self.parse_path_expression()
     }
 
-    #[inline]
-    fn current_line_comment(input: &str) -> R<'_, Comment> {
-        parse_comment
-            .map(|(ty, content)| Comment::new(content.to_string(), ty))
-            .parse_complete(input)
+    pub(crate) fn parse_value(&mut self) -> Result<RawValue> {
+        self.drop_whitespace()?;
+        let mut values = vec![];
+        let mut scratch = vec![];
+        let mut spaces = vec![];
+        loop {
+            let ch = try_peek!(self.reader);
+            match ch {
+                '[' => {
+                    // Parse array
+                    let array = self.parse_array()?;
+                    let v = RawValue::Array(array);
+                    values.push(v);
+                }
+                '{' => {
+                    // Parse object
+                    let object = self.parse_object()?;
+                    let v = RawValue::Object(object);
+                    values.push(v);
+                }
+                '"' => {
+                    // Parse quoted string or multi-line string
+                    let v = if let Ok(chars) = self.reader.peek_n::<3>()
+                        && chars == ['"', '"', '"']
+                    {
+                        let multiline = self.parse_multiline_string()?;
+                        RawValue::String(RawString::MultilineString(multiline))
+                    } else {
+                        let quoted = self.parse_quoted_string()?;
+                        RawValue::String(RawString::QuotedString(quoted))
+                    };
+                    values.push(v);
+                }
+                '$' => {
+                    let substitution = self.parse_substitution()?;
+                    let v = RawValue::Substitution(substitution);
+                    values.push(v);
+                }
+                ']' | '}' => {
+                    break;
+                }
+                ',' | '#' | '\n' => {
+                    if values.is_empty() {
+                        return Err(Error::UnexpectedToken {
+                            expected: "a valid value",
+                            found_beginning: ch,
+                        });
+                    }
+                    break;
+                }
+                '/' => {
+                    if let Ok((_, ch2)) = self.reader.peek2() {
+                        if ch2 == '/' && !values.is_empty() {
+                            break;
+                        } else {
+                            return Err(Error::UnexpectedToken {
+                                expected: "a valid value",
+                                found_beginning: ch,
+                            });
+                        }
+                    }
+                }
+                '\r' => {
+                    if let Ok((_, ch2)) = self.reader.peek2() {
+                        if ch2 == '\n' && !values.is_empty() {
+                            break;
+                        } else {
+                            return Err(Error::UnexpectedToken {
+                                expected: "a valid value",
+                                found_beginning: ch,
+                            });
+                        }
+                    }
+                }
+                ch => {
+                    // Parse unquoted string or space
+                    if is_hocon_horizontal_whitespace(ch) {
+                        scratch.clear();
+                        self.parse_horizontal_whitespace(&mut scratch)?;
+                        let space = unsafe { str::from_utf8_unchecked(&scratch) };
+                        spaces.push(space.to_string());
+                    } else {
+                        let unquoted = self.parse_unquoted_string()?;
+                        let v = RawValue::String(RawString::UnquotedString(unquoted));
+                        values.push(v);
+                    }
+                }
+            };
+        }
+        debug_assert!(!values.is_empty());
+        if values.len() == 1 {
+            let v = values.remove(0);
+            let v = if let RawValue::String(s) = v {
+                Self::resolve_unquoted_string(s)
+            } else {
+                v
+            };
+            Ok(v)
+        } else {
+            Ok(RawValue::concat(values))
+        }
     }
 
-    #[inline]
-    fn object_field(input: &str) -> R<'_, ObjectField> {
-        alt((
-            map(parse_include, ObjectField::inclusion),
-            map(parse_key_value, |(k, v)| ObjectField::key_value(k, v)),
-            map(parse_add_assign, |(k, v)| ObjectField::key_value(k, v)),
-        ))
-        .parse_complete(input)
+    pub(crate) fn parse_key_value(&mut self) -> Result<(RawString, RawValue)> {
+        self.drop_whitespace()?;
+        let key = self.parse_key()?;
+        self.drop_whitespace()?;
+        let is_add_assign = self.drop_kv_separator()?;
+        self.drop_whitespace()?;
+        let mut value = self.parse_value()?;
+        if is_add_assign {
+            value = RawValue::add_assign(value)
+        }
+        Ok((key, value))
     }
 
-    #[inline]
-    fn separator(input: &str) -> R<'_, ()> {
-        value((), (hocon_horizontal_space0, many_m_n(0, 1, char(',')))).parse_complete(input)
+    pub fn drop_kv_separator(&mut self) -> Result<bool> {
+        let ch = self.reader.peek()?;
+        match ch {
+            ':' | '=' => {
+                self.reader.next()?;
+            }
+            '+' => {
+                let (_, ch2) = self.reader.peek2()?;
+                if ch2 != '=' {
+                    return Err(Error::UnexpectedToken {
+                        expected: "=",
+                        found_beginning: ch2,
+                    });
+                }
+                self.reader.next()?;
+                self.reader.next()?;
+                return Ok(true);
+            }
+            '{' => {}
+            ch => {
+                return Err(Error::UnexpectedToken {
+                    expected: ": or =",
+                    found_beginning: ch,
+                });
+            }
+        }
+        Ok(false)
     }
 
-    let (
-        remainder,
-        (newline_comments_before, mut field, _, current_line_comment, newline_comments_after),
-    ) = (
-        newline_comments,
-        object_field,
-        separator,
-        opt(current_line_comment),
-        newline_comments,
-    )
-        .parse_complete(input)?;
-    if let Some(c) = current_line_comment {
-        field.set_comment(c);
-    }
-    let mut fields = newline_comments_before;
-    fields.push(field);
-    fields.extend(newline_comments_after);
-    Ok((remainder, fields))
-}
-
-#[inline]
-fn parse_key_value(input: &str) -> R<'_, (RawString, RawValue)> {
-    fn separator(input: &str) -> R<'_, ()> {
-        value((), alt((char(':'), char('='), peek(char('{'))))).parse_complete(input)
+    pub(crate) fn parse_object_field(&mut self) -> Result<ObjectField> {
+        let ch = self.reader.peek()?;
+        // It maybe an include syntax, we need to peek more chars to determine.
+        let field = if ch == 'i' && self.reader.peek_n::<7>()? == INCLUDE {
+            let inclusion = self.parse_include()?;
+            ObjectField::inclusion(inclusion)
+        } else {
+            let (key, value) = self.parse_key_value()?;
+            ObjectField::key_value(key, value)
+        };
+        Ok(field)
     }
 
-    let (remainder, (_, key, _, _, _, value)) = context(
-        "parse_key_value",
-        (
-            hocon_multi_space0,
-            parse_key,
-            hocon_multi_space0,
-            separator,
-            hocon_multi_space0,
-            parse_value,
-        ),
-    )
-    .parse_complete(input)?;
-    Ok((remainder, (key, value)))
-}
+    pub(crate) fn parse_object_fields(&mut self) -> Result<Vec<ObjectField>> {
+        let mut fields = vec![];
+        loop {
+            self.drop_comments()?;
+            let ch = self.reader.peek()?;
+            if ch == '}' {
+                break;
+            }
+            match self.parse_object_field() {
+                Ok(field) => {
+                    fields.push(field);
+                }
+                Err(Error::Eof) => {
+                    break;
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+            self.drop_whitespace()?;
+            if self.drop_comma_separator()? {
+                break;
+            }
+        }
+        Ok(fields)
+    }
 
-#[inline]
-fn parse_add_assign(input: &str) -> R<'_, (RawString, RawValue)> {
-    let (remainder, (_, key, _, _, _, value)) = context(
-        "parse_add_assign",
-        (
-            hocon_multi_space0,
-            parse_key,
-            hocon_multi_space0,
-            tag("+="),
-            hocon_multi_space0,
-            parse_value.map(RawValue::add_assign),
-        ),
-    )
-    .parse_complete(input)?;
-    Ok((remainder, (key, value)))
-}
+    pub(crate) fn parse_root_object(&mut self) -> Result<RawObject> {
+        let fields = self.parse_object_fields()?;
+        let raw_obj = RawObject::new(fields);
+        Ok(raw_obj)
+    }
 
-#[cfg(test)]
-mod tests {
-    use crate::parser::object::parse_key_value;
-    use crate::raw::raw_object::RawObject;
-    use crate::raw::raw_string::RawString;
-    use crate::raw::raw_value::RawValue;
-    use rstest::rstest;
+    pub(crate) fn parse_object(&mut self) -> Result<RawObject> {
+        let ch = self.reader.peek()?;
+        if ch != '{' {
+            return Err(Error::UnexpectedToken {
+                expected: "{",
+                found_beginning: ch,
+            });
+        }
+        self.reader.next()?;
+        let fields = self.parse_object_fields()?;
+        let ch = self.reader.peek()?;
+        if ch != '}' {
+            return Err(Error::UnexpectedToken {
+                expected: "}",
+                found_beginning: ch,
+            });
+        }
+        self.reader.next()?;
+        let raw_obj = RawObject::new(fields);
+        Ok(raw_obj)
+    }
 
-    #[rstest]
-    #[case(
-        "hello=world",
-        RawString::unquoted("hello"),
-        RawValue::unquoted_string("world"),
-        ""
-    )]
-    #[case(
-        "hello= \tworld",
-        RawString::unquoted("hello"),
-        RawValue::unquoted_string("world"),
-        ""
-    )]
-    #[case(
-        "\nhello= \r\nworld",
-        RawString::unquoted("hello"),
-        RawValue::unquoted_string("world"),
-        ""
-    )]
-    #[case(
-        "\n\"foo\"= \r\n\"bar\"",
-        RawString::quoted("foo"),
-        RawValue::quoted_string("bar"),
-        ""
-    )]
-    #[case(
-        "hello : world\n",
-        RawString::unquoted("hello"),
-        RawValue::unquoted_string("world"),
-        "\n"
-    )]
-    #[case(
-        "hello : world,\n",
-        RawString::unquoted("hello"),
-        RawValue::unquoted_string("world"),
-        ",\n"
-    )]
-    #[case(
-        "hello : {a = 1},\n",
-        RawString::unquoted("hello"),
-        RawValue::Object(RawObject::key_value([(RawString::unquoted("a"),RawValue::Number(serde_json::Number::from_i128(1).unwrap()))]
-        )),
-        ",\n"
-    )]
-    fn test_valid_key_value(
-        #[case] input: &str,
-        #[case] expected_key: RawString,
-        #[case] expected_value: RawValue,
-        #[case] expected_rest: &str,
-    ) {
-        let result = parse_key_value(input);
-        assert!(result.is_ok(), "expected Ok but got {:?}", result);
-        let (rest, (key, value)) = result.unwrap();
-        assert_eq!(expected_key, key);
-        assert_eq!(expected_value, value);
-        assert_eq!(rest, expected_rest);
+    pub(crate) fn resolve_unquoted_string(string: RawString) -> RawValue {
+        if let RawString::UnquotedString(unquoted) = string {
+            match &*unquoted {
+                "true" => RawValue::Boolean(true),
+                "false" => RawValue::Boolean(false),
+                "null" => RawValue::Null,
+                other => match serde_json::Number::from_str(other) {
+                    Ok(number) => RawValue::Number(number),
+                    Err(_) => RawValue::unquoted_string(unquoted),
+                },
+            }
+        } else {
+            RawValue::String(string)
+        }
+    }
+
+    pub(crate) fn parse_newline_comments(&mut self) -> Result<Vec<ObjectField>> {
+        let mut fields = vec![];
+        loop {
+            match self.parse_comment() {
+                Ok((ty, content)) => {
+                    let comment = Comment::new(content, ty);
+                    fields.push(ObjectField::newline_comment(comment));
+                }
+                Err(Error::Eof | Error::UnexpectedToken { .. }) => {
+                    break Ok(fields);
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
     }
 }
