@@ -4,6 +4,7 @@ use crate::merge::{
     add_assign::AddAssign, array::Array, concat::Concat, delay_replacement::DelayReplacement,
     object::Object, path::RefPath, substitution::Substitution,
 };
+use std::fmt::format;
 use std::{cell::RefCell, fmt::Display};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -112,13 +113,14 @@ impl Value {
                 }
                 Value::Concat(mut concat) => {
                     if concat
+                        .get_values()
                         .iter()
                         .all(|v| matches!(&*v.borrow(), Value::Object(_) | Value::Substitution(_)))
                     {
                         // the concat result maybe an object, so we need to push the left object for potential
                         // object concat
                         let left = Value::object(obj_left);
-                        concat.push_front(RefCell::new(left));
+                        concat.push_front(RefCell::new(left), None);
                         Value::concat(concat)
                     } else {
                         // the concat result must be a quoted string or an array, it will override the left value
@@ -193,7 +195,12 @@ impl Value {
         Ok(new_val)
     }
 
-    pub(crate) fn concatenate(path: &RefPath, left: Value, right: Value) -> crate::Result<Value> {
+    pub(crate) fn concatenate(
+        path: &RefPath,
+        left: Value,
+        space: Option<String>,
+        right: Value,
+    ) -> crate::Result<Value> {
         trace!("concatenate: `{}`: `{}` <- `{}`", path, left, right);
         let val = match left {
             Value::Object(mut left_obj) => match right {
@@ -217,16 +224,16 @@ impl Value {
                 }
                 Value::Substitution(_) => {
                     let left = Value::object(left_obj);
-                    Value::concat(Concat::from_iter([left, right]))
+                    Value::concat(Concat::two(left, space, right))
                 }
                 Value::Concat(mut concat) => {
                     let left = Value::object(left_obj);
-                    concat.push_front(RefCell::new(left));
+                    concat.push_front(RefCell::new(left), space);
                     Value::concat(concat)
                 }
                 Value::DelayReplacement(_) => {
                     let left = Value::object(left_obj);
-                    Value::concat(Concat::from_iter([left, right]))
+                    Value::concat(Concat::two(left, space, right))
                 }
             },
             Value::Array(mut left_array) => {
@@ -243,16 +250,30 @@ impl Value {
                     });
                 }
             }
-            Value::None => right,
-            Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
-                if matches!(
-                    right,
-                    Value::Boolean(_) | Value::String(_) | Value::Number(_) | Value::Null
-                ) {
-                    Value::string(format!("{left}{right}"))
-                } else if matches!(right, Value::None) {
-                    Value::string(left.to_string())
-                } else {
+            Value::None => match space {
+                Some(space) => match right {
+                    Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
+                        Value::string(format!("{space}{right}"))
+                    }
+                    Value::None => Value::string(space),
+                    Value::Substitution(_) => Value::concat(Concat::two(left, Some(space), right)),
+                    right => right,
+                },
+                _ => right,
+            },
+            Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => match right {
+                Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {
+                    match space {
+                        Some(space) => Value::string(format!("{left}{space}{right}")),
+                        None => Value::string(format!("{left}{right}")),
+                    }
+                }
+                Value::None => match space {
+                    Some(space) => Value::string(format!("{left}{space}")),
+                    None => Value::string(left.to_string()),
+                },
+                Value::Substitution(_) => Value::concat(Concat::two(left, space, right)),
+                _ => {
                     return Err(crate::error::Error::ConcatenationDifferentType {
                         path: path.to_string(),
                         left: left.to_string(),
@@ -261,10 +282,10 @@ impl Value {
                         right_ty: right.ty(),
                     });
                 }
-            }
-            Value::Substitution(_) => Value::concat(Concat::from_iter([left, right])),
+            },
+            Value::Substitution(_) => Value::concat(Concat::two(left, space, right)),
             Value::Concat(mut concat) => {
-                concat.push_back(RefCell::new(right));
+                concat.push_back(space, RefCell::new(right));
                 Value::concat(concat)
             }
             Value::AddAssign(_) => {
@@ -276,7 +297,7 @@ impl Value {
                     right_ty: right.ty(),
                 });
             }
-            Value::DelayReplacement(_) => Value::concat(Concat::from_iter([left, right])),
+            Value::DelayReplacement(_) => Value::concat(Concat::two(left, space, right)),
         };
         trace!("concatenate result: `{path}`=`{val}`");
         Ok(val)

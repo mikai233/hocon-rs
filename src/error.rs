@@ -40,12 +40,14 @@ pub enum Error {
     },
     #[error("{val} is not allowed in {ty}")]
     InvalidValue { val: &'static str, ty: &'static str },
+    #[error("Invalid concat, values_len:{0} == spaces_len:{1} + 1")]
+    InvalidConcat(usize,usize),
     #[error("Substitution {0} not found")]
     SubstitutionNotFound(String),
     #[error(
         "Resolve incomplete. This should never happen outside this library. If you see this, it's a bug."
     )]
-    ResolveNotComplete,
+    ResolveIncomplete,
     #[error(
         "Maximum inclusion depth reached for {0}. An inclusion cycle might have occurred. If not, try increasing `max_include_depth` in `ConfigOptions`."
     )]
@@ -57,23 +59,14 @@ pub enum Error {
         inclusion: Inclusion,
         error: Box<Error>,
     },
-    #[error("A cycle substitution found at {0}")]
-    CycleSubstitution(String),
+    #[error("A substitution cycle found at {0}")]
+    SubstitutionCycle(String),
     #[error("{0}")]
     DeserializeError(String),
     #[error("{0}")]
-    PropertiesParseError(#[from] java_properties::PropertiesError),
+    JavaProperties(#[from] java_properties::PropertiesError),
     #[error("{0}")]
     UrlParseError(#[from] url::ParseError),
-}
-
-impl Error {
-    pub fn unexpected_token(expected: &'static str, found_beginning: char) -> Self {
-        Self::UnexpectedToken {
-            expected,
-            found_beginning,
-        }
-    }
 }
 
 impl serde::de::Error for Error {

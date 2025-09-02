@@ -98,7 +98,7 @@ mod tests {
     #[rstest]
     #[case(vec!["#","你","好","👌","\r","\r","\n"],(CommentType::Hash,"你好👌\r"),"\r\n")]
     #[case(vec!["#","你","好","👌","\r","\n"],(CommentType::Hash,"你好👌"),"\r\n")]
-    #[case(vec!["#","Hello","Wo\nrld","👌","\r","\n"],(CommentType::Hash,"HelloWo"),"\nrld")]
+    #[case(vec!["#","Hello","Wo\nrld","👌","\r","\n"],(CommentType::Hash,"HelloWo"),"\nrld👌\r\n")]
     #[case(vec!["//","Hello","//World\n"],(CommentType::DoubleSlash,"Hello//World"),"\n")]
     #[case(vec!["//","\r\n"],(CommentType::DoubleSlash,""),"\r\n")]
     #[case(vec!["#","\n"],(CommentType::Hash,""),"\n")]

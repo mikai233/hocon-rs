@@ -7,12 +7,10 @@ use derive_more::Constructor;
 
 use crate::path::Path;
 
-// FIXME remove the space variable
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Constructor)]
 pub(crate) struct Substitution {
     pub(crate) path: Rc<Path>,
     pub(crate) optional: bool,
-    pub(crate) space: Option<String>,
 }
 
 impl Substitution {
@@ -42,6 +40,6 @@ impl Display for Substitution {
 impl From<crate::raw::substitution::Substitution> for Substitution {
     fn from(value: crate::raw::substitution::Substitution) -> Self {
         let path = value.path.into_path().into();
-        Self::new(path, value.optional, value.space)
+        Self::new(path, value.optional)
     }
 }

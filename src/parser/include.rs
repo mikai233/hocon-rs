@@ -30,8 +30,7 @@ impl<R: Read> HoconParser<R> {
                 self.reader.next()?;
             }
         }
-        let mut inclusion = Inclusion::new(include_path, required, location, None);
-        self.parse_inclusion(&mut inclusion)?;
+        let inclusion = Inclusion::new(include_path, required, location, None);
         Ok(inclusion)
     }
 
@@ -208,7 +207,7 @@ impl<R: Read> HoconParser<R> {
         Ok(())
     }
 
-    fn parse_inclusion(&self, inclusion: &mut Inclusion) -> Result<()> {
+    pub(crate) fn parse_inclusion(&self, inclusion: &mut Inclusion) -> Result<()> {
         CTX.with_borrow_mut::<_, Result<()>>(|ctx| {
             let has_cycle = ctx
                 .include_chain

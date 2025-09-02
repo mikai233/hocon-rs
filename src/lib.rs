@@ -44,6 +44,52 @@ where
     T::deserialize(value)
 }
 
+#[inline]
+pub(crate) fn join<I, V>(
+    mut iter: I,
+    sep: &str,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result
+where
+    I: Iterator<Item = V>,
+    V: std::fmt::Display,
+{
+    match iter.next() {
+        Some(v) => {
+            write!(f, "{v}")?;
+            for v in iter {
+                write!(f, "{sep}")?;
+                write!(f, "{v}")?;
+            }
+        }
+        None => {}
+    }
+    Ok(())
+}
+
+#[inline]
+pub(crate) fn join_debug<I, V>(
+    mut iter: I,
+    sep: &str,
+    f: &mut std::fmt::Formatter<'_>,
+) -> std::fmt::Result
+where
+    I: Iterator<Item = V>,
+    V: std::fmt::Debug,
+{
+    match iter.next() {
+        Some(v) => {
+            write!(f, "{v:?}")?;
+            for v in iter {
+                write!(f, "{sep}")?;
+                write!(f, "{v:?}")?;
+            }
+        }
+        None => {}
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use tracing::level_filters::LevelFilter;

@@ -1,6 +1,5 @@
 use crate::value::Value;
 use ahash::HashMap;
-use itertools::Itertools;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
 
@@ -12,11 +11,11 @@ impl Object {
         Default::default()
     }
 
-    pub fn with_kvs<I>(kvs: I) -> Self
+    pub fn from_iter<I>(iter: I) -> Self
     where
-        I: IntoIterator<Item=(String, Value)>,
+        I: IntoIterator<Item = (String, Value)>,
     {
-        Self(HashMap::from_iter(kvs))
+        Self(HashMap::from_iter(iter))
     }
 }
 
@@ -36,10 +35,18 @@ impl DerefMut for Object {
 
 impl Display for Object {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let joined = self.iter()
-            .map(|(k, v)| format!("{}: {}", k, v))
-            .join(", ");
-        write!(f, "{{{}}}", joined)
+        let mut iter = self.iter();
+        match iter.next() {
+            Some((k, v)) => {
+                write!(f, "{k}: {v}")?;
+                for (k, v) in iter {
+                    write!(f, ", ")?;
+                    write!(f, "{k}: {v}")?;
+                }
+            }
+            None => {}
+        }
+        Ok(())
     }
 }
 

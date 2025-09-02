@@ -8,7 +8,10 @@ impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_array(&mut self) -> Result<RawArray> {
         let ch = self.reader.peek()?;
         if ch != '[' {
-            return Err(Error::unexpected_token("[", ch));
+            return Err(Error::UnexpectedToken {
+                expected: "[",
+                found_beginning: ch,
+            });
         }
         self.reader.next()?;
         let mut values = vec![];

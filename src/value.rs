@@ -1,11 +1,12 @@
 use ahash::{HashMap, HashMapExt};
-use itertools::Itertools;
 use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
 use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
+
+use crate::join;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
@@ -18,35 +19,34 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn new_object() -> Value {
-        Value::Object(Default::default())
+    pub fn object(obj: HashMap<String, Value>) -> Value {
+        Value::Object(obj)
     }
 
-    pub fn with_object<K, I>(values: I) -> Value
+    pub fn object_from_iter<I>(iter: I) -> Value
     where
-        K: Into<String>,
-        I: IntoIterator<Item = (K, Value)>,
+        I: IntoIterator<Item = (String, Value)>,
     {
-        let values = values.into_iter().map(|(k, v)| (k.into(), v));
-        Value::Object(HashMap::from_iter(values))
+        let iter = iter.into_iter().map(|(k, v)| (k.into(), v));
+        Value::Object(HashMap::from_iter(iter))
     }
 
-    pub fn new_array() -> Value {
-        Value::Array(vec![])
+    pub fn array(values: Vec<Value>) -> Value {
+        Value::Array(values)
     }
 
-    pub fn with_array<I>(values: I) -> Value
+    pub fn array_from_iter<I>(iter: I) -> Value
     where
         I: IntoIterator<Item = Value>,
     {
-        Value::Array(values.into_iter().collect())
+        Value::Array(iter.into_iter().collect())
     }
 
-    pub fn new_boolean(boolean: bool) -> Value {
+    pub fn boolean(boolean: bool) -> Value {
         Value::Boolean(boolean)
     }
 
-    pub fn new_null() -> Value {
+    pub fn null() -> Value {
         Value::Null
     }
 
@@ -263,18 +263,25 @@ impl Display for Value {
         match self {
             Value::Object(object) => {
                 write!(f, "{{")?;
-                let last_index = object.len().saturating_sub(1);
-                for (index, (k, v)) in object.iter().enumerate() {
-                    write!(f, "{} = {}", k, v)?;
-                    if index != last_index {
-                        write!(f, ", ")?;
+                let mut iter = object.iter();
+                match iter.next() {
+                    Some((k, v)) => {
+                        write!(f, "{k}: {v}")?;
+                        for (k, v) in iter {
+                            write!(f, ", ")?;
+                            write!(f, "{k}: {v}")?;
+                        }
                     }
+                    None => {}
                 }
                 write!(f, "}}")?;
                 Ok(())
             }
             Value::Array(array) => {
-                write!(f, "[{}]", array.iter().join(", "))
+                write!(f, "[")?;
+                join(array.iter(), ", ", f)?;
+                write!(f, "]")?;
+                Ok(())
             }
             Value::Boolean(boolean) => {
                 write!(f, "{}", boolean)
@@ -321,7 +328,7 @@ impl TryFrom<crate::merge::value::Value> for Value {
         let value = match value {
             crate::merge::value::Value::Object(object) => {
                 if object.is_unmerged() {
-                    return Err(crate::error::Error::ResolveNotComplete);
+                    return Err(crate::error::Error::ResolveIncomplete);
                 }
                 from_object(object)?
             }
@@ -334,7 +341,7 @@ impl TryFrom<crate::merge::value::Value> for Value {
             | crate::merge::value::Value::Concat(_)
             | crate::merge::value::Value::AddAssign(_)
             | crate::merge::value::Value::DelayReplacement(_) => {
-                return Err(crate::error::Error::ResolveNotComplete);
+                return Err(crate::error::Error::ResolveIncomplete);
             }
         };
         Ok(value)

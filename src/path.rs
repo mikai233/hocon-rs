@@ -1,6 +1,7 @@
 use derive_more::Constructor;
-use itertools::Itertools;
 use std::fmt::Display;
+
+use crate::join;
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Constructor)]
 pub struct Path {
@@ -127,7 +128,7 @@ impl Display for Path {
             paths.push(&p.first);
             remainder = &p.remainder;
         }
-        write!(f, "{}", paths.iter().join("."))
+        join(paths.iter(), ".", f)
     }
 }
 

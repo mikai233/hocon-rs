@@ -1,3 +1,4 @@
+use crate::Result;
 use crate::raw::add_assign::AddAssign;
 use crate::raw::concat::Concat;
 use crate::raw::field::ObjectField;
@@ -6,7 +7,6 @@ use crate::raw::raw_array::RawArray;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::substitution::Substitution;
-use itertools::Itertools;
 use serde_json::Number;
 use std::fmt::{Display, Formatter};
 
@@ -63,22 +63,16 @@ impl RawValue {
         RawValue::Object(RawObject::new(vec![field]))
     }
 
-    pub fn key_value<I>(fields: I) -> RawValue
-    where
-        I: IntoIterator<Item = (RawString, RawValue)>,
-    {
-        RawValue::Object(RawObject::key_value(fields))
+    pub fn object(values: Vec<(RawString, RawValue)>) -> RawValue {
+        let fields = values
+            .into_iter()
+            .map(|(k, v)| ObjectField::key_value(k, v))
+            .collect();
+        RawValue::Object(RawObject::new(fields))
     }
 
-    pub fn object(object: impl Into<RawObject>) -> RawValue {
-        RawValue::Object(object.into())
-    }
-
-    pub fn array<I>(iter: I) -> RawValue
-    where
-        I: IntoIterator<Item = RawValue>,
-    {
-        RawValue::Array(RawArray::new(iter.into_iter().collect()))
+    pub fn array(values: Vec<RawValue>) -> RawValue {
+        RawValue::Array(RawArray::new(values))
     }
 
     pub fn boolean(b: bool) -> RawValue {
@@ -101,12 +95,8 @@ impl RawValue {
         RawValue::String(RawString::multiline(s))
     }
 
-    pub fn concat_string<I, S>(iter: I) -> RawValue
-    where
-        I: IntoIterator<Item = (RawString, Option<String>)>,
-        S: Into<String>,
-    {
-        RawValue::String(RawString::concat(iter))
+    pub fn path_expression(paths: Vec<RawString>) -> RawValue {
+        RawValue::String(RawString::path_expression(paths))
     }
 
     pub fn number(n: impl Into<Number>) -> RawValue {
@@ -117,11 +107,8 @@ impl RawValue {
         RawValue::Substitution(s)
     }
 
-    pub fn concat<I>(iter: I) -> RawValue
-    where
-        I: IntoIterator<Item = RawValue>,
-    {
-        RawValue::Concat(Concat::new(iter.into_iter().collect_vec()).unwrap())
+    pub fn concat(values: Vec<RawValue>, spaces: Vec<Option<String>>) -> Result<RawValue> {
+        Ok(RawValue::Concat(Concat::new(values, spaces)?))
     }
 
     pub fn add_assign(v: RawValue) -> RawValue {
@@ -148,7 +135,7 @@ impl Display for RawValue {
 impl TryInto<RawArray> for RawValue {
     type Error = crate::error::Error;
 
-    fn try_into(self) -> Result<RawArray, Self::Error> {
+    fn try_into(self) -> Result<RawArray> {
         match self {
             RawValue::Array(a) => Ok(a),
             other => Err(crate::error::Error::InvalidConversion {
@@ -162,7 +149,7 @@ impl TryInto<RawArray> for RawValue {
 impl TryInto<RawObject> for RawValue {
     type Error = crate::error::Error;
 
-    fn try_into(self) -> Result<RawObject, Self::Error> {
+    fn try_into(self) -> Result<RawObject> {
         match self {
             RawValue::Object(o) => Ok(o),
             other => Err(crate::error::Error::InvalidConversion {
@@ -180,7 +167,9 @@ impl Into<RawValue> for serde_json::Value {
             serde_json::Value::Bool(boolean) => RawValue::Boolean(boolean),
             serde_json::Value::Number(number) => RawValue::Number(number),
             serde_json::Value::String(string) => RawValue::String(string.into()),
-            serde_json::Value::Array(values) => RawValue::array(values.into_iter().map(Into::into)),
+            serde_json::Value::Array(values) => {
+                RawValue::array(values.into_iter().map(Into::into).collect())
+            }
             serde_json::Value::Object(map) => {
                 let fields = map
                     .into_iter()

@@ -30,7 +30,7 @@ pub struct HoconParser<R: Read> {
 }
 
 #[derive(Debug)]
-enum Frame {
+pub(crate) enum Frame {
     Array(Vec<RawValue>),
     Object {
         entries: Vec<ObjectField>,
@@ -159,7 +159,10 @@ impl<R: Read> HoconParser<R> {
         self.drop_whitespace()?;
         match self.reader.peek() {
             Ok(ch) => {
-                return Err(Error::unexpected_token("end of file", ch));
+                return Err(Error::UnexpectedToken {
+                    expected: "end of file",
+                    found_beginning: ch,
+                });
             }
             Err(Error::Eof) => {}
             Err(err) => {
@@ -175,6 +178,7 @@ mod tests {
     use std::io::BufReader;
 
     use crate::Result;
+    use crate::config_options::ConfigOptions;
     use crate::parser::parser::HoconParser;
     use crate::parser::read::StreamRead;
     use rstest::rstest;
@@ -195,9 +199,9 @@ mod tests {
         use crate::parser::read::MIN_BUFFER_SIZE;
         let file = std::fs::File::open(&path)?;
         let read: StreamRead<_, MIN_BUFFER_SIZE> = StreamRead::new(BufReader::new(file));
-        let mut parser = HoconParser::new(read);
-        let raw = parser.parse()?;
-        tracing::debug!("{}", raw);
+        let options = ConfigOptions::new(false, vec!["resources".to_string()]);
+        let mut parser = HoconParser::with_options(read, options);
+        parser.parse()?;
         Ok(())
     }
 }

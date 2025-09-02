@@ -32,6 +32,20 @@ impl<R: Read> HoconParser<R> {
         let mut values = vec![];
         let mut scratch = vec![];
         let mut spaces = vec![];
+        let mut prev_space = None;
+        fn push_value_and_space(
+            values: &mut Vec<RawValue>,
+            spaces: &mut Vec<Option<String>>,
+            mut space_after_value: Option<String>,
+            v: RawValue,
+        ) -> Option<String> {
+            if !values.is_empty() {
+                spaces.push(space_after_value);
+                space_after_value = None;
+            }
+            values.push(v);
+            space_after_value
+        }
         loop {
             let ch = try_peek!(self.reader);
             match ch {
@@ -39,18 +53,19 @@ impl<R: Read> HoconParser<R> {
                     // Parse array
                     let array = self.parse_array()?;
                     let v = RawValue::Array(array);
-                    values.push(v);
+                    prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '{' => {
                     // Parse object
                     let object = self.parse_object()?;
                     let v = RawValue::Object(object);
-                    values.push(v);
+                    prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '"' => {
                     // Parse quoted string or multi-line string
+                    const TRIPLE_QUOTE: [char; 3] = ['"', '"', '"'];
                     let v = if let Ok(chars) = self.reader.peek_n::<3>()
-                        && chars == ['"', '"', '"']
+                        && chars == TRIPLE_QUOTE
                     {
                         let multiline = self.parse_multiline_string()?;
                         RawValue::String(RawString::MultilineString(multiline))
@@ -58,12 +73,12 @@ impl<R: Read> HoconParser<R> {
                         let quoted = self.parse_quoted_string()?;
                         RawValue::String(RawString::QuotedString(quoted))
                     };
-                    values.push(v);
+                    prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '$' => {
                     let substitution = self.parse_substitution()?;
                     let v = RawValue::Substitution(substitution);
-                    values.push(v);
+                    prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 ']' | '}' => {
                     break;
@@ -107,11 +122,15 @@ impl<R: Read> HoconParser<R> {
                         scratch.clear();
                         self.parse_horizontal_whitespace(&mut scratch)?;
                         let space = unsafe { str::from_utf8_unchecked(&scratch) };
-                        spaces.push(space.to_string());
+                        if space.is_empty() {
+                            prev_space = None
+                        } else {
+                            prev_space = Some(space.to_string());
+                        }
                     } else {
                         let unquoted = self.parse_unquoted_string()?;
                         let v = RawValue::String(RawString::UnquotedString(unquoted));
-                        values.push(v);
+                        prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                     }
                 }
             };
@@ -126,7 +145,8 @@ impl<R: Read> HoconParser<R> {
             };
             Ok(v)
         } else {
-            Ok(RawValue::concat(values))
+            debug_assert_eq!(values.len(), spaces.len() + 1);
+            RawValue::concat(values, spaces)
         }
     }
 
@@ -176,7 +196,8 @@ impl<R: Read> HoconParser<R> {
         let ch = self.reader.peek()?;
         // It maybe an include syntax, we need to peek more chars to determine.
         let field = if ch == 'i' && self.reader.peek_n::<7>()? == INCLUDE {
-            let inclusion = self.parse_include()?;
+            let mut inclusion = self.parse_include()?;
+            self.parse_inclusion(&mut inclusion)?;
             ObjectField::inclusion(inclusion)
         } else {
             let (key, value) = self.parse_key_value()?;

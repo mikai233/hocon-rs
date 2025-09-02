@@ -89,9 +89,9 @@ impl Into<Value> for serde_json::Value {
             serde_json::Value::Bool(boolean) => Value::Boolean(boolean),
             serde_json::Value::Number(number) => Value::Number(number),
             serde_json::Value::String(string) => Value::String(string),
-            serde_json::Value::Array(array) => Value::with_array(array.into_iter().map(Into::into)),
+            serde_json::Value::Array(array) => Value::array_from_iter(array.into_iter().map(Into::into)),
             serde_json::Value::Object(object) => {
-                Value::with_object(object.into_iter().map(|(key, value)| (key, value.into())))
+                Value::object_from_iter(object.into_iter().map(|(key, value)| (key, value.into())))
             }
         }
     }

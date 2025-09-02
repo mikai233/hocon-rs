@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use derive_more::Constructor;
-use itertools::Itertools;
+
+use crate::join;
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Constructor)]
 pub(crate) struct RefPath<'a> {
@@ -84,7 +85,7 @@ impl Display for RefPath<'_> {
             paths.push(&p.first);
             remainder = &p.remainder;
         }
-        write!(f, "{}", paths.iter().join("."))
+        join(paths.iter(), ".", f)
     }
 }
 

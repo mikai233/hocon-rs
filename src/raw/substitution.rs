@@ -5,7 +5,6 @@ use std::fmt::{Debug, Display, Formatter};
 pub struct Substitution {
     pub path: RawString,
     pub optional: bool,
-    pub space: Option<String>, // Space after substitution expression is necessary when the substitute result is string
 }
 
 impl Display for Substitution {
@@ -26,7 +25,7 @@ impl Debug for Substitution {
         if self.optional {
             write!(f, "?")?;
         }
-        write!(f, "{}", self.path.synthetic())?;
+        write!(f, "{:?}", self.path)?;
         write!(f, "}}")?;
         Ok(())
     }

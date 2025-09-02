@@ -10,7 +10,6 @@ use crate::{
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
     syntax::Syntax,
 };
-use itertools::Itertools;
 
 #[derive(Default)]
 struct ConfigPath {
@@ -126,9 +125,9 @@ pub(crate) fn load_from_path(path: impl AsRef<Path>, options: ConfigOptions) -> 
         result.push((raw_obj, Syntax::Json));
     }
     let cmp = &options.compare;
+    result.sort_by(|a, b| cmp(&a.1, &b.1));
     let raw = result
         .into_iter()
-        .sorted_by(|(_, s1), (_, s2)| cmp(s1, s2))
         .map(|(o, _)| o)
         .fold(RawObject::default(), |merged, o| {
             RawObject::merge(merged, o)

@@ -1,6 +1,5 @@
-use crate::raw::raw_value::RawValue;
+use crate::{join, raw::raw_value::RawValue};
 use derive_more::{Constructor, Deref, DerefMut};
-use itertools::Itertools;
 use std::fmt::Display;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deref, DerefMut, Constructor)]
@@ -14,6 +13,9 @@ impl RawArray {
 
 impl Display for RawArray {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}]", self.iter().join(", "))
+        write!(f, "[")?;
+        join(self.iter(), ", ", f)?;
+        write!(f, "]")?;
+        Ok(())
     }
 }

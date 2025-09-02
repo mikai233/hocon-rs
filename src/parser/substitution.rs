@@ -1,8 +1,8 @@
-use crate::Result;
 use crate::error::Error;
 use crate::parser::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::substitution::Substitution;
+use crate::Result;
 
 impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_substitution(&mut self) -> Result<Substitution> {
@@ -38,7 +38,7 @@ impl<R: Read> HoconParser<R> {
             });
         }
         self.reader.next()?;
-        let substitution = Substitution::new(path_expression, optional, None);
+        let substitution = Substitution::new(path_expression, optional);
         Ok(substitution)
     }
 }

@@ -221,7 +221,7 @@ impl Object {
                         substitution.path = parent.into();
                     }
                     Value::Concat(concat) => {
-                        for ele in concat.iter_mut() {
+                        for ele in concat.values_mut() {
                             if let Value::Object(obj) = ele.get_mut() {
                                 obj.fixup_substitution(Some(parent))?;
                             }
@@ -417,7 +417,7 @@ impl Object {
             }
             Some(i) => {
                 let substitution = &tracker[i];
-                return Err(crate::error::Error::CycleSubstitution(
+                return Err(crate::error::Error::SubstitutionCycle(
                     substitution.to_string(),
                 ));
             }
@@ -432,22 +432,22 @@ impl Object {
                     *target.borrow_mut() = Value::None;
                     Ok(())
                 } else {
-                    Err(crate::error::Error::CycleSubstitution(
+                    Err(crate::error::Error::SubstitutionCycle(
                         substitution.to_string(),
                     ))
                 };
             }
             self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
-            let mut target_clone = target.borrow().clone();
-            if let Some(space) = &substitution.space {
-                match target_clone {
-                    Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {
-                        target_clone =
-                            Value::String(format!("{}{}", target_clone.to_string(), space));
-                    }
-                    _ => {}
-                }
-            }
+            let target_clone = target.borrow().clone();
+            // if let Some(space) = &substitution.space {
+            //     match target_clone {
+            //         Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {
+            //             target_clone =
+            //                 Value::String(format!("{}{}", target_clone.to_string(), space));
+            //         }
+            //         _ => {}
+            //     }
+            // }
             if enabled!(Level::TRACE) {
                 trace!("set {} to {}", value.borrow(), target_clone);
             }
@@ -477,7 +477,7 @@ impl Object {
         Ok(())
     }
 
-    fn pop_value_from_concat(value: &RefCell<Value>) -> Option<RefCell<Value>> {
+    fn pop_value_from_concat(value: &RefCell<Value>) -> Option<(Option<String>, RefCell<Value>)> {
         let mut borrowed = value.borrow_mut();
         let concat = if let Value::Concat(concat) = borrowed.deref_mut() {
             concat
@@ -486,7 +486,7 @@ impl Object {
         };
         let popped = concat.pop_back();
         match &popped {
-            Some(v) => {
+            Some((_, v)) => {
                 if enabled!(Level::TRACE) {
                     trace!("popped {} from {}", v.borrow(), concat);
                 }
@@ -508,36 +508,42 @@ impl Object {
         let _enter = span.enter();
 
         match Self::pop_value_from_concat(value) {
-            Some(last) => {
+            Some((space_last, last)) => {
                 self.substitute_value(path, &last, tracker)?;
                 if matches!(&*value.borrow(), Value::Concat(_)) {
                     match Self::pop_value_from_concat(value) {
-                        Some(second_last) => {
-                            let substitution_space = match second_last.borrow().deref() {
-                                Value::Substitution(s) => s.space.clone(),
-                                _ => None,
-                            };
+                        Some((space_second_last, second_last)) => {
+                            // let substitution_space = match second_last.borrow().deref() {
+                            // Value::Substitution(s) => s.space.clone(),
+                            // _ => None,
+                            // };
                             self.substitute_value(path, &second_last, tracker)?;
                             let last = last.into_inner();
-                            let new_val = match second_last.into_inner() {
-                                Value::None => {
-                                    if let Some(space) = substitution_space
-                                        && matches!(
-                                            last,
-                                            Value::None
-                                                | Value::Null
-                                                | Value::Boolean(_)
-                                                | Value::Number(_)
-                                                | Value::String(_)
-                                        )
-                                    {
-                                        Value::concatenate(path, Value::String(space), last)?
-                                    } else {
-                                        Value::concatenate(path, Value::None, last)?
-                                    }
-                                }
-                                second_last => Value::concatenate(path, second_last, last)?,
-                            };
+                            let new_val = Value::concatenate(
+                                path,
+                                second_last.into_inner(),
+                                space_last,
+                                last,
+                            )?;
+                            // let new_val = match second_last.into_inner() {
+                            // Value::None => {
+                            // if let Some(space) = substitution_space
+                            // && matches!(
+                            // last,
+                            // Value::None
+                            // | Value::Null
+                            // | Value::Boolean(_)
+                            // | Value::Number(_)
+                            // | Value::String(_)
+                            // )
+                            // {
+                            // Value::concatenate(path, Value::String(space), last)?
+                            // } else {
+                            // Value::concatenate(path, Value::None, last)?
+                            // }
+                            // }
+                            // second_last => Value::concatenate(path, second_last, last)?,
+                            // };
 
                             let mut new_val = RefCell::new(new_val);
                             self.substitute_value(path, &new_val, tracker)?;
@@ -550,7 +556,7 @@ impl Object {
                                     *v = new_val.into_inner();
                                 }
                                 Value::Concat(concat) => {
-                                    concat.push_back(new_val);
+                                    concat.push_back(space_second_last, new_val);
                                 }
                                 _ => unreachable!(),
                             }
@@ -567,7 +573,8 @@ impl Object {
                     }
                 } else {
                     let second_last = std::mem::take(&mut *value.borrow_mut());
-                    let mut new_val = Value::concatenate(path, second_last, last.into_inner())?;
+                    let mut new_val =
+                        Value::concatenate(path, second_last, space_last, last.into_inner())?;
                     new_val.try_become_merged();
                     if enabled!(Level::TRACE) {
                         trace!("set {} to {}", value.borrow(), new_val);

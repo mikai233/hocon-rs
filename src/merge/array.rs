@@ -4,12 +4,10 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use itertools::Itertools;
 use tracing::trace;
 
 use crate::merge::{path::RefPath, value::Value};
 
-// TODO considering add Merged and Unmerged states to avoid unnecessary iteration.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Array {
     Merged(Vec<RefCell<Value>>),
@@ -81,6 +79,19 @@ impl DerefMut for Array {
 
 impl Display for Array {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}]", self.iter().map(|v| v.borrow()).join(", "))
+        let mut iter = self.iter();
+        write!(f, "[")?;
+        match iter.next() {
+            Some(v) => {
+                write!(f, "{}", v.borrow())?;
+                for v in iter {
+                    write!(f, ", ")?;
+                    write!(f, "{}", v.borrow())?;
+                }
+            }
+            None => {}
+        }
+        write!(f, "]")?;
+        Ok(())
     }
 }

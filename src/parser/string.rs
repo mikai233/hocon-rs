@@ -268,17 +268,11 @@ impl<R: Read> HoconParser<R> {
             }
         }
         // After the loop, the paths vector must not be empty.
+        debug_assert!(!paths.is_empty());
         let path = if paths.len() == 1 {
             RawString::quoted(paths.remove(0))
         } else {
-            let last_index = paths.len() - 1;
-            RawString::concat(paths.into_iter().enumerate().map(|(index, p)| {
-                if index != last_index {
-                    (RawString::quoted(p), Some("."))
-                } else {
-                    (RawString::quoted(p), None)
-                }
-            }))
+            RawString::path_expression(paths.into_iter().map(RawString::quoted).collect())
         };
         Ok(path)
     }

@@ -111,11 +111,13 @@ impl Config {
                     );
                     RawValue::Object(RawObject::new(fields))
                 }
-                Value::Array(array) => RawValue::array(array.into_iter().map(into_raw)),
+                Value::Array(array) => RawValue::array(array.into_iter().map(into_raw).collect()),
                 Value::Boolean(boolean) => RawValue::Boolean(boolean),
                 Value::Null => RawValue::Null,
                 Value::String(string) => {
-                    let s = RawString::concat(string.split('.').map(|p| (p.into(), Some("."))));
+                    let s = RawString::path_expression(
+                        string.split('.').map(RawString::quoted).collect(),
+                    );
                     RawValue::String(s)
                 }
                 Value::Number(number) => RawValue::Number(number),
@@ -146,7 +148,7 @@ impl Config {
         let mut value = MValue::Object(object);
         value.resolve()?;
         if value.is_unmerged() {
-            return Err(crate::error::Error::ResolveNotComplete);
+            return Err(crate::error::Error::ResolveIncomplete);
         }
         let value: Value = value.try_into()?;
         T::deserialize(value)
@@ -242,7 +244,7 @@ mod tests {
         let mut options = ConfigOptions::default();
         options.classpath = vec!["resources".to_string()].into();
         let value = Config::load::<Value>(hocon, Some(options))?;
-        let f = std::fs::File::open(json).unwrap();
+        let f = std::fs::File::open(json)?;
         let expected_value: serde_json::Value = serde_json::from_reader(f)?;
         let expected_value: Value = expected_value.into();
         value.assert_deep_eq(&expected_value, "$");
