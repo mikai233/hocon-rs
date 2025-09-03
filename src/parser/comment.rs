@@ -70,7 +70,7 @@ impl<R: Read> HoconParser<R> {
         Ok(ty)
     }
 
-    pub(crate) fn drop_comments(&mut self) -> Result<()> {
+    pub(crate) fn drop_whitespace_and_comments(&mut self) -> Result<()> {
         loop {
             self.drop_whitespace()?;
             match self.parse_comment() {

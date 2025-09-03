@@ -1,19 +1,19 @@
 use std::str::FromStr;
 
-use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
 use crate::parser::loader::{self, load_from_classpath, load_from_path, load_from_url};
-use crate::parser::parser::{CTX, HoconParser};
+use crate::parser::parser::{Context, HoconParser, CTX};
 use crate::parser::read::Read;
 use crate::raw::include::{Inclusion, Location};
 use crate::raw::raw_object::RawObject;
+use crate::Result;
 
 pub(crate) const INCLUDE: [char; 7] = ['i', 'n', 'c', 'l', 'u', 'd', 'e'];
 
 impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_include(&mut self) -> Result<Inclusion> {
-        self.parse_inlcude_token()?;
+        self.parse_include_token()?;
         self.drop_horizontal_whitespace()?;
         let required = self.parse_required_token()?;
         let location = self.parse_location_token()?;
@@ -34,7 +34,7 @@ impl<R: Read> HoconParser<R> {
         Ok(inclusion)
     }
 
-    fn parse_inlcude_token(&mut self) -> Result<()> {
+    fn parse_include_token(&mut self) -> Result<()> {
         let ch = self.reader.peek()?;
         if ch != 'i' {
             return Err(Error::UnexpectedToken {
@@ -156,14 +156,14 @@ impl<R: Read> HoconParser<R> {
             Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
                 if inclusion.required {
                     return Err(Error::Include {
-                        inclusion: inclusion.clone(),
+                        inclusion: inclusion.to_string(),
                         error: Box::new(Error::Io(io)),
                     });
                 }
             }
             Err(e) => {
                 return Err(Error::Include {
-                    inclusion: inclusion.clone(),
+                    inclusion: inclusion.to_string(),
                     error: Box::new(e),
                 });
             }
@@ -192,14 +192,14 @@ impl<R: Read> HoconParser<R> {
             Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
                 if inclusion.required {
                     return Err(Error::Include {
-                        inclusion: inclusion.clone(),
+                        inclusion: inclusion.to_string(),
                         error: Box::new(Error::Io(io)),
                     });
                 }
             }
             Err(e) => {
                 return Err(Error::Include {
-                    inclusion: inclusion.clone(),
+                    inclusion: inclusion.to_string(),
                     error: Box::new(e),
                 });
             }
@@ -215,24 +215,32 @@ impl<R: Read> HoconParser<R> {
                 .rfind(|p| p == &&inclusion.path)
                 .is_some();
             if has_cycle {
-                return Err(Error::InclusionCycle(inclusion.path.clone()));
+                ctx.reset0();
+                return Err(Error::InclusionCycle);
             }
             ctx.include_chain.push(inclusion.path.clone());
             Ok(())
         })?;
-        match inclusion.location {
-            None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
-                Ok(url) => {
-                    if url.scheme() != "file" {
-                        self.inclusion_from_url(inclusion)?;
+        let result = {
+            match inclusion.location {
+                None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
+                    Ok(url) => {
+                        if url.scheme() != "file" {
+                            self.inclusion_from_url(inclusion)?;
+                        }
                     }
-                }
-                _ => {
-                    self.inclusion_from_file_and_classpath(inclusion)?;
-                }
-            },
-            Some(Location::Classpath) => self.inclusion_from_classpath(inclusion)?,
-            Some(Location::File) => self.inclusion_from_file(inclusion)?,
+                    _ => {
+                        self.inclusion_from_file_and_classpath(inclusion)?;
+                    }
+                },
+                Some(Location::Classpath) => self.inclusion_from_classpath(inclusion)?,
+                Some(Location::File) => self.inclusion_from_file(inclusion)?,
+            }
+            Ok::<_, Error>(())
+        };
+        if let Err(err) = result {
+            Context::reset();
+            return Err(err);
         }
         CTX.with_borrow_mut(|ctx| {
             ctx.include_chain.pop();
@@ -243,9 +251,9 @@ impl<R: Read> HoconParser<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
     use crate::parser::parser::HoconParser;
     use crate::parser::read::TestRead;
+    use crate::Result;
     use rstest::rstest;
 
     #[rstest]

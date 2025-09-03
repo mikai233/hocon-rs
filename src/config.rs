@@ -185,9 +185,10 @@ impl From<std::collections::HashMap<String, Value>> for Config {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
+    use crate::error::Error;
+    use crate::Result;
     use crate::{config::Config, config_options::ConfigOptions, value::Value};
+    use rstest::rstest;
 
     impl Value {
         pub fn assert_deep_eq(&self, other: &Value, path: &str) {
@@ -237,10 +238,14 @@ mod tests {
     #[case("resources/concat.conf", "resources/concat.json")]
     #[case("resources/concat2.conf", "resources/concat2.json")]
     #[case("resources/concat3.conf", "resources/concat3.json")]
+    #[case("resources/concat4.conf", "resources/concat4.json")]
+    #[case("resources/concat5.conf", "resources/concat5.json")]
+    #[case("resources/include.conf", "resources/include.json")]
+    #[case("resources/comment.conf", "resources/comment.json")]
     fn test_hocon(
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,
-    ) -> crate::Result<()> {
+    ) -> Result<()> {
         let mut options = ConfigOptions::default();
         options.classpath = vec!["resources".to_string()].into();
         let value = Config::load::<Value>(hocon, Some(options))?;
@@ -251,15 +256,43 @@ mod tests {
         Ok(())
     }
 
-    // #[test]
-    // fn test_max_depth() -> crate::Result<()> {
-    //     let error = Config::load::<Value>("resources/max_depth.conf", None)
-    //         .err()
-    //         .unwrap();
-    //     assert!(matches!(
-    //         error,
-    //         crate::error::Error::RecursionDepthExceeded { .. }
-    //     ));
-    //     Ok(())
-    // }
+    #[test]
+    fn test_max_depth() -> Result<()> {
+        let error = Config::load::<Value>("resources/max_depth.conf", None)
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            Error::RecursionDepthExceeded { .. }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_include_cycle() -> Result<()> {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()].into();
+        let error = Config::load::<Value>("resources/include_cycle.conf", Some(options))
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            Error::Include {..}
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn test_substitution_cycle() -> Result<()> {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()].into();
+        let error = Config::load::<Value>("resources/substitution_cycle.conf", Some(options))
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            Error::SubstitutionCycle{..}
+        ));
+        Ok(())
+    }
 }

@@ -16,7 +16,7 @@ impl<R: Read> HoconParser<R> {
         self.reader.next()?;
         let mut values = vec![];
         loop {
-            self.drop_comments()?;
+            self.drop_whitespace_and_comments()?;
             let ch = self.reader.peek()?;
             if ch == ']' {
                 self.reader.next()?;
@@ -24,7 +24,7 @@ impl<R: Read> HoconParser<R> {
             }
             let v = self.parse_value()?;
             values.push(v);
-            self.drop_whitespace()?;
+            self.drop_whitespace_and_comments()?;
             if self.drop_comma_separator()? {
                 break;
             }

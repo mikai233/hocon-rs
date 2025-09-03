@@ -2,20 +2,44 @@ use std::cell::RefCell;
 
 use derive_more::Constructor;
 
-use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
 use crate::parser::read::Read;
 use crate::parser::{is_hocon_horizontal_whitespace, is_hocon_whitespace};
-use crate::raw::field::ObjectField;
 use crate::raw::raw_object::RawObject;
-use crate::raw::raw_string::RawString;
-use crate::raw::raw_value::RawValue;
+use crate::Result;
 
 #[derive(Constructor, Default)]
 pub(crate) struct Context {
     pub(crate) include_chain: Vec<String>,
     pub(crate) depth: usize,
+}
+
+impl Context {
+    pub(crate) fn reset0(&mut self) {
+        self.include_chain.clear();
+        self.depth = 0;
+    }
+
+    pub(crate) fn reset() {
+        CTX.with_borrow_mut(|ctx| {
+            ctx.reset0();
+        });
+    }
+
+    pub(crate) fn increase_depth() -> usize {
+        CTX.with_borrow_mut(|ctx| {
+            ctx.depth += 1;
+            ctx.depth
+        })
+    }
+
+    pub(crate) fn decrease_depth() -> usize {
+        CTX.with_borrow_mut(|ctx| {
+            ctx.depth -= 1;
+            ctx.depth
+        })
+    }
 }
 
 thread_local! {
@@ -25,35 +49,19 @@ thread_local! {
 #[derive(Debug)]
 pub struct HoconParser<R: Read> {
     pub(crate) reader: R,
-    pub(crate) stack: Vec<Frame>,
     pub(crate) options: ConfigOptions,
-}
-
-#[derive(Debug)]
-pub(crate) enum Frame {
-    Array(Vec<RawValue>),
-    Object {
-        entries: Vec<ObjectField>,
-        expecting_key: bool,
-        current_key: Option<RawString>,
-    },
 }
 
 impl<R: Read> HoconParser<R> {
     pub fn new(reader: R) -> Self {
         HoconParser {
             reader,
-            stack: Vec::new(),
             options: Default::default(),
         }
     }
 
     pub fn with_options(reader: R, options: ConfigOptions) -> Self {
-        HoconParser {
-            reader,
-            stack: Vec::new(),
-            options,
-        }
+        HoconParser { reader, options }
     }
 
     pub(crate) fn parse_horizontal_whitespace<'a>(
@@ -140,7 +148,7 @@ impl<R: Read> HoconParser<R> {
     }
 
     pub fn parse(&mut self) -> Result<RawObject> {
-        self.drop_whitespace()?;
+        self.drop_whitespace_and_comments()?;
         let raw_obj = match self.reader.peek() {
             Ok(ch) => {
                 if ch == '{' {
@@ -156,7 +164,7 @@ impl<R: Read> HoconParser<R> {
                 return Err(err);
             }
         };
-        self.drop_whitespace()?;
+        self.drop_whitespace_and_comments()?;
         match self.reader.peek() {
             Ok(ch) => {
                 return Err(Error::UnexpectedToken {
@@ -177,10 +185,10 @@ impl<R: Read> HoconParser<R> {
 mod tests {
     use std::io::BufReader;
 
-    use crate::Result;
     use crate::config_options::ConfigOptions;
     use crate::parser::parser::HoconParser;
     use crate::parser::read::StreamRead;
+    use crate::Result;
     use rstest::rstest;
 
     #[rstest]
@@ -193,7 +201,7 @@ mod tests {
     #[case("resources/empty.conf")]
     #[case("resources/included.conf")]
     #[case("resources/main.conf")]
-    #[case("F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf")]
+    // #[case("F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf")]
     // #[case("resources/max_depth.conf")]
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
         use crate::parser::read::MIN_BUFFER_SIZE;

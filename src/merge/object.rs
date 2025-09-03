@@ -1,4 +1,4 @@
-use tracing::{Level, enabled, instrument, span, trace};
+use tracing::{enabled, instrument, span, trace, Level};
 
 use crate::merge::array::Array;
 use crate::merge::substitution::Substitution;
@@ -72,9 +72,8 @@ impl Object {
             Some(parent) => parent.join(RefPath::from_slice(&key_path)?),
             None => RefPath::from_slice(&key_path)?,
         };
-        let mut expanded_obj =
+        let expanded_obj =
             Self::new_obj_from_path(&key_path, Value::from_raw(Some(&path), value)?)?;
-        expanded_obj.fixup_substitution(parent)?;
         self.merge(expanded_obj, parent)?;
         Ok(())
     }
@@ -192,7 +191,6 @@ impl Object {
         }
     }
 
-    // TODO This implementation has problems
     fn fixup_substitution(&mut self, parent: Option<&RefPath>) -> crate::Result<()> {
         if let Some(parent) = parent {
             for (_, val) in self.iter_mut() {
@@ -308,6 +306,80 @@ impl Object {
         }
     }
 
+    /// Retrieves a deep `RefCell<Value>` reference from a `HashMap<String, RefCell<Value>>` by following a given `Path`.
+    /// This method uses an explicit loop to avoid stack overflow issues that could occur in a recursive implementation.
+    ///
+    /// # Safety
+    /// This method is `unsafe` because it returns a reference derived from a raw pointer (`*const RefCell<Value>`).
+    /// The caller must ensure the following to avoid undefined behavior (UB):
+    /// 1. **No mutation of the object tree during the reference's lifetime**: While the returned `&RefCell<Value>` is in use,
+    ///    the caller must not remove or replace the referenced value in the object tree. For example, for a path `a.b.c`
+    ///    (e.g., `{a: {b: {c: 1}}}`), after obtaining a reference to `c`, the caller must not mutate `b` (via `borrow_mut`)
+    ///    to remove or replace `c`, as this could invalidate the returned reference.
+    /// 2. **No concurrent access to the `HashMap`**: The `HashMap` must not be modified (e.g., via insertion, removal, or mutation
+    ///    of other `RefCell`s) while the returned reference is live, as this could lead to dangling pointers or data races.
+    /// 3. **Valid path and object structure**: The caller must ensure the `Path` is valid and corresponds to a navigable structure
+    ///    in the `HashMap`. Invalid paths or non-object values at intermediate steps will result in `None`, but the caller must
+    ///    not assume the returned reference is always valid without proper checks.
+    ///
+    /// # Potential Undefined Behavior (UB) Points
+    /// - **Deref of raw pointer (`*raw`)**: The raw pointer `raw` is dereferenced to obtain a `&RefCell<Value>`. If the underlying
+    ///   `RefCell` has been removed or invalidated (e.g., by mutating the `HashMap` or parent `Value::Object`), this dereference
+    ///   could lead to UB (e.g., accessing freed memory).
+    /// - **Borrowing the `RefCell`**: The `value.borrow()` call assumes the `RefCell` is still valid and not mutably borrowed
+    ///   elsewhere. If the caller violates `RefCell` borrowing rules (e.g., by holding a `RefMut` elsewhere), this could trigger
+    ///   UB or a panic.
+    /// - **Lifetime of returned reference**: The returned `&RefCell<Value>` is tied to the raw pointer's validity. If the `HashMap`
+    ///   or its nested objects are modified to remove or replace the referenced `RefCell`, the returned reference becomes dangling,
+    ///   leading to UB when used.
+    ///
+    /// # Parameters
+    /// - `path`: A `Path` object representing the sequence of keys to traverse the nested `HashMap` structure.
+    ///
+    /// # Returns
+    /// - `Some(&RefCell<Value>)` if the path resolves to a valid `RefCell<Value>` in the object tree.
+    /// - `None` if the path is invalid, a key is missing, or an intermediate value is not a `Value::Object`.
+    pub(crate) unsafe fn unsafe_get_by_path(&self, path: &Path) -> Option<&RefCell<Value>> {
+        // Attempt to get the first value from the HashMap using the path's first key.
+        if let Some(value) = self.get(&path.first) {
+            // Initialize the next path segment to traverse.
+            let mut next = path.next();
+            // Store the current `RefCell<Value>` as a raw pointer to avoid lifetime issues with temporary references.
+            let mut raw = value as *const RefCell<Value>;
+
+            // Iterate through the path segments using a loop to avoid recursion.
+            loop {
+                // Dereference the raw pointer to access the `RefCell<Value>`.
+                // UB Risk: If the `RefCell` pointed to by `raw` has been invalidated (e.g., removed from the HashMap or parent
+                // object), this dereference causes UB.
+                let value = unsafe { &*raw };
+
+                match next {
+                    // If there are more path segments, try to navigate deeper.
+                    Some(n) => match &*value.borrow() {
+                        // Check if the current value is a `Value::Object` (i.e., a nested HashMap).
+                        Value::Object(object) => match object.get(&n.first) {
+                            // If the next key exists, update the raw pointer and continue to the next path segment.
+                            Some(value) => {
+                                raw = value as *const RefCell<Value>;
+                                next = n.next();
+                            }
+                            // If the key is missing, the path is invalid, so return None.
+                            None => break None,
+                        },
+                        // If the current value is not an object, the path cannot be followed, so return None.
+                        _ => break None,
+                    },
+                    // If there are no more path segments, return the current `RefCell<Value>` reference.
+                    None => break Some(value),
+                }
+            }
+        } else {
+            // If the first key is not found in the HashMap, return None.
+            None
+        }
+    }
+
     /// Do not call the borrow_mut of Value across the substitute function, it may cause panic.
     #[instrument(level = Level::TRACE, skip_all, fields(path = %path, vlaue = %value.borrow(), mreged = %value.borrow().is_merged())
     )]
@@ -417,45 +489,45 @@ impl Object {
             }
             Some(i) => {
                 let substitution = &tracker[i];
-                return Err(crate::error::Error::SubstitutionCycle(
-                    substitution.to_string(),
-                ));
+                return Err(crate::error::Error::SubstitutionCycle {
+                    current: substitution.to_string(),
+                    backtrace: tracker[i..].iter().map(|s| s.to_string()).collect(),
+                });
             }
         }
         trace!("substitute: {}", substitution);
-        let success = self.get_by_path(&substitution.path, |target| {
-            if enabled!(Level::TRACE) {
-                trace!("find substitution: {} -> {}", substitution, target.borrow());
+        // During the substitution stage, we only modify non-`Value::Object` values (e.g., scalars) via `RefCell::borrow_mut`.
+        // This ensures that no `RefCell<Value>` is inserted, removed, or replaced in any `HashMap` within the object tree,
+        // guaranteeing that the address of the target `RefCell` remains valid and safe to access.
+        // Therefore, the `unsafe` call to `unsafe_get_by_path` does not risk undefined behavior (UB) in this context,
+        // as the object tree's structure is not modified during the lifetime of the returned reference.
+        let target = unsafe { self.unsafe_get_by_path(&substitution.path) };
+        match target {
+            Some(target) => {
+                if enabled!(Level::TRACE) {
+                    trace!("find substitution: {} -> {}", substitution, target.borrow());
+                }
+                if &*substitution.path == path
+                    && matches!(&*target.borrow(), Value::Substitution(_))
+                {
+                    return if substitution.optional {
+                        *target.borrow_mut() = Value::None;
+                        Ok(())
+                    } else {
+                        Err(crate::error::Error::SubstitutionCycle {
+                            current: substitution.to_string(),
+                            backtrace: vec![substitution.to_string()],
+                        })
+                    };
+                }
+                self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
+                let target_clone = target.borrow().clone();
+                if enabled!(Level::TRACE) {
+                    trace!("set {} to {}", value.borrow(), target_clone);
+                }
+                *value.borrow_mut() = target_clone;
             }
-            if &*substitution.path == path && matches!(&*target.borrow(), Value::Substitution(_)) {
-                return if substitution.optional {
-                    *target.borrow_mut() = Value::None;
-                    Ok(())
-                } else {
-                    Err(crate::error::Error::SubstitutionCycle(
-                        substitution.to_string(),
-                    ))
-                };
-            }
-            self.substitute_value(&RefPath::from(&substitution.path), target, tracker)?;
-            let target_clone = target.borrow().clone();
-            // if let Some(space) = &substitution.space {
-            //     match target_clone {
-            //         Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {
-            //             target_clone =
-            //                 Value::String(format!("{}{}", target_clone.to_string(), space));
-            //         }
-            //         _ => {}
-            //     }
-            // }
-            if enabled!(Level::TRACE) {
-                trace!("set {} to {}", value.borrow(), target_clone);
-            }
-            *value.borrow_mut() = target_clone;
-            Ok(())
-        })?;
-        if !success {
-            match std::env::var(substitution.full_path()) {
+            None => match std::env::var(substitution.full_path()) {
                 Ok(env_var) => {
                     if enabled!(Level::TRACE) {
                         trace!("set environment variable {} to {}", env_var, value.borrow());
@@ -471,7 +543,7 @@ impl Object {
                         *value.borrow_mut() = Value::None;
                     }
                 }
-            }
+            },
         }
         tracker.pop();
         Ok(())
@@ -513,10 +585,6 @@ impl Object {
                 if matches!(&*value.borrow(), Value::Concat(_)) {
                     match Self::pop_value_from_concat(value) {
                         Some((space_second_last, second_last)) => {
-                            // let substitution_space = match second_last.borrow().deref() {
-                            // Value::Substitution(s) => s.space.clone(),
-                            // _ => None,
-                            // };
                             self.substitute_value(path, &second_last, tracker)?;
                             let last = last.into_inner();
                             let new_val = Value::concatenate(
@@ -525,26 +593,6 @@ impl Object {
                                 space_last,
                                 last,
                             )?;
-                            // let new_val = match second_last.into_inner() {
-                            // Value::None => {
-                            // if let Some(space) = substitution_space
-                            // && matches!(
-                            // last,
-                            // Value::None
-                            // | Value::Null
-                            // | Value::Boolean(_)
-                            // | Value::Number(_)
-                            // | Value::String(_)
-                            // )
-                            // {
-                            // Value::concatenate(path, Value::String(space), last)?
-                            // } else {
-                            // Value::concatenate(path, Value::None, last)?
-                            // }
-                            // }
-                            // second_last => Value::concatenate(path, second_last, last)?,
-                            // };
-
                             let mut new_val = RefCell::new(new_val);
                             self.substitute_value(path, &new_val, tracker)?;
                             new_val.get_mut().try_become_merged();

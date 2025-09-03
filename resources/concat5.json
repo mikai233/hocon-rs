@@ -1,0 +1,16 @@
+{
+  "a": {
+    "hello": "world",
+    "mikai": 233
+  },
+  "b": {
+    "hello": "world"
+  },
+  "c": [
+    {
+      "hello": "world",
+      "mikai": 233
+    },
+    1
+  ]
+}

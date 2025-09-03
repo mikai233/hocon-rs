@@ -111,33 +111,3 @@ macro_rules! impl_path_eq {
 impl_path_eq!(crate::path::Path, RefPath<'_>);
 
 impl_path_eq!(RefPath<'_>, crate::path::Path);
-
-// impl PartialEq<crate::path::Path> for Path<'_> {
-//     fn eq(&self, other: &crate::path::Path) -> bool {
-//         let mut left = Some(self);
-//         let mut right = Some(other);
-//         while let (Some(l), Some(r)) = (left, right) {
-//             if l.first != r.first {
-//                 return false;
-//             }
-//             left = l.next();
-//             right = r.next();
-//         }
-//         left.is_none() && right.is_none()
-//     }
-// }
-
-// impl PartialEq<Path<'_>> for crate::path::Path {
-//     fn eq(&self, other: &Path<'_>) -> bool {
-//         let mut left = Some(self);
-//         let mut right = Some(other);
-//         while let (Some(l), Some(r)) = (left, right) {
-//             if l.first != r.first {
-//                 return false;
-//             }
-//             left = l.next();
-//             right = r.next();
-//         }
-//         left.is_none() && right.is_none()
-//     }
-// }

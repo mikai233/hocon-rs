@@ -2,11 +2,17 @@ use std::{fmt::Debug, rc::Rc};
 
 use crate::syntax::Syntax;
 
+pub(crate) const MAX_OBJECT_DEPTH: usize = 128;
+
+pub(crate) const MAX_INCLUDE_DEPTH: usize = 128;
+
 #[derive(Clone)]
 pub struct ConfigOptions {
     pub use_system_environment: bool,
     pub compare: Rc<Box<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>>,
     pub classpath: Rc<Vec<String>>,
+    pub max_object_depth: usize,
+    pub max_include_depth: usize,
 }
 
 impl ConfigOptions {
@@ -15,6 +21,7 @@ impl ConfigOptions {
             use_system_environment: use_system_env,
             compare: Rc::new(Box::new(Syntax::cmp)),
             classpath: Rc::new(classpath),
+            ..Default::default()
         }
     }
 
@@ -26,6 +33,7 @@ impl ConfigOptions {
             use_system_environment: use_system_env,
             compare: Rc::new(Box::new(compare)),
             classpath: Rc::new(classpath),
+            ..Default::default()
         }
     }
 }
@@ -36,6 +44,8 @@ impl Default for ConfigOptions {
             use_system_environment: false,
             compare: Rc::new(Box::new(Syntax::cmp)),
             classpath: Default::default(),
+            max_object_depth: MAX_OBJECT_DEPTH,
+            max_include_depth: MAX_INCLUDE_DEPTH,
         }
     }
 }

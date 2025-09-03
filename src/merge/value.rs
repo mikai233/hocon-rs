@@ -1,10 +1,12 @@
 use tracing::trace;
 
-use crate::merge::{
-    add_assign::AddAssign, array::Array, concat::Concat, delay_replacement::DelayReplacement,
-    object::Object, path::RefPath, substitution::Substitution,
+use crate::{
+    error::Error,
+    merge::{
+        add_assign::AddAssign, array::Array, concat::Concat, delay_replacement::DelayReplacement,
+        object::Object, path::RefPath, substitution::Substitution,
+    },
 };
-use std::fmt::format;
 use std::{cell::RefCell, fmt::Display};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -90,14 +92,17 @@ impl Value {
         }
     }
 
-    /// Replaces left value to right value if they are simple values.
-    /// TODO if right is add_asign and left is not array, should return error.
+    /// Replaces left value to right value if they are simple values. If value contains substitution,
+    /// it's impossible to determine the replace behavior, for different type values, right value will override left
+    /// value, for add assing(+=)， right value will add to the left value(array), for object vlaues, it will trigger
+    /// a object merge operation. If there's any substitution exists in the value, it's impossible for now to determine the
+    /// replace behavior, so we construct a new dely replacement value wraps them for future resolve.
     pub(crate) fn replacement(path: &RefPath, left: Value, right: Value) -> crate::Result<Value> {
         trace!("replacement: `{}`: `{}` <- `{}`", path, left, right);
         let new_val = match left {
             Value::Object(mut obj_left) => match right {
                 Value::Object(right) => {
-                    // merge two objects
+                    // Merge two objects
                     obj_left.merge(right, Some(path))?;
                     Value::object(obj_left)
                 }
@@ -111,31 +116,62 @@ impl Value {
                     let left = Value::object(obj_left);
                     Value::delay_replacement([left, right])
                 }
-                Value::Concat(mut concat) => {
-                    if concat
-                        .get_values()
-                        .iter()
-                        .all(|v| matches!(&*v.borrow(), Value::Object(_) | Value::Substitution(_)))
-                    {
-                        // the concat result maybe an object, so we need to push the left object for potential
-                        // object concat
-                        let left = Value::object(obj_left);
-                        concat.push_front(RefCell::new(left), None);
-                        Value::concat(concat)
-                    } else {
-                        // the concat result must be a quoted string or an array, it will override the left value
-                        Value::concat(concat)
+                Value::Concat(concat) => {
+                    let try_resolved = concat.try_resolve(path)?;
+                    match try_resolved {
+                        Value::Object(object) => {
+                            obj_left.merge(object, Some(path))?;
+                            Value::object(obj_left)
+                        }
+                        Value::Concat(mut concat) => {
+                            let left = Value::object(obj_left);
+                            concat.push_front(RefCell::new(left), None);
+                            Value::concat(concat)
+                        }
+                        // Concat result must not be Substitiotn DelayReplacement
+                        other => other,
                     }
+                    // let mut all_objects = true;
+                    // let mut contains_substitution = false;
+                    // for v in concat.values_mut() {
+                    //     match &*v.get_mut() {
+                    //         Value::Object(_) => {}
+                    //         Value::Substitution(_) => {
+                    //             contains_substitution = true;
+                    //         }
+                    //         _ => {
+                    //             all_objects = false;
+                    //         }
+                    //     }
+                    // }
+                    // if all_objects {
+                    //     // All values are object, mrege them directly
+                    //     let (values, _) = concat.into_inner();
+                    //     for v in values {
+                    //         if let Value::Object(v) = v.into_inner() {
+                    //             obj_left.merge(v, Some(path))?;
+                    //         } else {
+                    //             unreachable!()
+                    //         }
+                    //     }
+                    //     Value::object(obj_left)
+                    // } else if contains_substitution {
+                    //     // The concat result maybe an object, so we need to push the left object for potential
+                    //     // object concat
+                    //     let left = Value::object(obj_left);
+                    //     concat.push_front(RefCell::new(left), None);
+                    //     Value::concat(concat)
+                    // } else {
+                    //     // Ohter values, right will override left
+                    //     Value::Concat(concat)
+                    // }
                     // if there is any bug here, for safety's side, jsut push the left value into the front
                 }
                 Value::AddAssign(_) => {
-                    // TODO another error?
-                    return Err(crate::error::Error::ConcatenationDifferentType {
+                    return Err(Error::ConcatenateDifferentType {
                         path: path.to_string(),
-                        left: obj_left.to_string(),
-                        left_ty: "object",
-                        right: right.to_string(),
-                        right_ty: right.ty(),
+                        left_type: "object",
+                        right_type: right.ty(),
                     });
                 }
                 Value::DelayReplacement(mut delay_merge) => {
@@ -144,50 +180,61 @@ impl Value {
                     Value::DelayReplacement(delay_merge)
                 }
             },
-            Value::Array(mut array) => {
-                match right {
-                    Value::Substitution(_) |
-                    Value::DelayReplacement(_) => {
-                        Value::delay_replacement([Value::array(array), right])
-                    }
-                    Value::AddAssign(add_assign) => {
-                        array.push(RefCell::new(add_assign.into()));
-                        Value::array(array)
-                    }
-                    right => right
+            Value::Array(mut array) => match right {
+                Value::Substitution(_) | Value::DelayReplacement(_) => {
+                    Value::delay_replacement([Value::array(array), right])
                 }
-                // if let Value::AddAssign(add_assign) = right {
-                //     array.push(RefCell::new(add_assign.into()));
-                //     Value::array(array)
-                // } else {
-                //     right
-                // }
-            }
-            Value::Null | Value::None => {
-                match right {
-                    Value::AddAssign(add_assign) => {
-                        let array = Array::new(vec![RefCell::new(*add_assign.0)]);
-                        Value::Array(array)
-                    }
-                    other => other,
+                Value::AddAssign(add_assign) => {
+                    array.push(RefCell::new(add_assign.into()));
+                    Value::array(array)
                 }
-            }
-            Value::Boolean(_)
-            | Value::String(_)
-            | Value::Number(_) => match right {
-                // the substitution expression might refer to the previous value
-                Value::Substitution(_) => {
-                    Value::delay_replacement([left, right])
+                right => right,
+            },
+            Value::Null => match right {
+                Value::AddAssign(_) => {
+                    return Err(Error::ConcatenateDifferentType {
+                        path: path.to_string(),
+                        left_type: "null",
+                        right_type: right.ty(),
+                    });
                 }
                 other => other,
             },
+            // expand the first add assign to array
+            Value::None => match right {
+                Value::AddAssign(add_assign) => {
+                    let value = add_assign.try_resolve(path)?;
+                    let array = if value.is_merged() {
+                        Array::Merged(vec![RefCell::new(value)])
+                    } else {
+                        Array::Unmerged(vec![RefCell::new(value)])
+                    };
+                    Value::Array(array)
+                }
+                right => right,
+            },
+            Value::Boolean(_) | Value::String(_) | Value::Number(_) => match right {
+                // The substitution expression might refer to the previous value
+                Value::Substitution(_) => Value::delay_replacement([left, right]),
+                Value::AddAssign(_) => {
+                    return Err(Error::ConcatenateDifferentType {
+                        path: path.to_string(),
+                        left_type: left.ty(),
+                        right_type: right.ty(),
+                    });
+                }
+                other => other,
+            },
+            // left value is impossible to be an add assign, because when merging two objects, the first add assign
+            // value will always expand to an array.
             Value::AddAssign(_) => {
-                todo!()
+                return Err(Error::ConcatenateDifferentType {
+                    path: path.to_string(),
+                    left_type: left.ty(),
+                    right_type: right.ty(),
+                });
             }
-            Value::Substitution(_) |
-            // FIXME Is there could be another DelayReplacement here?
-            Value::Concat(_) |
-            Value::DelayReplacement(_) => {
+            Value::Substitution(_) | Value::Concat(_) | Value::DelayReplacement(_) => {
                 Value::delay_replacement([left, right])
             }
         };
@@ -204,22 +251,21 @@ impl Value {
         trace!("concatenate: `{}`: `{}` <- `{}`", path, left, right);
         let val = match left {
             Value::Object(mut left_obj) => match right {
-                Value::Null | Value::None => Value::object(left_obj),
+                Value::None => Value::object(left_obj),
                 Value::Object(right_obj) => {
                     left_obj.merge(right_obj, Some(path))?;
                     Value::object(left_obj)
                 }
-                Value::Array(_)
+                Value::Null
+                | Value::Array(_)
                 | Value::Boolean(_)
                 | Value::String(_)
                 | Value::Number(_)
                 | Value::AddAssign(_) => {
-                    return Err(crate::error::Error::ConcatenationDifferentType {
+                    return Err(Error::ConcatenateDifferentType {
                         path: path.to_string(),
-                        left: left_obj.to_string(),
-                        left_ty: "object",
-                        right: right.to_string(),
-                        right_ty: right.ty(),
+                        left_type: "object",
+                        right_type: right.ty(),
                     });
                 }
                 Value::Substitution(_) => {
@@ -241,12 +287,10 @@ impl Value {
                     left_array.extend(right_array.into_inner());
                     Value::array(left_array)
                 } else {
-                    return Err(crate::error::Error::ConcatenationDifferentType {
+                    return Err(crate::error::Error::ConcatenateDifferentType {
                         path: path.to_string(),
-                        left: left_array.to_string(),
-                        left_ty: "array",
-                        right: right.to_string(),
-                        right_ty: right.ty(),
+                        left_type: "array",
+                        right_type: right.ty(),
                     });
                 }
             }
@@ -274,12 +318,10 @@ impl Value {
                 },
                 Value::Substitution(_) => Value::concat(Concat::two(left, space, right)),
                 _ => {
-                    return Err(crate::error::Error::ConcatenationDifferentType {
+                    return Err(Error::ConcatenateDifferentType {
                         path: path.to_string(),
-                        left: left.to_string(),
-                        left_ty: left.ty(),
-                        right: right.to_string(),
-                        right_ty: right.ty(),
+                        left_type: left.ty(),
+                        right_type: right.ty(),
                     });
                 }
             },
@@ -289,17 +331,19 @@ impl Value {
                 Value::concat(concat)
             }
             Value::AddAssign(_) => {
-                return Err(crate::error::Error::ConcatenationDifferentType {
+                return Err(Error::ConcatenateDifferentType {
                     path: path.to_string(),
-                    left: left.to_string(),
-                    left_ty: left.ty(),
-                    right: right.to_string(),
-                    right_ty: right.ty(),
+                    left_type: left.ty(),
+                    right_type: right.ty(),
                 });
             }
             Value::DelayReplacement(_) => Value::concat(Concat::two(left, space, right)),
         };
         trace!("concatenate result: `{path}`=`{val}`");
+        debug_assert!(!matches!(
+            val,
+            Value::DelayReplacement(_) | Value::Substitution(_) | Value::AddAssign(_)
+        ));
         Ok(val)
     }
 

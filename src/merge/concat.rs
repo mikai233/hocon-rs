@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::{cell::RefCell, fmt::Display};
 
+use crate::Result;
 use crate::error::Error;
 use crate::merge::{path::RefPath, value::Value};
-use crate::Result;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Concat {
@@ -75,6 +75,28 @@ impl Concat {
         }
     }
 
+    pub(crate) fn pop_front(&mut self) -> Option<(RefCell<Value>, Option<String>)> {
+        let v = self.values.pop_front();
+        match v {
+            Some(v) => {
+                if self.values.is_empty() {
+                    Some((v, None))
+                } else {
+                    let s = self
+                        .spaces
+                        .pop_front()
+                        .expect("logic error, space should not be empty");
+                    debug_assert_eq!(self.values.len(), self.spaces.len() + 1);
+                    Some((v, s))
+                }
+            }
+            None => {
+                debug_assert!(self.spaces.is_empty());
+                None
+            }
+        }
+    }
+
     pub(crate) fn push_front(&mut self, val: RefCell<Value>, space: Option<String>) {
         if self.values.is_empty() {
             debug_assert!(space.is_none());
@@ -98,6 +120,28 @@ impl Concat {
         &mut self,
     ) -> std::collections::vec_deque::IterMut<'_, RefCell<Value>> {
         self.values.iter_mut()
+    }
+
+    pub(crate) fn into_inner(self) -> (VecDeque<RefCell<Value>>, VecDeque<Option<String>>) {
+        (self.values, self.spaces)
+    }
+
+    pub(crate) fn try_resolve(mut self, path: &RefPath) -> Result<Value> {
+        if self.values.is_empty() {
+            Ok(Value::None)
+        } else if self.values.len() == 1 {
+            let (_, v) = self.pop_back().unwrap();
+            Ok(v.into_inner())
+        } else {
+            let (first, first_space) = self.pop_front().unwrap();
+            let mut space = first_space;
+            let mut first = first.into_inner();
+            while let Some((second, second_space)) = self.pop_front() {
+                first = Value::concatenate(path, first, space, second.into_inner())?;
+                space = second_space;
+            }
+            Ok(first)
+        }
     }
 }
 

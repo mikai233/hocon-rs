@@ -1,13 +1,15 @@
-use crate::Result;
 use crate::error::Error;
 use crate::parser::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::parser::{is_hocon_horizontal_whitespace, is_hocon_whitespace};
+use crate::Result;
 use crate::{raw::raw_string::RawString, try_peek};
 
 const FORBIDDEN_CHARACTERS: [char; 19] = [
     '$', '"', '{', '}', '[', ']', ':', '=', ',', '+', '#', '`', '^', '?', '!', '@', '*', '&', '\\',
 ];
+
+pub(crate) const TRIPLE_DOUBLE_QUOTE: [char; 3] = ['"', '"', '"'];
 
 impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_quoted_string(&mut self) -> Result<String> {
@@ -164,12 +166,11 @@ impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_multiline_string(&mut self) -> Result<String> {
         let mut scratch = vec![];
         let chars = self.reader.peek_n::<3>()?;
-        let triple_quote = ['"', '"', '"'];
-        if chars != triple_quote {
+        if chars != TRIPLE_DOUBLE_QUOTE {
             let (_, ch) = chars
                 .iter()
                 .enumerate()
-                .find(|(index, ch)| &&triple_quote[*index] != ch)
+                .find(|(index, ch)| &&TRIPLE_DOUBLE_QUOTE[*index] != ch)
                 .unwrap();
             return Err(Error::UnexpectedToken {
                 expected: "\"\"\"",
@@ -181,7 +182,7 @@ impl<R: Read> HoconParser<R> {
         }
         loop {
             let chars = self.reader.peek_n::<3>()?;
-            if chars == ['"', '"', '"'] {
+            if chars == TRIPLE_DOUBLE_QUOTE {
                 for _ in chars {
                     self.reader.next()?;
                 }
@@ -227,7 +228,7 @@ impl<R: Read> HoconParser<R> {
                 '"' => {
                     // quoted string or multiline string
                     if let Ok(chars) = self.reader.peek_n::<3>()
-                        && chars == ['"', '"', '"']
+                        && chars == TRIPLE_DOUBLE_QUOTE 
                     {
                         self.parse_multiline_string()?
                     } else {
@@ -280,9 +281,9 @@ impl<R: Read> HoconParser<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
     use crate::parser::parser::HoconParser;
     use crate::parser::read::{StrRead, TestRead};
+    use crate::Result;
     use rstest::rstest;
 
     #[rstest]

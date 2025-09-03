@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use derive_more::{Constructor, Deref, DerefMut};
 
+use crate::Result;
 use crate::{
     merge::{path::RefPath, value::Value},
     raw::raw_value::RawValue,
@@ -18,6 +19,18 @@ impl AddAssign {
         let raw: RawValue = raw.into();
         let value = Value::from_raw(parent, raw)?;
         Ok(Self::new(value.into()))
+    }
+
+    pub(crate) fn try_resolve(self, path: &RefPath) -> Result<Value> {
+        let value = if self.is_merged() {
+            *self.0
+        } else {
+            match *self.0 {
+                Value::Concat(concat) => concat.try_resolve(path)?,
+                other => other,
+            }
+        };
+        Ok(value)
     }
 }
 

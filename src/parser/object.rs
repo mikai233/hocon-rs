@@ -1,13 +1,14 @@
-use crate::Result;
 use crate::error::Error;
 use crate::parser::include::INCLUDE;
 use crate::parser::is_hocon_horizontal_whitespace;
-use crate::parser::parser::HoconParser;
+use crate::parser::parser::{Context, HoconParser};
 use crate::parser::read::Read;
+use crate::parser::string::TRIPLE_DOUBLE_QUOTE;
 use crate::raw::{
     comment::Comment, field::ObjectField, raw_object::RawObject, raw_string::RawString,
     raw_value::RawValue,
 };
+use crate::Result;
 use std::str::FromStr;
 
 #[macro_export]
@@ -57,15 +58,26 @@ impl<R: Read> HoconParser<R> {
                 }
                 '{' => {
                     // Parse object
-                    let object = self.parse_object()?;
+                    let current_depth = Context::increase_depth();
+                    if current_depth > self.options.max_object_depth {
+                        Context::reset();
+                        return Err(Error::RecursionDepthExceeded {
+                            max_depth: self.options.max_object_depth,
+                        });
+                    }
+                    let result = self.parse_object();
+                    if result.is_err() {
+                        Context::reset();
+                    }
+                    let object = result?;
+                    Context::decrease_depth();
                     let v = RawValue::Object(object);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '"' => {
                     // Parse quoted string or multi-line string
-                    const TRIPLE_QUOTE: [char; 3] = ['"', '"', '"'];
                     let v = if let Ok(chars) = self.reader.peek_n::<3>()
-                        && chars == TRIPLE_QUOTE
+                        && chars == TRIPLE_DOUBLE_QUOTE
                     {
                         let multiline = self.parse_multiline_string()?;
                         RawValue::String(RawString::MultilineString(multiline))
@@ -209,7 +221,7 @@ impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_object_fields(&mut self) -> Result<Vec<ObjectField>> {
         let mut fields = vec![];
         loop {
-            self.drop_comments()?;
+            self.drop_whitespace_and_comments()?;
             let ch = self.reader.peek()?;
             if ch == '}' {
                 break;
@@ -225,7 +237,7 @@ impl<R: Read> HoconParser<R> {
                     return Err(err);
                 }
             }
-            self.drop_whitespace()?;
+            self.drop_whitespace_and_comments()?;
             if self.drop_comma_separator()? {
                 break;
             }

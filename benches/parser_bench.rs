@@ -1,6 +1,8 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use hocon_rs::config::Config;
 use hocon_rs::parser::parser::HoconParser;
 use hocon_rs::parser::read::{StrRead, StreamRead};
+use hocon_rs::value::Value;
 use std::fs;
 use std::io::BufReader;
 
@@ -24,11 +26,11 @@ fn criterion_benchmark(c: &mut Criterion) {
             parser.parse().unwrap();
         });
     });
-    // c.bench_function("load_config", |b| {
-    //     b.iter(|| {
-    //         Config::load::<Value>(path, None).unwrap();
-    //     });
-    // });
+    c.bench_function("load_config", |b| {
+        b.iter(|| {
+            Config::load::<Value>(path, None).unwrap();
+        });
+    });
 }
 
 fn custom_criterion() -> Criterion {

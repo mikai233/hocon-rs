@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use crate::raw::include::Inclusion;
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -28,39 +26,39 @@ pub enum Error {
     },
     #[error("Invalid path expression: {0}")]
     InvalidPathExpression(&'static str),
-    #[error(
-        "Cannot concatenation different type {left_ty}:{left} and {right_ty}:{right} at {path}"
-    )]
-    ConcatenationDifferentType {
+    #[error("Cannot concatenate different type {left_type} and {right_type} at {path}")]
+    ConcatenateDifferentType {
         path: String,
-        left: String,
-        left_ty: &'static str,
-        right: String,
-        right_ty: &'static str,
+        left_type: &'static str,
+        right_type: &'static str,
     },
     #[error("{val} is not allowed in {ty}")]
     InvalidValue { val: &'static str, ty: &'static str },
     #[error("Invalid concat, values_len:{0} == spaces_len:{1} + 1")]
-    InvalidConcat(usize,usize),
+    InvalidConcat(usize, usize),
     #[error("Substitution {0} not found")]
     SubstitutionNotFound(String),
     #[error(
         "Resolve incomplete. This should never happen outside this library. If you see this, it's a bug."
     )]
     ResolveIncomplete,
-    #[error(
-        "Maximum inclusion depth reached for {0}. An inclusion cycle might have occurred. If not, try increasing `max_include_depth` in `ConfigOptions`."
-    )]
-    InclusionCycle(String),
+    #[error("Circular include detected")]
+    InclusionCycle,
     #[error("Object nesting depth exceeded the limit of {max_depth} levels")]
-    RecursionDepthExceeded { max_depth: u32 },
+    RecursionDepthExceeded { max_depth: usize },
     #[error("Inclusion: {inclusion} error: {error}")]
     Include {
-        inclusion: Inclusion,
+        inclusion: String,
         error: Box<Error>,
     },
-    #[error("A substitution cycle found at {0}")]
-    SubstitutionCycle(String),
+    #[error(
+    "Substitution cycle: {} -> {current} (cycle closed)",
+    backtrace.join(" -> ")
+    )]
+    SubstitutionCycle {
+        current: String,
+        backtrace: Vec<String>,
+    },
     #[error("{0}")]
     DeserializeError(String),
     #[error("{0}")]

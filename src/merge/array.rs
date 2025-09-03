@@ -28,7 +28,7 @@ impl Array {
         raw: crate::raw::raw_array::RawArray,
     ) -> crate::Result<Self> {
         let mut values = Vec::with_capacity(raw.len());
-        for val in raw.0 {
+        for val in raw.into_inner() {
             let val = Value::from_raw(parent, val)?;
             values.push(RefCell::new(val));
         }
