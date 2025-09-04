@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
 use crate::parser::parser::HoconParser;
-use crate::parser::read::{DEFAULT_BUFFER, StreamRead};
+use crate::parser::read::{StreamRead, DEFAULT_BUFFER};
+use crate::Result;
 use crate::{
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
     syntax::Syntax,
@@ -192,7 +192,7 @@ pub(crate) fn load_from_classpath(
     options: ConfigOptions,
 ) -> Result<RawObject> {
     let path = path.as_ref();
-    if path.is_absolute() {
+    if !options.classpath.is_empty() && path.is_absolute() {
         return Err(Error::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Absolute path in classpath",
@@ -204,7 +204,7 @@ pub(crate) fn load_from_classpath(
             Ok(raw) => {
                 return Ok(raw);
             }
-            Err(crate::error::Error::Io(_)) => {}
+            Err(Error::Io(_)) => {}
             error => {
                 return error;
             }
@@ -215,10 +215,10 @@ pub(crate) fn load_from_classpath(
         path.display(),
         options.classpath.join(", ")
     );
-    return Err(Error::Io(std::io::Error::new(
+    Err(Error::Io(std::io::Error::new(
         std::io::ErrorKind::NotFound,
         message,
-    )));
+    )))
 }
 
 fn parse_json<R>(reader: R) -> Result<RawObject>
@@ -230,7 +230,7 @@ where
     if let RawValue::Object(raw_object) = value {
         Ok(raw_object)
     } else {
-        Err(crate::error::Error::DeserializeError(format!(
+        Err(Error::DeserializeError(format!(
             "JSON must have an object as the root when parsing into HOCON, but got {}",
             value.ty()
         )))
@@ -275,7 +275,22 @@ pub(crate) fn load(path: impl AsRef<Path>, options: ConfigOptions) -> Result<Raw
     let raw = match load_from_path(path, options.clone()) {
         Ok(raw) => raw,
         Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
-            load_from_classpath(path, options)?
+            match load_from_classpath(path, options) {
+                Ok(raw) => raw,
+                Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
+                    let message = format!(
+                        "No configuration file (.conf, .json, .properties) was found at the given path: {} and classpath",
+                        path.display(),
+                    );
+                    return Err(Error::Io(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        message,
+                    )));
+                }
+                error => {
+                    return error;
+                }
+            }
         }
         error => {
             return error;

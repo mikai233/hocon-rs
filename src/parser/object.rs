@@ -1,3 +1,4 @@
+use crate::Result;
 use crate::error::Error;
 use crate::parser::include::INCLUDE;
 use crate::parser::is_hocon_horizontal_whitespace;
@@ -8,7 +9,6 @@ use crate::raw::{
     comment::Comment, field::ObjectField, raw_object::RawObject, raw_string::RawString,
     raw_value::RawValue,
 };
-use crate::Result;
 use std::str::FromStr;
 
 #[macro_export]
@@ -104,16 +104,14 @@ impl<R: Read> HoconParser<R> {
                     }
                     break;
                 }
-                '/' => {
-                    if let Ok((_, ch2)) = self.reader.peek2() {
-                        if ch2 == '/' && !values.is_empty() {
-                            break;
-                        } else {
-                            return Err(Error::UnexpectedToken {
-                                expected: "a valid value",
-                                found_beginning: ch,
-                            });
-                        }
+                '/' if self.reader.peek2().is_ok_and(|(_, ch2)| ch2 == '/') => {
+                    if !values.is_empty() {
+                        break;
+                    } else {
+                        return Err(Error::UnexpectedToken {
+                            expected: "a valid value",
+                            found_beginning: ch,
+                        });
                     }
                 }
                 '\r' => {
@@ -289,6 +287,7 @@ impl<R: Read> HoconParser<R> {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn parse_newline_comments(&mut self) -> Result<Vec<ObjectField>> {
         let mut fields = vec![];
         loop {

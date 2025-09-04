@@ -59,6 +59,8 @@ pub enum Error {
         current: String,
         backtrace: Vec<String>,
     },
+    #[error("substitution depth exceeded the limit of {max_depth} levels")]
+    SubstitutionDepthExceeded { max_depth: usize },
     #[error("{0}")]
     DeserializeError(String),
     #[error("{0}")]

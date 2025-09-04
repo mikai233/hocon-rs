@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt::Display};
 
 use crate::error::Error;
 use crate::merge::{path::RefPath, value::Value};
-use crate::{Result, join_format};
+use crate::{join_format, Result};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Concat {
@@ -112,18 +112,10 @@ impl Concat {
         &self.values
     }
 
-    pub(crate) fn get_spaces(&self) -> &VecDeque<Option<String>> {
-        &self.spaces
-    }
-
     pub(crate) fn values_mut(
         &mut self,
     ) -> std::collections::vec_deque::IterMut<'_, RefCell<Value>> {
         self.values.iter_mut()
-    }
-
-    pub(crate) fn into_inner(self) -> (VecDeque<RefCell<Value>>, VecDeque<Option<String>>) {
-        (self.values, self.spaces)
     }
 
     pub(crate) fn try_resolve(mut self, path: &RefPath) -> Result<Value> {

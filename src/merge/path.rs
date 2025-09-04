@@ -35,14 +35,6 @@ impl<'a> RefPath<'a> {
         cloned
     }
 
-    pub fn tail(&self) -> &RefPath<'a> {
-        let mut tail = self;
-        while let Some(next) = tail.remainder.as_ref() {
-            tail = &*next;
-        }
-        tail
-    }
-
     pub fn tail_mut(&mut self) -> &mut RefPath<'a> {
         let mut tail = self;
         while tail.remainder.is_some() {
@@ -51,7 +43,7 @@ impl<'a> RefPath<'a> {
         tail
     }
 
-    pub fn from<'b>(path: &'b crate::path::Path) -> RefPath<'b> {
+    pub fn from(path: &crate::path::Path) -> RefPath<'_> {
         let mut dummy = RefPath::new("", None);
         let mut tail = &mut dummy;
         for ele in path.iter() {

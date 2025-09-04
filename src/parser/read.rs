@@ -1,8 +1,8 @@
 use std::io::{self};
 use std::str;
 
-use crate::Result;
 use crate::error::Error;
+use crate::Result;
 use encoding_rs::{Decoder, UTF_8};
 
 // We should peek at least 7 bytes because the include token has a length of 7 bytes.
@@ -78,7 +78,7 @@ pub struct StreamRead<R: std::io::Read, const N: usize = 8192> {
     start_of_line: usize,
 }
 
-impl<R: std::io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
+impl<R: io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
     pub fn new(reader: R) -> Self {
         StreamRead {
             inner: reader,
@@ -149,6 +149,13 @@ impl<R: std::io::BufRead, const BUFFER: usize> StreamRead<R, BUFFER> {
 impl<R: std::io::BufRead, const BUFFER: usize> Read for StreamRead<R, BUFFER> {
     fn fill_buf(&mut self) -> Result<()> {
         self.fill_buf()
+    }
+
+    fn position(&self) -> Position {
+        Position {
+            line: self.line,
+            column: self.col,
+        }
     }
 
     #[inline]
@@ -227,13 +234,6 @@ impl<R: std::io::BufRead, const BUFFER: usize> Read for StreamRead<R, BUFFER> {
         }
         Ok((ch, bytes))
     }
-
-    fn position(&self) -> Position {
-        Position {
-            line: self.line,
-            column: self.col,
-        }
-    }
 }
 
 pub struct SliceRead<'a> {
@@ -263,18 +263,20 @@ impl<'a> Read for SliceRead<'a> {
         Err(Error::Eof)
     }
 
+    fn position(&self) -> Position {
+        self.position_of_index(self.index)
+    }
+
     #[inline]
     fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
-        debug_assert!(N > 0);
+        debug_assert!(N > 0 && N <= MIN_BUFFER_SIZE);
+        //TODO
         unimplemented!()
     }
 
     fn next(&mut self) -> Result<(char, &[u8])> {
+        //TODO
         unimplemented!()
-    }
-
-    fn position(&self) -> Position {
-        self.position_of_index(self.index)
     }
 }
 
@@ -309,9 +311,13 @@ impl<'a> Read for StrRead<'a> {
         Err(Error::Eof)
     }
 
+    fn position(&self) -> Position {
+        self.position_of_index(self.index)
+    }
+
     #[inline]
     fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
-        debug_assert!(N > 0);
+        debug_assert!(N > 0 && N <= MIN_BUFFER_SIZE);
         let mut slice = &self.s[self.index..];
         let mut chars: [char; N] = ['\0'; N]; // 先用零初始化
         let mut idx = 0;
@@ -339,18 +345,16 @@ impl<'a> Read for StrRead<'a> {
         self.index += len_utf8;
         Ok((ch, bytes))
     }
-
-    fn position(&self) -> Position {
-        self.position_of_index(self.index)
-    }
 }
 
+#[cfg(test)]
 pub(crate) struct TestRead {
     slice: Vec<u8>,
     index: usize,
     fill_buf: Box<dyn FnMut() -> Vec<u8>>,
 }
 
+#[cfg(test)]
 impl TestRead {
     pub(crate) fn new<F>(slice: Vec<u8>, fill_buf: F) -> Self
     where
@@ -394,6 +398,7 @@ impl TestRead {
     }
 }
 
+#[cfg(test)]
 impl Read for TestRead {
     fn fill_buf(&mut self) -> Result<()> {
         let buf = (self.fill_buf)();
@@ -405,9 +410,13 @@ impl Read for TestRead {
         }
     }
 
+    fn position(&self) -> Position {
+        self.position_of_index(self.index)
+    }
+
     #[inline]
     fn peek_n<const N: usize>(&mut self) -> Result<[char; N]> {
-        debug_assert!(N > 0);
+        debug_assert!(N > 0 && N <= MIN_BUFFER_SIZE);
 
         let mut out: [char; N] = ['\0'; N];
         let mut idx = 0usize;
@@ -470,18 +479,15 @@ impl Read for TestRead {
         self.index += len_utf8;
         Ok((ch, bytes))
     }
-
-    fn position(&self) -> Position {
-        self.position_of_index(self.index)
-    }
 }
 
+#[cfg(test)]
 pub(crate) type TestStreamRead<R> = StreamRead<R, 3>;
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
     use crate::parser::read::{Read, StreamRead, TestRead};
+    use crate::Result;
     use std::io::BufReader;
 
     #[test]

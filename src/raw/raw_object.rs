@@ -21,7 +21,7 @@ impl RawObject {
         Self::new(fields)
     }
 
-    fn remove_by_path(&mut self, path: &Path) -> Option<ObjectField> {
+    pub fn remove_by_path(&mut self, path: &Path) -> Option<ObjectField> {
         let mut remove_index = None;
         for (index, field) in self.iter_mut().enumerate().rev() {
             match field {
@@ -57,7 +57,7 @@ impl RawObject {
 
     /// Removes all object fields from the given path, preserving their original
     /// order but reversed relative to the file.
-    fn remove_all_by_path(&mut self, path: &Path) -> Vec<ObjectField> {
+    pub fn remove_all_by_path(&mut self, path: &Path) -> Vec<ObjectField> {
         let mut results = vec![];
         let mut remove_indices = vec![]; // These indices are stored in reverse order
         for (index, field) in self.iter_mut().enumerate().rev() {
@@ -91,7 +91,7 @@ impl RawObject {
         results
     }
 
-    fn get_by_path(&self, path: &Path) -> Option<&RawValue> {
+    pub fn get_by_path(&self, path: &Path) -> Option<&RawValue> {
         for field in self.iter().rev() {
             match field {
                 ObjectField::Inclusion { inclusion, .. } => {
@@ -118,7 +118,7 @@ impl RawObject {
         None
     }
 
-    fn get_by_path_mut(&mut self, path: &Path) -> Option<&mut RawValue> {
+    pub fn get_by_path_mut(&mut self, path: &Path) -> Option<&mut RawValue> {
         for field in self.iter_mut().rev() {
             match field {
                 ObjectField::Inclusion { inclusion, .. } => {

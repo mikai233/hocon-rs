@@ -128,44 +128,9 @@ impl Value {
                             concat.push_front(RefCell::new(left), None);
                             Value::concat(concat)
                         }
-                        // Concat result must not be Substitiotn DelayReplacement
+                        // Concat result must not be Substitution DelayReplacement
                         other => other,
                     }
-                    // let mut all_objects = true;
-                    // let mut contains_substitution = false;
-                    // for v in concat.values_mut() {
-                    //     match &*v.get_mut() {
-                    //         Value::Object(_) => {}
-                    //         Value::Substitution(_) => {
-                    //             contains_substitution = true;
-                    //         }
-                    //         _ => {
-                    //             all_objects = false;
-                    //         }
-                    //     }
-                    // }
-                    // if all_objects {
-                    //     // All values are object, mrege them directly
-                    //     let (values, _) = concat.into_inner();
-                    //     for v in values {
-                    //         if let Value::Object(v) = v.into_inner() {
-                    //             obj_left.merge(v, Some(path))?;
-                    //         } else {
-                    //             unreachable!()
-                    //         }
-                    //     }
-                    //     Value::object(obj_left)
-                    // } else if contains_substitution {
-                    //     // The concat result maybe an object, so we need to push the left object for potential
-                    //     // object concat
-                    //     let left = Value::object(obj_left);
-                    //     concat.push_front(RefCell::new(left), None);
-                    //     Value::concat(concat)
-                    // } else {
-                    //     // Ohter values, right will override left
-                    //     Value::Concat(concat)
-                    // }
-                    // if there is any bug here, for safety's side, jsut push the left value into the front
                 }
                 Value::AddAssign(_) => {
                     return Err(Error::ConcatenateDifferentType {
@@ -180,13 +145,34 @@ impl Value {
                     Value::DelayReplacement(delay_merge)
                 }
             },
-            Value::Array(mut array) => match right {
+            Value::Array(mut array_left) => match right {
                 Value::Substitution(_) | Value::DelayReplacement(_) => {
-                    Value::delay_replacement([Value::array(array), right])
+                    Value::delay_replacement([Value::array(array_left), right])
+                }
+                Value::Concat(concat) => {
+                    let right = concat.try_resolve(path)?;
+                    match right {
+                        Value::Array(array) => {
+                            let left = Value::Array(array_left);
+                            let right = Value::Array(array);
+                            Self::concatenate(path, left, None, right)?
+                        }
+                        Value::Concat(concat) => {
+                            let left = Value::Array(array_left);
+                            let right = Value::Concat(concat);
+                            Value::delay_replacement([left, right])
+                        }
+                        right => right
+                    }
                 }
                 Value::AddAssign(add_assign) => {
-                    array.push(RefCell::new(add_assign.into()));
-                    Value::array(array)
+                    let inner: Value = add_assign.into();
+                    let unmerged = inner.is_unmerged();
+                    array_left.push(RefCell::new(inner));
+                    if unmerged {
+                        array_left.as_unmerged()
+                    }
+                    Value::array(array_left)
                 }
                 right => right,
             },
@@ -214,8 +200,26 @@ impl Value {
                 right => right,
             },
             Value::Boolean(_) | Value::String(_) | Value::Number(_) => match right {
-                // The substitution expression might refer to the previous value
+                // The substitution expression and concat might refer to the previous value
+                // so we cannot replace it directly
                 Value::Substitution(_) => Value::delay_replacement([left, right]),
+                Value::Concat(concat) => {
+                    // try resolve the concat at this time if it not contains substitution
+                    let right = concat.try_resolve(path)?;
+                    match right {
+                        Value::Concat(_) => {
+                            Value::delay_replacement([left, right])
+                        }
+                        Value::AddAssign(_) => {
+                            return Err(Error::ConcatenateDifferentType {
+                                path: path.to_string(),
+                                left_type: left.ty(),
+                                right_type: "add_assign",
+                            });
+                        }
+                        other => other
+                    }
+                }
                 Value::AddAssign(_) => {
                     return Err(Error::ConcatenateDifferentType {
                         path: path.to_string(),

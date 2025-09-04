@@ -2,7 +2,7 @@ use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
 use crate::parser::loader::{self, load_from_path, parse_hocon};
-use crate::parser::read::StrRead;
+use crate::parser::read::{StrRead, StreamRead};
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
@@ -79,24 +79,32 @@ impl Config {
         Self::resolve_object(self.object)
     }
 
-    pub fn parse_file(
+    pub fn parse_file<T>(
         path: impl AsRef<std::path::Path>,
         opts: Option<ConfigOptions>,
-    ) -> crate::Result<RawObject> {
-        load_from_path(path, opts.unwrap_or_default().into())
+    ) -> crate::Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        let raw = load_from_path(path, opts.unwrap_or_default().into())?;
+        Self::resolve_object::<T>(raw)
     }
 
     #[cfg(feature = "urls_includes")]
-    pub fn parse_url(
-        url: impl AsRef<str>,
-        opts: Option<ConfigOptions>,
-    ) -> crate::Result<RawObject> {
+    pub fn parse_url<T>(url: impl AsRef<str>, opts: Option<ConfigOptions>) -> crate::Result<T>
+    where
+        T: DeserializeOwned,
+    {
         use std::str::FromStr;
         let url = url::Url::from_str(url.as_ref())?;
-        loader::load_from_url(url, opts.unwrap_or_default().into())
+        let raw = loader::load_from_url(url, opts.unwrap_or_default().into())?;
+        Self::resolve_object::<T>(raw)
     }
 
-    pub fn parse_map(values: std::collections::HashMap<String, Value>) -> crate::Result<RawObject> {
+    pub fn parse_map<T>(values: std::collections::HashMap<String, Value>) -> crate::Result<T>
+    where
+        T: DeserializeOwned,
+    {
         fn into_raw(value: Value) -> RawValue {
             match value {
                 Value::Object(object) => {
@@ -125,7 +133,7 @@ impl Config {
         }
         let raw = into_raw(Value::Object(ahash::HashMap::from_iter(values.into_iter())));
         if let RawValue::Object(raw_obj) = raw {
-            Ok(raw_obj)
+            Self::resolve_object::<T>(raw_obj)
         } else {
             unreachable!("raw should always be an object");
         }
@@ -136,6 +144,17 @@ impl Config {
         T: DeserializeOwned,
     {
         let read = StrRead::new(s);
+        let raw = parse_hocon(read, options.unwrap_or_default())?;
+        Self::resolve_object::<T>(raw)
+    }
+
+    pub fn parse_reader<R, T>(rdr: R, options: Option<ConfigOptions>) -> crate::Result<T>
+    where
+        R: std::io::Read,
+        T: DeserializeOwned,
+    {
+        use crate::parser::read::DEFAULT_BUFFER;
+        let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(std::io::BufReader::new(rdr));
         let raw = parse_hocon(read, options.unwrap_or_default())?;
         Self::resolve_object::<T>(raw)
     }
@@ -243,6 +262,7 @@ mod tests {
     #[case("resources/include.conf", "resources/include.json")]
     #[case("resources/comment.conf", "resources/comment.json")]
     #[case("resources/substitution.conf", "resources/substitution.json")]
+    #[case("resources/self_referential.conf", "resources/self_referential.json")]
     fn test_hocon(
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,
@@ -285,6 +305,17 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(error, Error::SubstitutionCycle { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn test_substitution_not_found() -> Result<()> {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()].into();
+        let error = Config::load::<Value>("resources/substitution2.conf", Some(options))
+            .err()
+            .unwrap();
+        assert!(matches!(error, Error::SubstitutionNotFound { .. }));
         Ok(())
     }
 }

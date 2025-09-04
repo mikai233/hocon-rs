@@ -1,5 +1,6 @@
-use tracing::{enabled, instrument, span, trace, Level};
+use tracing::{Level, enabled, instrument, span, trace};
 
+use crate::error::Error;
 use crate::merge::array::Array;
 use crate::merge::substitution::Substitution;
 use crate::{
@@ -15,6 +16,10 @@ use std::{
 };
 
 type V = RefCell<Value>;
+
+type TRACKER = Substitution;
+
+const MAX_SUBSTITUTION_DEPTH: usize = 128;
 
 /// Represents an intermediate state for a HOCON object during parsing and merging.
 ///
@@ -141,17 +146,9 @@ impl Object {
         all_merged
     }
 
-    pub(crate) fn into_merged(self) -> Self {
-        Self::Merged(self.into())
-    }
-
     pub(crate) fn as_merged(&mut self) {
         let obj = std::mem::take(self.deref_mut());
         *self = Self::Merged(obj);
-    }
-
-    pub(crate) fn into_unmerged(self) -> Self {
-        Self::Unmerged(self.into())
     }
 
     pub(crate) fn as_unmerged(&mut self) {
@@ -263,6 +260,7 @@ impl Object {
     /// `Ok(true)` if the value at the given path was found and the callback was successfully executed.
     /// `Ok(false)` if no value was found at the path.
     /// A `crate::Result<()>` on any error during traversal or callback execution.
+    #[allow(unused)]
     pub(crate) fn get_by_path<F>(&self, path: &Path, callback: F) -> crate::Result<bool>
     where
         F: FnOnce(&RefCell<Value>) -> crate::Result<()>,
@@ -292,8 +290,12 @@ impl Object {
                 // Case 2: The end of the path has been reached.
                 None => {
                     // Execute the callback on the final value.
-                    callback(root)?;
-                    Ok(true)
+                    if matches!(&*root.borrow(), Value::None) {
+                        Ok(false)
+                    } else {
+                        callback(root)?;
+                        Ok(true)
+                    }
                 }
             }
         }
@@ -371,7 +373,13 @@ impl Object {
                         _ => break None,
                     },
                     // If there are no more path segments, return the current `RefCell<Value>` reference.
-                    None => break Some(value),
+                    None => {
+                        break if matches!(&*value.borrow(), Value::None) {
+                            None
+                        } else {
+                            Some(value)
+                        };
+                    }
                 }
             }
         } else {
@@ -387,8 +395,13 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<Substitution>,
+        tracker: &mut Vec<TRACKER>,
     ) -> crate::Result<()> {
+        if tracker.len() > MAX_SUBSTITUTION_DEPTH {
+            return Err(Error::SubstitutionDepthExceeded {
+                max_depth: MAX_SUBSTITUTION_DEPTH,
+            });
+        }
         let borrowed = value.borrow();
         if borrowed.is_merged() {
             return Ok(());
@@ -439,7 +452,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<Substitution>,
+        tracker: &mut Vec<TRACKER>,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "AddAssign");
         let _enter = span.enter();
@@ -460,7 +473,7 @@ impl Object {
     fn handle_array(
         &self,
         path: &RefPath,
-        tracker: &mut Vec<Substitution>,
+        tracker: &mut Vec<TRACKER>,
         array: &Array,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Array");
@@ -478,12 +491,12 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<Substitution>,
+        tracker: &mut Vec<TRACKER>,
         substitution: Substitution,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Substitution");
         let _enter = span.enter();
-        match tracker.iter().rposition(|t| t == &substitution) {
+        match tracker.iter().rposition(|s| s == &substitution) {
             None => {
                 tracker.push(substitution.clone());
             }
@@ -562,6 +575,13 @@ impl Object {
                 if enabled!(Level::TRACE) {
                     trace!("popped {} from {}", v.borrow(), concat);
                 }
+                if concat.get_values().is_empty() {
+                    drop(borrowed);
+                    *value.borrow_mut().deref_mut() = Value::None;
+                    if enabled!(Level::TRACE) {
+                        trace!("concat is empty, set to none");
+                    }
+                }
             }
             None => {
                 trace!("popped None from {}", concat);
@@ -574,7 +594,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<Substitution>,
+        tracker: &mut Vec<TRACKER>,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Concat");
         let _enter = span.enter();
@@ -606,7 +626,11 @@ impl Object {
                                 Value::Concat(concat) => {
                                     concat.push_back(space_second_last, new_val);
                                 }
-                                _ => unreachable!(),
+                                v => {
+                                    let left = std::mem::take(v);
+                                    *v =
+                                        Value::concatenate(path, left, None, new_val.into_inner())?;
+                                }
                             }
                             self.substitute_value(path, value, tracker)?;
                         }
@@ -654,6 +678,13 @@ impl Object {
                 if enabled!(Level::TRACE) {
                     trace!("popped {} from {}", v.borrow(), de);
                 }
+                if de.is_empty() {
+                    drop(borrowed);
+                    *value.borrow_mut().deref_mut() = Value::None;
+                    if enabled!(Level::TRACE) {
+                        trace!("delay replacement is empty, set to none");
+                    }
+                }
             }
             None => {
                 trace!("popped None from {}", de);
@@ -666,7 +697,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<Substitution>,
+        tracker: &mut Vec<TRACKER>,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "DelayReplacement");
         let _enter = span.enter();
@@ -696,7 +727,10 @@ impl Object {
                                 Value::DelayReplacement(re) => {
                                     re.push_back(new_val);
                                 }
-                                _ => unreachable!(),
+                                v => {
+                                    let left = std::mem::take(v);
+                                    *v = Value::replacement(path, left, new_val.into_inner())?;
+                                }
                             }
                             self.substitute_value(path, value, tracker)?;
                         }

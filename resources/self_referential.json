@@ -1,0 +1,6 @@
+{
+  "test1": "a:b:c:d",
+  "test2": [
+    "/usr/bin"
+  ]
+}

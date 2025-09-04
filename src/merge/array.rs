@@ -43,6 +43,11 @@ impl Array {
         *self = Self::Merged(array);
     }
 
+    pub(crate) fn as_unmerged(&mut self) {
+        let array = std::mem::take(self.deref_mut());
+        *self = Self::Unmerged(array);
+    }
+
     pub(crate) fn try_become_merged(&mut self) -> bool {
         if self.is_merged() {
             return true;

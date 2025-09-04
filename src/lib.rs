@@ -1,13 +1,8 @@
-extern crate core;
-
-use ::serde::{Serialize, de::DeserializeOwned};
-
-use crate::value::Value;
+use ::serde::{de::DeserializeOwned, Serialize};
 
 pub mod config;
 mod config_options;
 pub mod error;
-pub mod macros;
 pub mod object;
 pub mod parser;
 pub(crate) mod path;
@@ -26,6 +21,9 @@ mod merge {
     pub(crate) mod substitution;
     pub(crate) mod value;
 }
+pub use config::Config;
+pub use config_options::ConfigOptions;
+pub use value::Value;
 
 pub type Result<T> = std::result::Result<T, error::Error>;
 
