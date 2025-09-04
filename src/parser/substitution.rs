@@ -1,8 +1,8 @@
+use crate::Result;
 use crate::error::Error;
-use crate::parser::parser::HoconParser;
+use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::substitution::Substitution;
-use crate::Result;
 
 impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_substitution(&mut self) -> Result<Substitution> {
@@ -48,7 +48,7 @@ mod tests {
     use crate::Result;
     use std::io::BufReader;
 
-    use crate::parser::parser::HoconParser;
+    use crate::parser::HoconParser;
     use crate::parser::read::TestStreamRead;
     use rstest::rstest;
 

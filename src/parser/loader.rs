@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
+use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
-use crate::parser::parser::HoconParser;
-use crate::parser::read::{StreamRead, DEFAULT_BUFFER};
-use crate::Result;
+use crate::parser::HoconParser;
+use crate::parser::read::{DEFAULT_BUFFER, StreamRead};
 use crate::{
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
     syntax::Syntax,

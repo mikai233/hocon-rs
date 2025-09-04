@@ -1,8 +1,8 @@
+use crate::Result;
 use crate::error::Error;
-use crate::parser::parser::HoconParser;
+use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::parser::{is_hocon_horizontal_whitespace, is_hocon_whitespace};
-use crate::Result;
 use crate::{raw::raw_string::RawString, try_peek};
 
 const FORBIDDEN_CHARACTERS: [char; 19] = [
@@ -228,7 +228,7 @@ impl<R: Read> HoconParser<R> {
                 '"' => {
                     // quoted string or multiline string
                     if let Ok(chars) = self.reader.peek_n::<3>()
-                        && chars == TRIPLE_DOUBLE_QUOTE 
+                        && chars == TRIPLE_DOUBLE_QUOTE
                     {
                         self.parse_multiline_string()?
                     } else {
@@ -281,9 +281,9 @@ impl<R: Read> HoconParser<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::parser::HoconParser;
-    use crate::parser::read::{StrRead, TestRead};
     use crate::Result;
+    use crate::parser::HoconParser;
+    use crate::parser::read::{StrRead, TestRead};
     use rstest::rstest;
 
     #[rstest]

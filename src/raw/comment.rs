@@ -40,14 +40,14 @@ impl Display for Comment {
     }
 }
 
-impl Into<Comment> for &str {
-    fn into(self) -> Comment {
-        Comment::new(String::from(self), CommentType::DoubleSlash)
+impl From<&str> for Comment {
+    fn from(val: &str) -> Self {
+        Comment::new(String::from(val), CommentType::DoubleSlash)
     }
 }
 
-impl Into<Comment> for String {
-    fn into(self) -> Comment {
-        Comment::new(self, CommentType::Hash)
+impl From<String> for Comment {
+    fn from(val: String) -> Self {
+        Comment::new(val, CommentType::Hash)
     }
 }

@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::error::Error;
-use crate::parser::parser::HoconParser;
+use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::comment::CommentType;
 
@@ -91,7 +91,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::Result;
-    use crate::parser::parser::HoconParser;
+    use crate::parser::HoconParser;
     use crate::parser::read::TestRead;
     use crate::raw::comment::CommentType;
 

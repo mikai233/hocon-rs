@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::error::Error;
-use crate::parser::parser::HoconParser;
+use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::raw_array::RawArray;
 
@@ -38,7 +38,7 @@ mod tests {
     use rstest::rstest;
 
     use crate::Result;
-    use crate::parser::parser::HoconParser;
+    use crate::parser::HoconParser;
     use crate::parser::read::TestStreamRead;
     use crate::raw::raw_value::RawValue;
 

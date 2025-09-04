@@ -82,14 +82,16 @@ impl From<Number> for Value {
     }
 }
 
-impl Into<Value> for serde_json::Value {
-    fn into(self) -> Value {
-        match self {
+impl From<serde_json::Value> for Value {
+    fn from(val: serde_json::Value) -> Self {
+        match val {
             serde_json::Value::Null => Value::Null,
             serde_json::Value::Bool(boolean) => Value::Boolean(boolean),
             serde_json::Value::Number(number) => Value::Number(number),
             serde_json::Value::String(string) => Value::String(string),
-            serde_json::Value::Array(array) => Value::array_from_iter(array.into_iter().map(Into::into)),
+            serde_json::Value::Array(array) => {
+                Value::array_from_iter(array.into_iter().map(Into::into))
+            }
             serde_json::Value::Object(object) => {
                 Value::object_from_iter(object.into_iter().map(|(key, value)| (key, value.into())))
             }
@@ -97,9 +99,9 @@ impl Into<Value> for serde_json::Value {
     }
 }
 
-impl Into<serde_json::Value> for Value {
-    fn into(self) -> serde_json::Value {
-        match self {
+impl From<Value> for serde_json::Value {
+    fn from(val: Value) -> Self {
+        match val {
             Value::Object(object) => {
                 let map = serde_json::Map::from_iter(
                     object.into_iter().map(|(key, value)| (key, value.into())),

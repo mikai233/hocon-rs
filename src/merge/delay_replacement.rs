@@ -22,7 +22,7 @@ impl DelayReplacement {
     where
         I: IntoIterator<Item = Value>,
     {
-        Self::new(value.into_iter().map(|v| RefCell::new(v)).collect())
+        Self::new(value.into_iter().map(RefCell::new).collect())
     }
 
     pub(crate) fn into_inner(self) -> VecDeque<RefCell<Value>> {

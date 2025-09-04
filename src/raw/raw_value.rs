@@ -10,18 +10,18 @@ use crate::raw::substitution::Substitution;
 use serde_json::Number;
 use std::fmt::{Display, Formatter};
 
-pub const RAW_OBJECT_TYPE: &'static str = "object";
-pub const RAW_ARRAY_TYPE: &'static str = "array";
-pub const RAW_BOOLEAN_TYPE: &'static str = "boolean";
-pub const RAW_NULL_TYPE: &'static str = "null";
-pub const RAW_QUOTED_STRING_TYPE: &'static str = "quoted_string";
-pub const RAW_UNQUOTED_STRING_TYPE: &'static str = "unquoted_string";
-pub const RAW_MULTILINE_STRING_TYPE: &'static str = "multiline_string";
-pub const RAW_CONCAT_STRING_TYPE: &'static str = "concat_string";
-pub const RAW_NUMBER_TYPE: &'static str = "number";
-pub const RAW_SUBSTITUTION_TYPE: &'static str = "substitution";
-pub const RAW_CONCAT_TYPE: &'static str = "concat";
-pub const RAW_ADD_ASSIGN_TYPE: &'static str = "add_assign";
+pub const RAW_OBJECT_TYPE: &str = "object";
+pub const RAW_ARRAY_TYPE: &str = "array";
+pub const RAW_BOOLEAN_TYPE: &str = "boolean";
+pub const RAW_NULL_TYPE: &str = "null";
+pub const RAW_QUOTED_STRING_TYPE: &str = "quoted_string";
+pub const RAW_UNQUOTED_STRING_TYPE: &str = "unquoted_string";
+pub const RAW_MULTILINE_STRING_TYPE: &str = "multiline_string";
+pub const RAW_CONCAT_STRING_TYPE: &str = "concat_string";
+pub const RAW_NUMBER_TYPE: &str = "number";
+pub const RAW_SUBSTITUTION_TYPE: &str = "substitution";
+pub const RAW_CONCAT_TYPE: &str = "concat";
+pub const RAW_ADD_ASSIGN_TYPE: &str = "add_assign";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RawValue {
@@ -160,9 +160,9 @@ impl TryInto<RawObject> for RawValue {
     }
 }
 
-impl Into<RawValue> for serde_json::Value {
-    fn into(self) -> RawValue {
-        match self {
+impl From<serde_json::Value> for RawValue {
+    fn from(val: serde_json::Value) -> Self {
+        match val {
             serde_json::Value::Null => RawValue::Null,
             serde_json::Value::Bool(boolean) => RawValue::Boolean(boolean),
             serde_json::Value::Number(number) => RawValue::Number(number),

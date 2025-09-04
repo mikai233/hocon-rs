@@ -3,7 +3,7 @@ use std::{cell::RefCell, fmt::Display};
 
 use crate::error::Error;
 use crate::merge::{path::RefPath, value::Value};
-use crate::{join_format, Result};
+use crate::{Result, join_format};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Concat {

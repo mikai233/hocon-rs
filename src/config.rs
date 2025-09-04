@@ -86,7 +86,7 @@ impl Config {
     where
         T: DeserializeOwned,
     {
-        let raw = load_from_path(path, opts.unwrap_or_default().into())?;
+        let raw = load_from_path(path, opts.unwrap_or_default())?;
         Self::resolve_object::<T>(raw)
     }
 
@@ -131,7 +131,7 @@ impl Config {
                 Value::Number(number) => RawValue::Number(number),
             }
         }
-        let raw = into_raw(Value::Object(ahash::HashMap::from_iter(values.into_iter())));
+        let raw = into_raw(Value::Object(ahash::HashMap::from_iter(values)));
         if let RawValue::Object(raw_obj) = raw {
             Self::resolve_object::<T>(raw_obj)
         } else {

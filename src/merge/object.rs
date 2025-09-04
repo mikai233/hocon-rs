@@ -17,7 +17,7 @@ use std::{
 
 type V = RefCell<Value>;
 
-type TRACKER = Substitution;
+type Tracker = Substitution;
 
 const MAX_SUBSTITUTION_DEPTH: usize = 128;
 
@@ -395,7 +395,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<TRACKER>,
+        tracker: &mut Vec<Tracker>,
     ) -> crate::Result<()> {
         if tracker.len() > MAX_SUBSTITUTION_DEPTH {
             return Err(Error::SubstitutionDepthExceeded {
@@ -411,7 +411,7 @@ impl Object {
                 let span = span!(Level::TRACE, "Object");
                 let _enter = span.enter();
                 for (key, val) in object.iter() {
-                    let sub_path = path.join(RefPath::new(&key, None));
+                    let sub_path = path.join(RefPath::new(key, None));
                     self.substitute_value(&sub_path, val, tracker)?;
                 }
                 drop(borrowed);
@@ -452,7 +452,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<TRACKER>,
+        tracker: &mut Vec<Tracker>,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "AddAssign");
         let _enter = span.enter();
@@ -473,7 +473,7 @@ impl Object {
     fn handle_array(
         &self,
         path: &RefPath,
-        tracker: &mut Vec<TRACKER>,
+        tracker: &mut Vec<Tracker>,
         array: &Array,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Array");
@@ -491,7 +491,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<TRACKER>,
+        tracker: &mut Vec<Tracker>,
         substitution: Substitution,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Substitution");
@@ -594,7 +594,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<TRACKER>,
+        tracker: &mut Vec<Tracker>,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Concat");
         let _enter = span.enter();
@@ -697,7 +697,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        tracker: &mut Vec<TRACKER>,
+        tracker: &mut Vec<Tracker>,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "DelayReplacement");
         let _enter = span.enter();
@@ -799,9 +799,9 @@ impl DerefMut for Object {
     }
 }
 
-impl Into<BTreeMap<String, V>> for Object {
-    fn into(self) -> BTreeMap<String, V> {
-        match self {
+impl From<Object> for BTreeMap<String, V> {
+    fn from(val: Object) -> Self {
+        match val {
             Object::Merged(object) | Object::Unmerged(object) => object,
         }
     }

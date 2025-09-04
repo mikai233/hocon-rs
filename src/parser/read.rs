@@ -1,8 +1,8 @@
 use std::io::{self};
 use std::str;
 
-use crate::error::Error;
 use crate::Result;
+use crate::error::Error;
 use encoding_rs::{Decoder, UTF_8};
 
 // We should peek at least 7 bytes because the include token has a length of 7 bytes.
@@ -42,7 +42,7 @@ pub trait Read {
 
 #[inline]
 fn decode_first_char(slice: &[u8]) -> Option<(char, usize)> {
-    let b0 = *slice.get(0)?;
+    let b0 = *slice.first()?;
     if b0 < 128 {
         Some((b0 as char, 1))
     } else if b0 < 0xE0 {
@@ -291,12 +291,12 @@ impl<'a> StrRead<'a> {
     }
 
     pub fn position_of_index(&self, i: usize) -> Position {
-        let start_of_line = match memchr::memrchr(b'\n', &self.s[..i].as_bytes()) {
+        let start_of_line = match memchr::memrchr(b'\n', &self.s.as_bytes()[..i]) {
             Some(position) => position + 1,
             None => 0,
         };
         Position {
-            line: 1 + memchr::memchr_iter(b'\n', &self.s[..start_of_line].as_bytes()).count(),
+            line: 1 + memchr::memchr_iter(b'\n', &self.s.as_bytes()[..start_of_line]).count(),
             column: i - start_of_line,
         }
     }
@@ -341,7 +341,7 @@ impl<'a> Read for StrRead<'a> {
         }
         let slice = &self.s[self.index..];
         let (ch, len_utf8) = decode_first_char(slice.as_bytes()).ok_or(Error::Eof)?;
-        let bytes = slice[..len_utf8].as_bytes();
+        let bytes = &slice.as_bytes()[..len_utf8];
         self.index += len_utf8;
         Ok((ch, bytes))
     }
@@ -486,8 +486,8 @@ pub(crate) type TestStreamRead<R> = StreamRead<R, 3>;
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::read::{Read, StreamRead, TestRead};
     use crate::Result;
+    use crate::parser::read::{Read, StreamRead, TestRead};
     use std::io::BufReader;
 
     #[test]

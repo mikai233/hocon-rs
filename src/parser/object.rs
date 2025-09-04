@@ -2,9 +2,9 @@ use crate::Result;
 use crate::error::Error;
 use crate::parser::include::INCLUDE;
 use crate::parser::is_hocon_horizontal_whitespace;
-use crate::parser::parser::{Context, HoconParser};
 use crate::parser::read::Read;
 use crate::parser::string::TRIPLE_DOUBLE_QUOTE;
+use crate::parser::{Context, HoconParser};
 use crate::raw::{
     comment::Comment, field::ObjectField, raw_object::RawObject, raw_string::RawString,
     raw_value::RawValue,
@@ -16,7 +16,7 @@ macro_rules! try_peek {
     ($reader:expr) => {
         match $reader.peek() {
             Ok(ch) => ch,
-            Err(crate::error::Error::Eof) => break,
+            Err($crate::error::Error::Eof) => break,
             Err(err) => return Err(err),
         }
     };

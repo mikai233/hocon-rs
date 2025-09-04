@@ -1,8 +1,8 @@
 use crate::value::Value;
 use serde::{
+    Deserializer,
     de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor},
     forward_to_deserialize_any,
-    Deserializer,
 };
 
 impl<'de> Deserializer<'de> for Value {

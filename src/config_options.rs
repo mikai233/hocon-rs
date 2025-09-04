@@ -6,10 +6,12 @@ pub(crate) const MAX_OBJECT_DEPTH: usize = 128;
 
 pub(crate) const MAX_INCLUDE_DEPTH: usize = 128;
 
+pub type CompareFn = Box<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>;
+
 #[derive(Clone)]
 pub struct ConfigOptions {
     pub use_system_environment: bool,
-    pub compare: Rc<Box<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>>,
+    pub compare: Rc<CompareFn>,
     pub classpath: Rc<Vec<String>>,
     pub max_object_depth: usize,
     pub max_include_depth: usize,

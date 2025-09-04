@@ -25,7 +25,7 @@ impl<'a> RefPath<'a> {
     }
 
     pub fn next(&self) -> Option<&RefPath<'a>> {
-        self.remainder.as_ref().map(|p| &**p)
+        self.remainder.as_deref()
     }
 
     pub fn join(&self, path: RefPath<'a>) -> RefPath<'a> {
@@ -55,11 +55,11 @@ impl<'a> RefPath<'a> {
     }
 }
 
-impl Into<crate::path::Path> for RefPath<'_> {
-    fn into(self) -> crate::path::Path {
+impl From<RefPath<'_>> for crate::path::Path {
+    fn from(val: RefPath<'_>) -> Self {
         let mut dummy = crate::path::Path::new("".to_string(), None);
         let mut tail = &mut dummy;
-        let mut current = Some(&self);
+        let mut current = Some(&val);
         while let Some(p) = current {
             tail.remainder = Some(crate::path::Path::new(p.first.to_string(), None).into());
             tail = tail.remainder.as_mut().unwrap();

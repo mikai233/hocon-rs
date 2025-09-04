@@ -1,6 +1,6 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use hocon_rs::config::Config;
-use hocon_rs::parser::parser::HoconParser;
+use hocon_rs::parser::HoconParser;
 use hocon_rs::parser::read::{StrRead, StreamRead};
 use hocon_rs::value::Value;
 use std::fs;

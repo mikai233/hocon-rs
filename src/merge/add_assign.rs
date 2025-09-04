@@ -34,9 +34,9 @@ impl AddAssign {
     }
 }
 
-impl Into<Value> for AddAssign {
-    fn into(self) -> Value {
-        *self.0
+impl From<AddAssign> for Value {
+    fn from(val: AddAssign) -> Self {
+        *val.0
     }
 }
 

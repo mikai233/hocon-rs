@@ -48,13 +48,13 @@ impl Path {
             && remove_from_fron > 0
         {
             remove_from_fron -= 1;
-            curr = p.remainder.as_ref().map(|p| &**p);
+            curr = p.remainder.as_deref();
         }
         curr
     }
 
     pub fn next(&self) -> Option<&Path> {
-        self.remainder.as_ref().map(|p| &**p)
+        self.remainder.as_deref()
     }
 
     pub fn push_back(&mut self, path: Path) {
@@ -65,7 +65,7 @@ impl Path {
     pub fn tail(&self) -> &Path {
         let mut tail = self;
         while let Some(next) = tail.remainder.as_ref() {
-            tail = &*next;
+            tail = next;
         }
         tail
     }
@@ -87,8 +87,8 @@ impl Path {
                     if l.first != r.first {
                         return false;
                     }
-                    left = l.remainder.as_ref().map(|p| &**p);
-                    right = r.remainder.as_ref().map(|p| &**p);
+                    left = l.remainder.as_deref();
+                    right = r.remainder.as_deref();
                 }
                 (Some(_), None) => return true,
                 _ => {
@@ -112,7 +112,7 @@ impl Path {
                     if p != l.first {
                         return false;
                     }
-                    left = l.remainder.as_ref().map(|p| &**p);
+                    left = l.remainder.as_deref();
                 }
             }
         }

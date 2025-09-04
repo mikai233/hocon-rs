@@ -47,22 +47,22 @@ impl Display for PathExpression {
     }
 }
 
-impl Into<RawString> for &str {
-    fn into(self) -> RawString {
-        if self.chars().any(|c| c == '\n') {
-            RawString::multiline(self)
+impl From<&str> for RawString {
+    fn from(val: &str) -> Self {
+        if val.chars().any(|c| c == '\n') {
+            RawString::multiline(val)
         } else {
-            RawString::quoted(self)
+            RawString::quoted(val)
         }
     }
 }
 
-impl Into<RawString> for String {
-    fn into(self) -> RawString {
-        if self.chars().any(|c| c == '\n') {
-            RawString::multiline(self)
+impl From<String> for RawString {
+    fn from(val: String) -> Self {
+        if val.chars().any(|c| c == '\n') {
+            RawString::multiline(val)
         } else {
-            RawString::quoted(self)
+            RawString::quoted(val)
         }
     }
 }

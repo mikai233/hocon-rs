@@ -1,11 +1,11 @@
+use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
 use crate::parser::loader::{self, load_from_classpath, load_from_path};
-use crate::parser::parser::{Context, HoconParser, CTX};
 use crate::parser::read::Read;
+use crate::parser::{CTX, Context, HoconParser};
 use crate::raw::include::{Inclusion, Location};
 use crate::raw::raw_object::RawObject;
-use crate::Result;
 use std::str::FromStr;
 
 pub(crate) const INCLUDE: [char; 7] = ['i', 'n', 'c', 'l', 'u', 'd', 'e'];
@@ -240,14 +240,12 @@ impl<R: Read> HoconParser<R> {
                     }
                 },
                 #[cfg(not(feature = "urls_includes"))]
-                None => {
-                    match url::Url::from_str(&inclusion.path) {
-                        Ok(url) if url.scheme() != "file" => {
-                            return Err(Error::UrlsIncludesDisabled);
-                        }
-                        _ => self.inclusion_from_file_and_classpath(inclusion)?,
+                None => match url::Url::from_str(&inclusion.path) {
+                    Ok(url) if url.scheme() != "file" => {
+                        return Err(Error::UrlsIncludesDisabled);
                     }
-                }
+                    _ => self.inclusion_from_file_and_classpath(inclusion)?,
+                },
                 Some(Location::Classpath) => self.inclusion_from_classpath(inclusion)?,
                 Some(Location::File) => self.inclusion_from_file(inclusion)?,
             }
@@ -266,9 +264,9 @@ impl<R: Read> HoconParser<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::parser::HoconParser;
-    use crate::parser::read::TestRead;
     use crate::Result;
+    use crate::parser::HoconParser;
+    use crate::parser::read::TestRead;
     use rstest::rstest;
 
     #[rstest]

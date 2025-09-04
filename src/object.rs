@@ -11,13 +11,6 @@ impl Object {
     pub fn new() -> Self {
         Default::default()
     }
-
-    pub fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (String, Value)>,
-    {
-        Self(HashMap::from_iter(iter))
-    }
 }
 
 impl Deref for Object {
@@ -45,8 +38,14 @@ impl Display for Object {
     }
 }
 
-impl Into<HashMap<String, Value>> for Object {
-    fn into(self) -> HashMap<String, Value> {
-        self.0
+impl From<Object> for HashMap<String, Value> {
+    fn from(val: Object) -> Self {
+        val.0
+    }
+}
+
+impl FromIterator<(String, Value)> for Object {
+    fn from_iter<T: IntoIterator<Item = (String, Value)>>(iter: T) -> Self {
+        Self(HashMap::from_iter(iter))
     }
 }

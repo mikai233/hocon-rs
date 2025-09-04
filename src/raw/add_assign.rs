@@ -12,8 +12,8 @@ impl Display for AddAssign {
     }
 }
 
-impl Into<RawValue> for AddAssign {
-    fn into(self) -> RawValue {
-        *self.0
+impl From<AddAssign> for RawValue {
+    fn from(val: AddAssign) -> Self {
+        *val.0
     }
 }

@@ -68,7 +68,8 @@ pub enum Error {
     #[error("{0}")]
     UrlParseError(#[from] url::ParseError),
     #[cfg(not(feature = "urls_includes"))]
-    #[error("Cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"
+    #[error(
+        "Cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"
     )]
     UrlsIncludesDisabled,
 }

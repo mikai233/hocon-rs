@@ -49,10 +49,7 @@ impl RawObject {
                 ObjectField::NewlineComment(_) => {}
             }
         }
-        match remove_index {
-            None => None,
-            Some(index) => Some(self.remove(index)),
-        }
+        remove_index.map(|index| self.remove(index))
     }
 
     /// Removes all object fields from the given path, preserving their original
@@ -152,7 +149,6 @@ impl RawObject {
     /// - Fields that only exist in `left` are preserved.
     /// - This follows HOCON’s rule that later definitions of the same key override
     ///   earlier ones.
-
     pub(crate) fn merge(mut left: Self, right: Self) -> Self {
         left.0.extend(right.0);
         left
@@ -168,9 +164,9 @@ impl Display for RawObject {
     }
 }
 
-impl Into<RawValue> for Value {
-    fn into(self) -> RawValue {
-        match self {
+impl From<Value> for RawValue {
+    fn from(val: Value) -> Self {
+        match val {
             Value::Object(object) => {
                 let len = object.len();
                 let fields =

@@ -162,7 +162,7 @@ impl Value {
                             let right = Value::Concat(concat);
                             Value::delay_replacement([left, right])
                         }
-                        right => right
+                        right => right,
                     }
                 }
                 Value::AddAssign(add_assign) => {
@@ -207,9 +207,7 @@ impl Value {
                     // try resolve the concat at this time if it not contains substitution
                     let right = concat.try_resolve(path)?;
                     match right {
-                        Value::Concat(_) => {
-                            Value::delay_replacement([left, right])
-                        }
+                        Value::Concat(_) => Value::delay_replacement([left, right]),
                         Value::AddAssign(_) => {
                             return Err(Error::ConcatenateDifferentType {
                                 path: path.to_string(),
@@ -217,7 +215,7 @@ impl Value {
                                 right_type: "add_assign",
                             });
                         }
-                        other => other
+                        other => other,
                     }
                 }
                 Value::AddAssign(_) => {

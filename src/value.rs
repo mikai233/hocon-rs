@@ -27,7 +27,6 @@ impl Value {
     where
         I: IntoIterator<Item = (String, Value)>,
     {
-        let iter = iter.into_iter().map(|(k, v)| (k.into(), v));
         Value::Object(HashMap::from_iter(iter))
     }
 
