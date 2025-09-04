@@ -65,6 +65,10 @@ pub enum Error {
     JavaProperties(#[from] java_properties::PropertiesError),
     #[error("{0}")]
     UrlParseError(#[from] url::ParseError),
+    #[cfg(not(feature = "urls_includes"))]
+    #[error("Cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"
+    )]
+    UrlsIncludesDisabled,
 }
 
 impl serde::de::Error for Error {

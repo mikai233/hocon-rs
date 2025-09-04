@@ -1,4 +1,3 @@
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use crate::Result;
@@ -135,6 +134,7 @@ pub(crate) fn load_from_path(path: impl AsRef<Path>, options: ConfigOptions) -> 
     Ok(raw)
 }
 
+#[cfg(feature = "urls_includes")]
 pub(crate) fn load_from_url(url: url::Url, options: ConfigOptions) -> Result<RawObject> {
     let client = reqwest::blocking::Client::new();
     match client.get(url).send() {
@@ -172,7 +172,8 @@ pub(crate) fn load_from_url(url: url::Url, options: ConfigOptions) -> Result<Raw
             let syntax = extension_syntax.or(header_syntax).unwrap_or(Syntax::Hocon);
             match syntax {
                 Syntax::Hocon => {
-                    let read: StreamRead<_, 4096> = StreamRead::new(BufReader::new(response));
+                    let read: StreamRead<_, 4096> =
+                        StreamRead::new(std::io::BufReader::new(response));
                     parse_hocon(read, options)
                 }
                 Syntax::Json => parse_json(response),

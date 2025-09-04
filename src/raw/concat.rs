@@ -15,7 +15,7 @@ impl Concat {
         let concat = Self { values, spaces };
         for v in &concat.values {
             if matches!(v, RawValue::Concat(_)) || matches!(v, RawValue::AddAssign(_)) {
-                return Err(crate::error::Error::InvalidValue {
+                return Err(Error::InvalidValue {
                     val: v.ty(),
                     ty: "concat",
                 });
@@ -32,7 +32,7 @@ impl Concat {
         &self.values
     }
 
-    pub fn get_sapces(&self) -> &Vec<Option<String>> {
+    pub fn get_spaces(&self) -> &Vec<Option<String>> {
         &self.spaces
     }
 }

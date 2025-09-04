@@ -199,10 +199,8 @@ mod tests {
     #[case("resources/demo.conf")]
     #[case("resources/deserialize.conf")]
     #[case("resources/empty.conf")]
-    #[case("resources/included.conf")]
-    #[case("resources/main.conf")]
-    // #[case("F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf")]
-    // #[case("resources/max_depth.conf")]
+    #[cfg_attr(feature = "urls_includes", case("resources/included.conf"))]
+    #[cfg_attr(feature = "urls_includes", case("resources/main.conf"))]
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
         use crate::parser::read::MIN_BUFFER_SIZE;
         let file = std::fs::File::open(&path)?;

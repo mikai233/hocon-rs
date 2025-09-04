@@ -1,13 +1,12 @@
-use std::str::FromStr;
-
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
-use crate::parser::loader::{self, load_from_classpath, load_from_path, load_from_url};
+use crate::parser::loader::{self, load_from_classpath, load_from_path};
 use crate::parser::parser::{Context, HoconParser, CTX};
 use crate::parser::read::Read;
 use crate::raw::include::{Inclusion, Location};
 use crate::raw::raw_object::RawObject;
 use crate::Result;
+use std::str::FromStr;
 
 pub(crate) const INCLUDE: [char; 7] = ['i', 'n', 'c', 'l', 'u', 'd', 'e'];
 
@@ -101,6 +100,7 @@ impl<R: Read> HoconParser<R> {
                 }
                 Some(Location::File)
             }
+            #[cfg(feature = "urls_includes")]
             'u' => {
                 const URL: [char; 4] = ['u', 'r', 'l', '('];
                 for ele in URL {
@@ -113,6 +113,10 @@ impl<R: Read> HoconParser<R> {
                     }
                 }
                 Some(Location::Url)
+            }
+            #[cfg(not(feature = "urls_includes"))]
+            'u' => {
+                return Err(Error::UrlsIncludesDisabled);
             }
             'c' => {
                 const CLASSPATH: [char; 10] = ['c', 'l', 'a', 's', 's', 'p', 'a', 't', 'h', '('];
@@ -183,9 +187,10 @@ impl<R: Read> HoconParser<R> {
         Self::handle_include_error(loader::load, self.options.clone(), inclusion)
     }
 
+    #[cfg(feature = "urls_includes")]
     fn inclusion_from_url(&self, inclusion: &mut Inclusion) -> Result<()> {
         let url = url::Url::from_str(&inclusion.path)?;
-        match load_from_url(url, self.options.clone()) {
+        match loader::load_from_url(url, self.options.clone()) {
             Ok(object) => {
                 inclusion.val = Some(object.into());
             }
@@ -223,6 +228,7 @@ impl<R: Read> HoconParser<R> {
         })?;
         let result = {
             match inclusion.location {
+                #[cfg(feature = "urls_includes")]
                 None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
                     Ok(url) => {
                         if url.scheme() != "file" {
@@ -233,6 +239,15 @@ impl<R: Read> HoconParser<R> {
                         self.inclusion_from_file_and_classpath(inclusion)?;
                     }
                 },
+                #[cfg(not(feature = "urls_includes"))]
+                None => {
+                    match url::Url::from_str(&inclusion.path) {
+                        Ok(url) if url.scheme() != "file" => {
+                            return Err(Error::UrlsIncludesDisabled);
+                        }
+                        _ => self.inclusion_from_file_and_classpath(inclusion)?,
+                    }
+                }
                 Some(Location::Classpath) => self.inclusion_from_classpath(inclusion)?,
                 Some(Location::File) => self.inclusion_from_file(inclusion)?,
             }

@@ -1,9 +1,7 @@
-use std::str::FromStr;
-
 use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
-use crate::parser::loader::{self, load_from_path, load_from_url, parse_hocon};
+use crate::parser::loader::{self, load_from_path, parse_hocon};
 use crate::parser::read::StrRead;
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
@@ -88,12 +86,14 @@ impl Config {
         load_from_path(path, opts.unwrap_or_default().into())
     }
 
+    #[cfg(feature = "urls_includes")]
     pub fn parse_url(
         url: impl AsRef<str>,
         opts: Option<ConfigOptions>,
     ) -> crate::Result<RawObject> {
+        use std::str::FromStr;
         let url = url::Url::from_str(url.as_ref())?;
-        load_from_url(url, opts.unwrap_or_default().into())
+        loader::load_from_url(url, opts.unwrap_or_default().into())
     }
 
     pub fn parse_map(values: std::collections::HashMap<String, Value>) -> crate::Result<RawObject> {
@@ -185,8 +185,8 @@ impl From<std::collections::HashMap<String, Value>> for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::error::Error;
     use crate::Result;
+    use crate::error::Error;
     use crate::{config::Config, config_options::ConfigOptions, value::Value};
     use rstest::rstest;
 
@@ -242,6 +242,7 @@ mod tests {
     #[case("resources/concat5.conf", "resources/concat5.json")]
     #[case("resources/include.conf", "resources/include.json")]
     #[case("resources/comment.conf", "resources/comment.json")]
+    #[case("resources/substitution.conf", "resources/substitution.json")]
     fn test_hocon(
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,
@@ -261,10 +262,7 @@ mod tests {
         let error = Config::load::<Value>("resources/max_depth.conf", None)
             .err()
             .unwrap();
-        assert!(matches!(
-            error,
-            Error::RecursionDepthExceeded { .. }
-        ));
+        assert!(matches!(error, Error::RecursionDepthExceeded { .. }));
         Ok(())
     }
 
@@ -275,10 +273,7 @@ mod tests {
         let error = Config::load::<Value>("resources/include_cycle.conf", Some(options))
             .err()
             .unwrap();
-        assert!(matches!(
-            error,
-            Error::Include {..}
-        ));
+        assert!(matches!(error, Error::Include { .. }));
         Ok(())
     }
 
@@ -289,10 +284,7 @@ mod tests {
         let error = Config::load::<Value>("resources/substitution_cycle.conf", Some(options))
             .err()
             .unwrap();
-        assert!(matches!(
-            error,
-            Error::SubstitutionCycle{..}
-        ));
+        assert!(matches!(error, Error::SubstitutionCycle { .. }));
         Ok(())
     }
 }

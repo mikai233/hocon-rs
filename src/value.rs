@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
 
-use crate::join;
+use crate::{join, join_format};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
@@ -263,17 +263,12 @@ impl Display for Value {
         match self {
             Value::Object(object) => {
                 write!(f, "{{")?;
-                let mut iter = object.iter();
-                match iter.next() {
-                    Some((k, v)) => {
-                        write!(f, "{k}: {v}")?;
-                        for (k, v) in iter {
-                            write!(f, ", ")?;
-                            write!(f, "{k}: {v}")?;
-                        }
-                    }
-                    None => {}
-                }
+                join_format(
+                    object.iter(),
+                    f,
+                    |f| write!(f, ", "),
+                    |f, (k, v)| write!(f, "{k}: {v}"),
+                )?;
                 write!(f, "}}")?;
                 Ok(())
             }

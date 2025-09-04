@@ -776,11 +776,12 @@ impl Into<BTreeMap<String, V>> for Object {
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
-        let last_index = self.len().saturating_sub(1);
-        for (index, (k, v)) in self.iter().enumerate() {
-            write!(f, "{} : {}", k, v.borrow())?;
-            if index != last_index {
+        let mut iter = self.iter();
+        if let Some((k, v)) = iter.next() {
+            write!(f, "{}: {}", k, v.borrow())?;
+            for (k, v) in iter {
                 write!(f, ", ")?;
+                write!(f, "{}: {}", k, v.borrow())?;
             }
         }
         write!(f, "}}")?;

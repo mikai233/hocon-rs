@@ -54,15 +54,34 @@ where
     I: Iterator<Item = V>,
     V: std::fmt::Display,
 {
-    match iter.next() {
-        Some(v) => {
+    if let Some(v) = iter.next() {
+        write!(f, "{v}")?;
+        for v in iter {
+            write!(f, "{sep}")?;
             write!(f, "{v}")?;
-            for v in iter {
-                write!(f, "{sep}")?;
-                write!(f, "{v}")?;
-            }
         }
-        None => {}
+    }
+    Ok(())
+}
+
+#[inline]
+pub(crate) fn join_format<I, V, S, R>(
+    mut iter: I,
+    f: &mut std::fmt::Formatter<'_>,
+    separator_formatter: S,
+    value_formatter: R,
+) -> std::fmt::Result
+where
+    I: Iterator<Item = V>,
+    S: Fn(&mut std::fmt::Formatter) -> std::fmt::Result,
+    R: Fn(&mut std::fmt::Formatter, V) -> std::fmt::Result,
+{
+    if let Some(v) = iter.next() {
+        value_formatter(f, v)?;
+        for v in iter {
+            separator_formatter(f)?;
+            value_formatter(f, v)?;
+        }
     }
     Ok(())
 }
@@ -77,15 +96,12 @@ where
     I: Iterator<Item = V>,
     V: std::fmt::Debug,
 {
-    match iter.next() {
-        Some(v) => {
+    if let Some(v) = iter.next() {
+        write!(f, "{v:?}")?;
+        for v in iter {
+            write!(f, "{sep}")?;
             write!(f, "{v:?}")?;
-            for v in iter {
-                write!(f, "{sep}")?;
-                write!(f, "{v:?}")?;
-            }
         }
-        None => {}
     }
     Ok(())
 }

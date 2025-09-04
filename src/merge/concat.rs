@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 use std::{cell::RefCell, fmt::Display};
 
-use crate::Result;
 use crate::error::Error;
 use crate::merge::{path::RefPath, value::Value};
+use crate::{Result, join_format};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct Concat {
@@ -148,13 +148,12 @@ impl Concat {
 impl Display for Concat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Concat(")?;
-        let last_index = self.values.len().saturating_sub(1);
-        for (index, value) in self.values.iter().enumerate() {
-            write!(f, "{}", value.borrow())?;
-            if index != last_index {
-                write!(f, ", ")?;
-            }
-        }
+        join_format(
+            self.values.iter(),
+            f,
+            |f| write!(f, ", "),
+            |f, v| write!(f, "{}", v.borrow()),
+        )?;
         write!(f, ")")?;
         Ok(())
     }

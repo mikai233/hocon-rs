@@ -6,7 +6,10 @@ use std::{
 
 use tracing::trace;
 
-use crate::merge::{path::RefPath, value::Value};
+use crate::{
+    join_format,
+    merge::{path::RefPath, value::Value},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Array {
@@ -79,18 +82,13 @@ impl DerefMut for Array {
 
 impl Display for Array {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut iter = self.iter();
         write!(f, "[")?;
-        match iter.next() {
-            Some(v) => {
-                write!(f, "{}", v.borrow())?;
-                for v in iter {
-                    write!(f, ", ")?;
-                    write!(f, "{}", v.borrow())?;
-                }
-            }
-            None => {}
-        }
+        join_format(
+            self.iter(),
+            f,
+            |f| write!(f, ", "),
+            |f, v| write!(f, "{}", v.borrow()),
+        )?;
         write!(f, "]")?;
         Ok(())
     }

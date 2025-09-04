@@ -48,11 +48,12 @@ impl DelayReplacement {
 impl Display for DelayReplacement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "DelayReplacement(")?;
-        let last_index = self.len().saturating_sub(1);
-        for (index, ele) in self.iter().enumerate() {
-            write!(f, "{}", ele.borrow())?;
-            if index != last_index {
+        let mut iter = self.iter();
+        if let Some(v) = iter.next() {
+            write!(f, "{}", v.borrow())?;
+            for v in iter {
                 write!(f, ", ")?;
+                write!(f, "{}", v.borrow())?;
             }
         }
         write!(f, ")")?;

@@ -1,3 +1,4 @@
+use crate::join_format;
 use crate::value::Value;
 use ahash::HashMap;
 use std::fmt::{Display, Formatter};
@@ -35,18 +36,12 @@ impl DerefMut for Object {
 
 impl Display for Object {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut iter = self.iter();
-        match iter.next() {
-            Some((k, v)) => {
-                write!(f, "{k}: {v}")?;
-                for (k, v) in iter {
-                    write!(f, ", ")?;
-                    write!(f, "{k}: {v}")?;
-                }
-            }
-            None => {}
-        }
-        Ok(())
+        join_format(
+            self.iter(),
+            f,
+            |f| write!(f, ", "),
+            |f, (k, v)| write!(f, "{k}: {v}"),
+        )
     }
 }
 
