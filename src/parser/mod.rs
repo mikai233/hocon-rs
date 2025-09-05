@@ -175,7 +175,7 @@ impl<R: Read> HoconParser<R> {
                 if ch == '{' {
                     self.parse_object()?
                 } else {
-                    self.parse_root_object()?
+                    self.parse_braces_omitted_object()?
                 }
             }
             Err(Error::Eof) => {

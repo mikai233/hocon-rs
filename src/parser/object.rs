@@ -52,26 +52,18 @@ impl<R: Read> HoconParser<R> {
             match ch {
                 '[' => {
                     // Parse array
-                    let array = self.parse_array()?;
-                    let v = RawValue::Array(array);
+                    let v = Self::check_depth(self.options.max_depth, || {
+                        let array = self.parse_array()?;
+                        Ok(RawValue::Array(array))
+                    })?;
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '{' => {
                     // Parse object
-                    let current_depth = Context::increase_depth();
-                    if current_depth > self.options.max_object_depth {
-                        Context::reset();
-                        return Err(Error::RecursionDepthExceeded {
-                            max_depth: self.options.max_object_depth,
-                        });
-                    }
-                    let result = self.parse_object();
-                    if result.is_err() {
-                        Context::reset();
-                    }
-                    let object = result?;
-                    Context::decrease_depth();
-                    let v = RawValue::Object(object);
+                    let v = Self::check_depth(self.options.max_depth, || {
+                        let object = self.parse_object()?;
+                        Ok(RawValue::Object(object))
+                    })?;
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '"' => {
@@ -202,6 +194,7 @@ impl<R: Read> HoconParser<R> {
         Ok(false)
     }
 
+    #[inline]
     pub(crate) fn parse_object_field(&mut self) -> Result<ObjectField> {
         let ch = self.reader.peek()?;
         // It maybe an include syntax, we need to peek more chars to determine.
@@ -216,7 +209,7 @@ impl<R: Read> HoconParser<R> {
         Ok(field)
     }
 
-    pub(crate) fn parse_object_fields(&mut self) -> Result<Vec<ObjectField>> {
+    pub(crate) fn parse_braces_omitted_object(&mut self) -> Result<RawObject> {
         let mut fields = vec![];
         loop {
             self.drop_whitespace_and_comments()?;
@@ -240,11 +233,6 @@ impl<R: Read> HoconParser<R> {
                 break;
             }
         }
-        Ok(fields)
-    }
-
-    pub(crate) fn parse_root_object(&mut self) -> Result<RawObject> {
-        let fields = self.parse_object_fields()?;
         let raw_obj = RawObject::new(fields);
         Ok(raw_obj)
     }
@@ -258,7 +246,7 @@ impl<R: Read> HoconParser<R> {
             });
         }
         self.reader.next()?;
-        let fields = self.parse_object_fields()?;
+        let raw_obj = self.parse_braces_omitted_object()?;
         let ch = self.reader.peek()?;
         if ch != '}' {
             return Err(Error::UnexpectedToken {
@@ -267,7 +255,6 @@ impl<R: Read> HoconParser<R> {
             });
         }
         self.reader.next()?;
-        let raw_obj = RawObject::new(fields);
         Ok(raw_obj)
     }
 
@@ -302,6 +289,28 @@ impl<R: Read> HoconParser<R> {
                 Err(err) => {
                     return Err(err);
                 }
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn check_depth<F>(max_depth: usize, f: F) -> Result<RawValue>
+    where
+        F: FnOnce() -> Result<RawValue>,
+    {
+        let current_depth = Context::increase_depth();
+        if current_depth > max_depth {
+            Context::reset();
+            return Err(Error::RecursionDepthExceeded { max_depth });
+        }
+        match f() {
+            Ok(raw) => {
+                Context::decrease_depth();
+                Ok(raw)
+            }
+            Err(err) => {
+                Context::reset();
+                Err(err)
             }
         }
     }

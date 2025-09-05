@@ -101,13 +101,13 @@ used to search for configuration files.
 
 If you do not configure a classpath in `ConfigOptions`, `hocon-rs` will only search in the current working directory.
 
-## Object Depth Limit
+## Object And Array Depth Limit
 
-When parsing deeply nested objects, you may encounter a `RecursionDepthExceeded` error.
+When parsing deeply nested objects or arrays, you may encounter a `RecursionDepthExceeded` error.
 This happens because `hocon-rs` uses recursive functions to parse objects, and excessive recursion could cause stack
 overflows.
 
-The default depth limit is **128**.
+The default depth limit is **64**.
 You can increase this limit via `ConfigOptions`.
 
 ## Substitution Depth Limit
@@ -146,7 +146,7 @@ a = {}
 ```hocon
 b = hello
 
-b = ${a}
+b = ${b}
 
 b = ${a}
 
@@ -201,6 +201,7 @@ You can customize merge priority using the comparison function defined in `Confi
 - [ ] Serialize to HOCON format
 - [ ] Serialize raw HOCON text
 - [ ] Parse and preserve comments
+- [ ] Refactor recursive functions to iterative implementations
 
 # Documentation
 
