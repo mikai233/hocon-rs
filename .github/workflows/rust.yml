@@ -76,13 +76,23 @@ jobs:
       - name: Package source code
         run: |
           version=${{ steps.tag.outputs.version }}
-          git archive --format=tar.gz --output=${env.CRATE_NAME}-${version}.tar.gz HEAD
-          sha256sum ${env.CRATE_NAME}-${version}.tar.gz > ${env.CRATE_NAME}-${version}.tar.gz.sha256
+          git archive --format=tar.gz --output=${{env.CRATE_NAME}}-${version}.tar.gz HEAD
+          sha256sum ${{env.CRATE_NAME}}-${version}.tar.gz > ${{env.CRATE_NAME}}-${version}.tar.gz.sha256
 
       - name: Generate changelog
         id: changelog
         run: |
-          log=$(git log --pretty=format:"* %s" $(git describe --tags --abbrev=0 @^)..@)
+          prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$prev_tag" ]; then
+            log=$(git log --pretty=format:"* %s" ${prev_tag}..HEAD)
+          else
+            log=$(git log --pretty=format:"* %s")
+          fi
+
+          if [ -z "$log" ]; then
+            log="Initial release"
+          fi
+
           echo "log<<EOF" >> $GITHUB_OUTPUT
           echo "$log" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -94,7 +104,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.version }}
           body: ${{ steps.changelog.outputs.log }}
           files: |
-            ${env.CRATE_NAME}-${{ steps.tag.outputs.version }}.tar.gz
-            ${env.CRATE_NAME}-${{ steps.tag.outputs.version }}.tar.gz.sha256
+            ${{env.CRATE_NAME}}-${{ steps.tag.outputs.version }}.tar.gz
+            ${{env.CRATE_NAME}}-${{ steps.tag.outputs.version }}.tar.gz.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
