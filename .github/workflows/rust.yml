@@ -24,6 +24,7 @@ jobs:
         features:
           - ""
           - "urls_includes"
+          - "json_arbitrary_precision"
     steps:
       - uses: actions/checkout@v4
       - name: Setup Rust

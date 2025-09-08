@@ -1,10 +1,13 @@
 use ahash::{HashMap, HashMapExt};
+use bigdecimal::BigDecimal;
+use num_bigint::{BigUint, ToBigInt};
 use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
 use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
+use std::str::FromStr;
 
 use crate::{join, join_format};
 
@@ -255,7 +258,84 @@ impl Value {
     }
 }
 
-impl Value {}
+impl Value {
+    pub fn as_bytes(&self) -> Option<BigUint> {
+        fn str_to_bytes(s: &str) -> Option<BigUint> {
+            let idx = s
+                .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+                .unwrap_or(s.len());
+            let (num, unit) = s.split_at(idx);
+            let bytes = match unit.trim() {
+                "" | "B" | "b" | "byte" | "bytes" => Some(BigUint::from(1u32)),
+                "kB" | "kilobyte" | "kilobytes" => Some(BigUint::from(10u32).pow(3u32)),
+                "MB" | "megabyte" | "megabytes" => Some(BigUint::from(10u32).pow(6u32)),
+                "GB" | "gigabyte" | "gigabytes" => Some(BigUint::from(10u32).pow(9u32)),
+                "TB" | "terabyte" | "terabytes" => Some(BigUint::from(10u32).pow(12u32)),
+                "PB" | "petabyte" | "petabytes" => Some(BigUint::from(10u32).pow(15u32)),
+                "EB" | "exabyte" | "exabytes" => Some(BigUint::from(10u32).pow(18u32)),
+                "ZB" | "zettabyte" | "zettabytes" => Some(BigUint::from(10u32).pow(21u32)),
+                "YB" | "yottabyte" | "yottabytes" => Some(BigUint::from(10u32).pow(24u32)),
+
+                "K" | "k" | "Ki" | "KiB" | "kibibyte" | "kibibytes" => {
+                    Some(BigUint::from(2u32).pow(10u32))
+                }
+                "M" | "m" | "Mi" | "MiB" | "mebibyte" | "mebibytes" => {
+                    Some(BigUint::from(2u32).pow(20u32))
+                }
+                "G" | "g" | "Gi" | "GiB" | "gibibyte" | "gibibytes" => {
+                    Some(BigUint::from(2u32).pow(30u32))
+                }
+                "T" | "t" | "Ti" | "TiB" | "tebibyte" | "tebibytes" => {
+                    Some(BigUint::from(2u32).pow(40u32))
+                }
+                "P" | "p" | "Pi" | "PiB" | "pebibyte" | "pebibytes" => {
+                    Some(BigUint::from(2u32).pow(50u32))
+                }
+                "E" | "e" | "Ei" | "EiB" | "exbibyte" | "exbibytes" => {
+                    Some(BigUint::from(2u32).pow(60u32))
+                }
+                "Z" | "z" | "Zi" | "ZiB" | "zebibyte" | "zebibytes" => {
+                    Some(BigUint::from(2u32).pow(70u32))
+                }
+                "Y" | "y" | "Yi" | "YiB" | "yobibyte" | "yobibytes" => {
+                    Some(BigUint::from(2u32).pow(80u32))
+                }
+
+                _ => None,
+            }?;
+            match BigUint::from_str(num) {
+                Ok(num) => Some(&num * &bytes),
+                Err(_) => match BigDecimal::from_str(num) {
+                    Ok(num) => {
+                        let num = &num * &bytes.to_bigint()?;
+                        let (num, _) = num.with_scale(0).into_bigint_and_exponent();
+                        BigUint::try_from(num).ok()
+                    }
+                    Err(_) => None,
+                },
+            }
+        }
+        match self {
+            #[cfg(not(feature = "json_arbitrary_precision"))]
+            Value::Number(num) => match num.as_u64().map(BigUint::from) {
+                None => {
+                    use bigdecimal::FromPrimitive;
+                    let (num, _) = num
+                        .as_f64()
+                        .and_then(BigDecimal::from_f64)?
+                        .with_scale(0)
+                        .into_bigint_and_exponent();
+                    BigUint::try_from(num).ok()
+                }
+                Some(i) => Some(i),
+            },
+            #[cfg(feature = "json_arbitrary_precision")]
+            Value::Number(i) => str_to_bytes(i.as_str()),
+            Value::String(s) => str_to_bytes(s.as_str().trim()),
+            _ => None,
+        }
+    }
+}
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -388,9 +468,9 @@ impl<'de> Deserialize<'de> for Value {
             where
                 E: Error,
             {
-                Number::from_f64(v)
+                Ok(Number::from_f64(v)
                     .map(Value::Number)
-                    .ok_or_else(|| Error::custom("invalid f64 value"))
+                    .unwrap_or(Value::Null))
             }
 
             fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> {
@@ -424,14 +504,193 @@ impl<'de> Deserialize<'de> for Value {
             where
                 M: MapAccess<'de>,
             {
-                let mut values = HashMap::new();
-                while let Some((k, v)) = map.next_entry()? {
-                    values.insert(k, v);
+                match map.next_key::<String>()? {
+                    None => Ok(Value::Object(HashMap::new())),
+                    Some(first_key) => match first_key.as_str() {
+                        #[cfg(feature = "json_arbitrary_precision")]
+                        "$serde_json::private::Number" => {
+                            let v: String = map.next_value()?;
+                            let n = serde_json::Number::from_str(&v).map_err(Error::custom)?;
+                            Ok(Value::Number(n))
+                        }
+                        _ => {
+                            let mut values = HashMap::new();
+                            let value = map.next_value()?;
+                            values.insert(first_key, value);
+                            while let Some((k, v)) = map.next_entry()? {
+                                values.insert(k, v);
+                            }
+                            Ok(Value::Object(values))
+                        }
+                    },
                 }
-                Ok(Value::Object(values))
             }
         }
 
         deserializer.deserialize_any(ValueVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_bigint::BigUint;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(Value::Number(0.into()), Some(BigUint::from(0u32)))]
+    #[case(Value::Number(42.into()), Some(BigUint::from(42u32)))]
+    #[case(Value::String("123".into()), Some(BigUint::from(123u32)))]
+    #[case(Value::String("123B".into()), Some(BigUint::from(123u32)))]
+    #[case(Value::String("10bytes".into()), Some(BigUint::from(10u32)))]
+    #[case(Value::String("1kB".into()), Some(BigUint::from(1000u32)))]
+    #[case(Value::String("2MB".into()), Some(BigUint::from(2_000_000u32)))]
+    #[case(Value::String("3GB".into()), Some(BigUint::from(3_000_000_000u64)))]
+    #[case(Value::String("4TB".into()), Some(BigUint::from(4_000_000_000_000u64)))]
+    #[case(Value::String("5PB".into()), Some(BigUint::from(5_000_000_000_000_000u64)))]
+    #[case(Value::String("6EB".into()), Some(BigUint::from(6u128 * 10u128.pow(18))))]
+    #[case(Value::String("7ZB".into()), Some(BigUint::from(7u128 * 10u128.pow(21))))]
+    #[case(Value::String("8YB".into()), Some(BigUint::from(8u128 * 10u128.pow(24))))]
+    #[case(Value::String("1KiB".into()), Some(BigUint::from(1024u32)))]
+    #[case(Value::String("2MiB".into()), Some(BigUint::from(2u64 * 1024 * 1024)))]
+    #[case(Value::String("3GiB".into()), Some(BigUint::from(3u64 * 1024 * 1024 * 1024)))]
+    #[case(Value::String("4TiB".into()), Some(BigUint::from(4u128 * (1u128 << 40))))]
+    #[case(Value::String("5PiB".into()), Some(BigUint::from(5u128 * (1u128 << 50))))]
+    #[case(Value::String("6EiB".into()), Some(BigUint::from(6u128 * (1u128 << 60))))]
+    #[case(Value::String("7ZiB".into()), Some(BigUint::from(7u128 * (1u128 << 70))))]
+    #[case(Value::String("8YiB".into()), Some(BigUint::from(8u128 * (1u128 << 80))))]
+    #[case(Value::String("1.5kB".into()), Some(BigUint::from(1500u32)))] // 测试小数
+    #[case(Value::String("0.5MiB".into()), Some(BigUint::from(512u32 * 1024)))] // 小数二进制单位
+    #[case(Value::String("999999999YB".into()), Some(BigUint::from(999_999_999u128) * BigUint::from(10u128).pow(24)
+    ))] // 巨大 SI 单位
+    #[case(Value::String("999999999YiB".into()), Some(BigUint::from(999_999_999u128) * (BigUint::from(2u32).pow(80))
+    ))] // 巨大二进制单位
+    #[case(Value::String("not_a_number".into()), None)]
+    #[case(Value::String("123unknown".into()), None)]
+    fn test_as_bytes(#[case] input: Value, #[case] expected: Option<BigUint>) {
+        assert_eq!(input.as_bytes(), expected);
+    }
+
+    fn si_factor(exp: u32) -> BigUint {
+        BigUint::from(10u32).pow(exp)
+    }
+
+    fn bin_factor(exp: u32) -> BigUint {
+        BigUint::from(2u32).pow(exp)
+    }
+
+    #[rstest]
+    #[case("B", BigUint::from(1u32))]
+    #[case("b", BigUint::from(1u32))]
+    #[case("byte", BigUint::from(1u32))]
+    #[case("bytes", BigUint::from(1u32))]
+    #[case("kB", si_factor(3))]
+    #[case("kilobyte", si_factor(3))]
+    #[case("kilobytes", si_factor(3))]
+    #[case("MB", si_factor(6))]
+    #[case("megabyte", si_factor(6))]
+    #[case("megabytes", si_factor(6))]
+    #[case("GB", si_factor(9))]
+    #[case("gigabyte", si_factor(9))]
+    #[case("gigabytes", si_factor(9))]
+    #[case("TB", si_factor(12))]
+    #[case("terabyte", si_factor(12))]
+    #[case("terabytes", si_factor(12))]
+    #[case("PB", si_factor(15))]
+    #[case("petabyte", si_factor(15))]
+    #[case("petabytes", si_factor(15))]
+    #[case("EB", si_factor(18))]
+    #[case("exabyte", si_factor(18))]
+    #[case("exabytes", si_factor(18))]
+    #[case("ZB", si_factor(21))]
+    #[case("zettabyte", si_factor(21))]
+    #[case("zettabytes", si_factor(21))]
+    #[case("YB", si_factor(24))]
+    #[case("yottabyte", si_factor(24))]
+    #[case("yottabytes", si_factor(24))]
+    #[case("K", bin_factor(10))]
+    #[case("k", bin_factor(10))]
+    #[case("Ki", bin_factor(10))]
+    #[case("KiB", bin_factor(10))]
+    #[case("kibibyte", bin_factor(10))]
+    #[case("kibibytes", bin_factor(10))]
+    #[case("M", bin_factor(20))]
+    #[case("m", bin_factor(20))]
+    #[case("Mi", bin_factor(20))]
+    #[case("MiB", bin_factor(20))]
+    #[case("mebibyte", bin_factor(20))]
+    #[case("mebibytes", bin_factor(20))]
+    #[case("G", bin_factor(30))]
+    #[case("g", bin_factor(30))]
+    #[case("Gi", bin_factor(30))]
+    #[case("GiB", bin_factor(30))]
+    #[case("gibibyte", bin_factor(30))]
+    #[case("gibibytes", bin_factor(30))]
+    #[case("T", bin_factor(40))]
+    #[case("t", bin_factor(40))]
+    #[case("Ti", bin_factor(40))]
+    #[case("TiB", bin_factor(40))]
+    #[case("tebibyte", bin_factor(40))]
+    #[case("tebibytes", bin_factor(40))]
+    #[case("P", bin_factor(50))]
+    #[case("p", bin_factor(50))]
+    #[case("Pi", bin_factor(50))]
+    #[case("PiB", bin_factor(50))]
+    #[case("pebibyte", bin_factor(50))]
+    #[case("pebibytes", bin_factor(50))]
+    #[case("E", bin_factor(60))]
+    #[case("e", bin_factor(60))]
+    #[case("Ei", bin_factor(60))]
+    #[case("EiB", bin_factor(60))]
+    #[case("exbibyte", bin_factor(60))]
+    #[case("exbibytes", bin_factor(60))]
+    #[case("Z", bin_factor(70))]
+    #[case("z", bin_factor(70))]
+    #[case("Zi", bin_factor(70))]
+    #[case("ZiB", bin_factor(70))]
+    #[case("zebibyte", bin_factor(70))]
+    #[case("zebibytes", bin_factor(70))]
+    #[case("Y", bin_factor(80))]
+    #[case("y", bin_factor(80))]
+    #[case("Yi", bin_factor(80))]
+    #[case("YiB", bin_factor(80))]
+    #[case("yobibyte", bin_factor(80))]
+    #[case("yobibytes", bin_factor(80))]
+    fn test_as_bytes_all_units(#[case] unit: &str, #[case] factor: BigUint) {
+        let input = Value::String(format!("1{}", unit));
+        assert_eq!(input.as_bytes(), Some(factor));
+    }
+
+    #[rstest]
+    #[case(Value::String("123 B".into()), Some(BigUint::from(123u32)))]
+    #[case(Value::String("1 kB".into()), Some(BigUint::from(1000u32)))]
+    #[case(Value::String("2 MB".into()), Some(BigUint::from(2_000_000u32)))]
+    #[case(Value::String("1.5 kB".into()), Some(BigUint::from(1500u32)))]
+    #[case(Value::String("0.5 MiB".into()), Some(BigUint::from(512u32 * 1024)))]
+    fn test_as_bytes_with_space(#[case] input: Value, #[case] expected: Option<BigUint>) {
+        assert_eq!(input.as_bytes(), expected);
+    }
+
+    #[rstest]
+    #[case(Number::from(-1), None)]
+    #[case(Number::from(0), Some(BigUint::from(0u32)))]
+    #[case(Number::from(42), Some(BigUint::from(42u32)))]
+    #[case(Number::from(u64::MAX), Some(BigUint::from(u64::MAX)))]
+    #[case(Number::from_f64(1.1).unwrap(), Some(BigUint::from(1u32)))]
+    #[case(Number::from_f64(1.9).unwrap(), Some(BigUint::from(1u32)))]
+    fn test_as_bytes_number(#[case] num: Number, #[case] expected: Option<BigUint>) {
+        let input = Value::Number(num);
+        assert_eq!(input.as_bytes(), expected);
+    }
+
+    #[cfg(feature = "json_arbitrary_precision")]
+    #[rstest]
+    #[case("184467440737095516160000")]
+    fn test_as_bytes_arbitrary_precision(#[case] big_num_str: &str) {
+        let num: Number = serde_json::from_str(big_num_str).unwrap();
+
+        let input = Value::Number(num);
+        let expected = BigUint::parse_bytes(big_num_str.as_bytes(), 10);
+        assert_eq!(input.as_bytes(), expected);
     }
 }
