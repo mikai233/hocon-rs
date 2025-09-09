@@ -139,7 +139,11 @@ pub(crate) fn load_from_path(
 }
 
 #[cfg(feature = "urls_includes")]
-pub(crate) fn load_from_url(url: url::Url, options: ConfigOptions) -> Result<RawObject> {
+pub(crate) fn load_from_url(
+    url: url::Url,
+    options: ConfigOptions,
+    ctx: Option<Context>,
+) -> Result<RawObject> {
     let client = reqwest::blocking::Client::new();
     match client.get(url).send() {
         Ok(response) => {
@@ -176,9 +180,9 @@ pub(crate) fn load_from_url(url: url::Url, options: ConfigOptions) -> Result<Raw
             let syntax = extension_syntax.or(header_syntax).unwrap_or(Syntax::Hocon);
             match syntax {
                 Syntax::Hocon => {
-                    let read: StreamRead<_, 4096> =
+                    let read: StreamRead<_, DEFAULT_BUFFER> =
                         StreamRead::new(std::io::BufReader::new(response));
-                    parse_hocon(read, options)
+                    parse_hocon(read, options, ctx)
                 }
                 Syntax::Json => parse_json(response),
                 Syntax::Properties => parse_properties(response),

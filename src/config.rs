@@ -97,7 +97,7 @@ impl Config {
     {
         use std::str::FromStr;
         let url = url::Url::from_str(url.as_ref())?;
-        let raw = loader::load_from_url(url, opts.unwrap_or_default().into())?;
+        let raw = loader::load_from_url(url, opts.unwrap_or_default().into(), None)?;
         Self::resolve_object::<T>(raw)
     }
 

@@ -197,9 +197,9 @@ impl<R: Read> HoconParser<R> {
     }
 
     #[cfg(feature = "urls_includes")]
-    fn inclusion_from_url(&self, inclusion: &mut Inclusion) -> Result<()> {
+    fn inclusion_from_url(&self, inclusion: &mut Inclusion, ctx: Option<Context>) -> Result<()> {
         let url = url::Url::from_str(&inclusion.path)?;
-        match loader::load_from_url(url, self.options.clone()) {
+        match loader::load_from_url(url, self.options.clone(), ctx) {
             Ok(object) => {
                 inclusion.val = Some(object.into());
             }
@@ -238,11 +238,11 @@ impl<R: Read> HoconParser<R> {
             None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
                 Ok(url) => {
                     if url.scheme() != "file" {
-                        self.inclusion_from_url(inclusion)?;
+                        self.inclusion_from_url(inclusion, Some(ctx))?;
                     }
                 }
                 _ => {
-                    self.inclusion_from_file_and_classpath(inclusion)?;
+                    self.inclusion_from_file_and_classpath(inclusion, Some(ctx))?;
                 }
             },
             #[cfg(not(feature = "urls_includes"))]
