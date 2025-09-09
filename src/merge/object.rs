@@ -43,9 +43,15 @@ pub(crate) enum Object {
 }
 
 impl Object {
+    pub(crate) fn into_inner(self) -> BTreeMap<String, V> {
+        match self {
+            Object::Merged(values) | Object::Unmerged(values) => values,
+        }
+    }
+
     pub(crate) fn from_raw(parent: Option<&RefPath>, obj: RawObject) -> crate::Result<Self> {
         let mut root = Object::default();
-        for field in obj.0.into_iter() {
+        for field in obj.into_inner().into_iter() {
             root.put_field(parent, field)?;
         }
         Ok(root)

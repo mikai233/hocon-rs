@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Default)]
 struct ConfigPath {
-    hcon: Option<PathBuf>,
+    hocon: Option<PathBuf>,
     json: Option<PathBuf>,
     properties: Option<PathBuf>,
 }
@@ -21,7 +21,7 @@ impl ConfigPath {
     fn set_path(&mut self, path: PathBuf, syntax: Syntax) {
         match syntax {
             Syntax::Hocon => {
-                self.hcon = Some(path);
+                self.hocon = Some(path);
             }
             Syntax::Json => {
                 self.json = Some(path);
@@ -82,7 +82,7 @@ fn find_config_path(path: impl AsRef<Path>) -> Result<ConfigPath> {
         }
     }
     if [
-        &config_path.hcon,
+        &config_path.hocon,
         &config_path.json,
         &config_path.properties,
     ]
@@ -108,7 +108,7 @@ pub(crate) fn load_from_path(
 ) -> Result<RawObject> {
     let config_path = find_config_path(&path)?;
     let mut result = vec![];
-    if let Some(hocon) = config_path.hcon {
+    if let Some(hocon) = config_path.hocon {
         let file = std::fs::File::open(hocon)?;
         let reader = std::io::BufReader::new(file);
         let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(reader);

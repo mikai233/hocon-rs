@@ -169,7 +169,6 @@ impl Config {
         if value.is_unmerged() {
             return Err(crate::error::Error::ResolveIncomplete);
         }
-        let value: Value = value.try_into()?;
         T::deserialize(value)
     }
 }

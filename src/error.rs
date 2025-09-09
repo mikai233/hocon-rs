@@ -59,14 +59,14 @@ pub enum Error {
         current: String,
         backtrace: Vec<String>,
     },
-    #[error("substitution depth exceeded the limit of {max_depth} levels")]
+    #[error("Substitution depth exceeded the limit of {max_depth} levels")]
     SubstitutionDepthExceeded { max_depth: usize },
     #[error("{0}")]
-    DeserializeError(String),
+    Deserialize(String),
     #[error("{0}")]
     JavaProperties(#[from] java_properties::PropertiesError),
     #[error("{0}")]
-    UrlParseError(#[from] url::ParseError),
+    UrlParse(#[from] url::ParseError),
     #[cfg(not(feature = "urls_includes"))]
     #[error(
         "Cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"
@@ -108,6 +108,6 @@ impl serde::de::Error for Error {
     where
         T: Display,
     {
-        Self::DeserializeError(msg.to_string())
+        Self::Deserialize(msg.to_string())
     }
 }
