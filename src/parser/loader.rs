@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
-use crate::parser::HoconParser;
 use crate::parser::read::{DEFAULT_BUFFER, StreamRead};
+use crate::parser::{Context, HoconParser};
 use crate::{
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
     syntax::Syntax,
@@ -101,14 +101,18 @@ fn find_config_path(path: impl AsRef<Path>) -> Result<ConfigPath> {
     Ok(config_path)
 }
 
-pub(crate) fn load_from_path(path: impl AsRef<Path>, options: ConfigOptions) -> Result<RawObject> {
+pub(crate) fn load_from_path(
+    path: impl AsRef<Path>,
+    options: ConfigOptions,
+    ctx: Option<Context>,
+) -> Result<RawObject> {
     let config_path = find_config_path(&path)?;
     let mut result = vec![];
     if let Some(hocon) = config_path.hcon {
         let file = std::fs::File::open(hocon)?;
         let reader = std::io::BufReader::new(file);
         let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(reader);
-        let raw_obj = parse_hocon(read, options.clone())?;
+        let raw_obj = parse_hocon(read, options.clone(), ctx)?;
         result.push((raw_obj, Syntax::Hocon));
     }
     if let Some(json) = config_path.json {
@@ -190,6 +194,7 @@ pub(crate) fn load_from_url(url: url::Url, options: ConfigOptions) -> Result<Raw
 pub(crate) fn load_from_classpath(
     path: impl AsRef<Path>,
     options: ConfigOptions,
+    ctx: Option<Context>,
 ) -> Result<RawObject> {
     let path = path.as_ref();
     if !options.classpath.is_empty() && path.is_absolute() {
@@ -200,7 +205,7 @@ pub(crate) fn load_from_classpath(
     }
     for classpath in &*options.classpath {
         let candidate = Path::new(classpath).join(path);
-        match load_from_path(&candidate, options.clone()) {
+        match load_from_path(&candidate, options.clone(), ctx.clone()) {
             Ok(raw) => {
                 return Ok(raw);
             }
@@ -230,18 +235,25 @@ where
     if let RawValue::Object(raw_object) = value {
         Ok(raw_object)
     } else {
-        Err(Error::DeserializeError(format!(
+        Err(Error::Deserialize(format!(
             "JSON must have an object as the root when parsing into HOCON, but got {}",
             value.ty()
         )))
     }
 }
 
-pub(crate) fn parse_hocon<R>(read: R, options: ConfigOptions) -> Result<RawObject>
+pub(crate) fn parse_hocon<R>(
+    read: R,
+    options: ConfigOptions,
+    ctx: Option<Context>,
+) -> Result<RawObject>
 where
     R: crate::parser::read::Read,
 {
-    HoconParser::with_options(read, options).parse()
+    match ctx {
+        Some(ctx) => HoconParser::with_options_and_ctx(read, options, ctx).parse(),
+        None => HoconParser::with_options(read, options).parse(),
+    }
 }
 
 fn parse_properties<R>(reader: R) -> crate::Result<RawObject>
@@ -265,17 +277,21 @@ fn parse_environments() -> RawObject {
     raw
 }
 
-pub(crate) fn load(path: impl AsRef<Path>, options: ConfigOptions) -> Result<RawObject> {
+pub(crate) fn load(
+    path: impl AsRef<Path>,
+    options: ConfigOptions,
+    ctx: Option<Context>,
+) -> Result<RawObject> {
     let env_raw = if options.use_system_environment {
         Some(parse_environments())
     } else {
         None
     };
     let path = path.as_ref();
-    let raw = match load_from_path(path, options.clone()) {
+    let raw = match load_from_path(path, options.clone(), ctx.clone()) {
         Ok(raw) => raw,
         Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
-            match load_from_classpath(path, options) {
+            match load_from_classpath(path, options, ctx) {
                 Ok(raw) => raw,
                 Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
                     let message = format!(

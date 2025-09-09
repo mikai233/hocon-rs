@@ -3,7 +3,7 @@ use crate::config_options::ConfigOptions;
 use crate::error::Error;
 use crate::parser::loader::{self, load_from_classpath, load_from_path};
 use crate::parser::read::Read;
-use crate::parser::{CTX, Context, HoconParser};
+use crate::parser::{Context, HoconParser};
 use crate::raw::include::{Inclusion, Location};
 use crate::raw::raw_object::RawObject;
 use std::str::FromStr;
@@ -29,7 +29,7 @@ impl<R: Read> HoconParser<R> {
                 self.reader.next()?;
             }
         }
-        let inclusion = Inclusion::new(include_path, required, location, None);
+        let inclusion = Inclusion::new(include_path.into(), required, location, None);
         Ok(inclusion)
     }
 
@@ -149,11 +149,12 @@ impl<R: Read> HoconParser<R> {
         load: F,
         options: ConfigOptions,
         inclusion: &'a mut Inclusion,
+        ctx: Option<Context>,
     ) -> Result<()>
     where
-        F: FnOnce(&'a std::path::Path, ConfigOptions) -> Result<RawObject>,
+        F: FnOnce(&'a std::path::Path, ConfigOptions, Option<Context>) -> Result<RawObject>,
     {
-        match load(inclusion.path.as_ref(), options) {
+        match load((**inclusion.path).as_ref(), options, ctx) {
             Ok(object) => {
                 inclusion.val = Some(object.into());
             }
@@ -175,16 +176,24 @@ impl<R: Read> HoconParser<R> {
         Ok(())
     }
 
-    fn inclusion_from_file(&self, inclusion: &mut Inclusion) -> Result<()> {
-        Self::handle_include_error(load_from_path, self.options.clone(), inclusion)
+    fn inclusion_from_file(&self, inclusion: &mut Inclusion, ctx: Option<Context>) -> Result<()> {
+        Self::handle_include_error(load_from_path, self.options.clone(), inclusion, ctx)
     }
 
-    fn inclusion_from_classpath(&self, inclusion: &mut Inclusion) -> Result<()> {
-        Self::handle_include_error(load_from_classpath, self.options.clone(), inclusion)
+    fn inclusion_from_classpath(
+        &self,
+        inclusion: &mut Inclusion,
+        ctx: Option<Context>,
+    ) -> Result<()> {
+        Self::handle_include_error(load_from_classpath, self.options.clone(), inclusion, ctx)
     }
 
-    fn inclusion_from_file_and_classpath(&self, inclusion: &mut Inclusion) -> Result<()> {
-        Self::handle_include_error(loader::load, self.options.clone(), inclusion)
+    fn inclusion_from_file_and_classpath(
+        &self,
+        inclusion: &mut Inclusion,
+        ctx: Option<Context>,
+    ) -> Result<()> {
+        Self::handle_include_error(loader::load, self.options.clone(), inclusion, ctx)
     }
 
     #[cfg(feature = "urls_includes")]
@@ -213,51 +222,39 @@ impl<R: Read> HoconParser<R> {
     }
 
     pub(crate) fn parse_inclusion(&self, inclusion: &mut Inclusion) -> Result<()> {
-        CTX.with_borrow_mut::<_, Result<()>>(|ctx| {
-            let has_cycle = ctx
-                .include_chain
-                .iter()
-                .rfind(|p| p == &&inclusion.path)
-                .is_some();
-            if has_cycle {
-                ctx.reset0();
-                return Err(Error::InclusionCycle);
-            }
-            ctx.include_chain.push(inclusion.path.clone());
-            Ok(())
-        })?;
-        let result = {
-            match inclusion.location {
-                #[cfg(feature = "urls_includes")]
-                None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
-                    Ok(url) => {
-                        if url.scheme() != "file" {
-                            self.inclusion_from_url(inclusion)?;
-                        }
-                    }
-                    _ => {
-                        self.inclusion_from_file_and_classpath(inclusion)?;
-                    }
-                },
-                #[cfg(not(feature = "urls_includes"))]
-                None => match url::Url::from_str(&inclusion.path) {
-                    Ok(url) if url.scheme() != "file" => {
-                        return Err(Error::UrlsIncludesDisabled);
-                    }
-                    _ => self.inclusion_from_file_and_classpath(inclusion)?,
-                },
-                Some(Location::Classpath) => self.inclusion_from_classpath(inclusion)?,
-                Some(Location::File) => self.inclusion_from_file(inclusion)?,
-            }
-            Ok::<_, Error>(())
-        };
-        if let Err(err) = result {
-            Context::reset();
-            return Err(err);
+        let has_cycle = self
+            .ctx
+            .include_chain
+            .iter()
+            .rfind(|p| **p == inclusion.path)
+            .is_some();
+        if has_cycle {
+            return Err(Error::InclusionCycle);
         }
-        CTX.with_borrow_mut(|ctx| {
-            ctx.include_chain.pop();
-        });
+        let mut ctx = self.ctx.clone();
+        ctx.include_chain.push(inclusion.path.clone());
+        match inclusion.location {
+            #[cfg(feature = "urls_includes")]
+            None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
+                Ok(url) => {
+                    if url.scheme() != "file" {
+                        self.inclusion_from_url(inclusion)?;
+                    }
+                }
+                _ => {
+                    self.inclusion_from_file_and_classpath(inclusion)?;
+                }
+            },
+            #[cfg(not(feature = "urls_includes"))]
+            None => match url::Url::from_str(&inclusion.path) {
+                Ok(url) if url.scheme() != "file" => {
+                    return Err(Error::UrlsIncludesDisabled);
+                }
+                _ => self.inclusion_from_file_and_classpath(inclusion, Some(ctx))?,
+            },
+            Some(Location::Classpath) => self.inclusion_from_classpath(inclusion, Some(ctx))?,
+            Some(Location::File) => self.inclusion_from_file(inclusion, Some(ctx))?,
+        }
         Ok(())
     }
 }

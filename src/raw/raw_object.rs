@@ -10,6 +10,10 @@ use std::fmt::{Display, Formatter};
 pub struct RawObject(pub Vec<ObjectField>);
 
 impl RawObject {
+    pub fn into_inner(self) -> Vec<ObjectField> {
+        self.0
+    }
+
     pub fn from_entries<I>(entries: Vec<(RawString, RawValue)>) -> Self
     where
         I: IntoIterator<Item = (RawString, RawValue)>,

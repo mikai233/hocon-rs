@@ -34,7 +34,7 @@ impl Config {
     where
         T: DeserializeOwned,
     {
-        let raw = loader::load(&path, options.unwrap_or_default())?;
+        let raw = loader::load(&path, options.unwrap_or_default(), None)?;
         tracing::debug!("path: {} raw obj: {}", path.as_ref().display(), raw);
         Self::resolve_object::<T>(raw)
     }
@@ -86,7 +86,7 @@ impl Config {
     where
         T: DeserializeOwned,
     {
-        let raw = load_from_path(path, opts.unwrap_or_default())?;
+        let raw = load_from_path(path, opts.unwrap_or_default(), None)?;
         Self::resolve_object::<T>(raw)
     }
 
@@ -144,7 +144,7 @@ impl Config {
         T: DeserializeOwned,
     {
         let read = StrRead::new(s);
-        let raw = parse_hocon(read, options.unwrap_or_default())?;
+        let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
         Self::resolve_object::<T>(raw)
     }
 
@@ -155,7 +155,7 @@ impl Config {
     {
         use crate::parser::read::DEFAULT_BUFFER;
         let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(std::io::BufReader::new(rdr));
-        let raw = parse_hocon(read, options.unwrap_or_default())?;
+        let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
         Self::resolve_object::<T>(raw)
     }
 

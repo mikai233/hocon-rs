@@ -7,7 +7,7 @@ pub mod read;
 mod string;
 mod substitution;
 
-use std::cell::RefCell;
+use std::rc::Rc;
 
 use derive_more::Constructor;
 
@@ -30,47 +30,29 @@ fn is_hocon_horizontal_whitespace(c: char) -> bool {
     is_hocon_whitespace(c) && c != '\n'
 }
 
-#[derive(Constructor, Default)]
+#[derive(Constructor, Default, Debug, Clone)]
 pub(crate) struct Context {
-    pub(crate) include_chain: Vec<String>,
+    pub(crate) include_chain: Vec<Rc<String>>,
     pub(crate) depth: usize,
 }
 
 impl Context {
-    pub(crate) fn reset0(&mut self) {
-        self.include_chain.clear();
-        self.depth = 0;
+    pub(crate) fn increase_depth(&mut self) -> usize {
+        self.depth += 1;
+        self.depth
     }
 
-    pub(crate) fn reset() {
-        CTX.with_borrow_mut(|ctx| {
-            ctx.reset0();
-        });
+    pub(crate) fn decrease_depth(&mut self) -> usize {
+        self.depth -= 1;
+        self.depth
     }
-
-    pub(crate) fn increase_depth() -> usize {
-        CTX.with_borrow_mut(|ctx| {
-            ctx.depth += 1;
-            ctx.depth
-        })
-    }
-
-    pub(crate) fn decrease_depth() -> usize {
-        CTX.with_borrow_mut(|ctx| {
-            ctx.depth -= 1;
-            ctx.depth
-        })
-    }
-}
-
-thread_local! {
-   pub(crate) static CTX: RefCell<Context> = Context::default().into()
 }
 
 #[derive(Debug)]
 pub struct HoconParser<R: Read> {
     pub(crate) reader: R,
     pub(crate) options: ConfigOptions,
+    pub(crate) ctx: Context,
 }
 
 impl<R: Read> HoconParser<R> {
@@ -78,11 +60,24 @@ impl<R: Read> HoconParser<R> {
         HoconParser {
             reader,
             options: Default::default(),
+            ctx: Default::default(),
         }
     }
 
     pub fn with_options(reader: R, options: ConfigOptions) -> Self {
-        HoconParser { reader, options }
+        HoconParser {
+            reader,
+            options,
+            ctx: Default::default(),
+        }
+    }
+
+    pub(crate) fn with_options_and_ctx(reader: R, options: ConfigOptions, ctx: Context) -> Self {
+        HoconParser {
+            reader,
+            options,
+            ctx,
+        }
     }
 
     pub(crate) fn parse_horizontal_whitespace<'a>(

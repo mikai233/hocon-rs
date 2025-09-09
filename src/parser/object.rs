@@ -1,10 +1,10 @@
 use crate::Result;
 use crate::error::Error;
+use crate::parser::HoconParser;
 use crate::parser::include::INCLUDE;
 use crate::parser::is_hocon_horizontal_whitespace;
 use crate::parser::read::Read;
 use crate::parser::string::TRIPLE_DOUBLE_QUOTE;
-use crate::parser::{Context, HoconParser};
 use crate::raw::{
     comment::Comment, field::ObjectField, raw_object::RawObject, raw_string::RawString,
     raw_value::RawValue,
@@ -52,18 +52,26 @@ impl<R: Read> HoconParser<R> {
             match ch {
                 '[' => {
                     // Parse array
-                    let v = Self::check_depth(self.options.max_depth, || {
-                        let array = self.parse_array()?;
-                        Ok(RawValue::Array(array))
-                    })?;
+                    let max_depth = self.options.max_depth;
+                    let current_depth = self.ctx.increase_depth();
+                    if current_depth > max_depth {
+                        return Err(Error::RecursionDepthExceeded { max_depth });
+                    }
+                    let array = self.parse_array()?;
+                    self.ctx.decrease_depth();
+                    let v = RawValue::Array(array);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '{' => {
                     // Parse object
-                    let v = Self::check_depth(self.options.max_depth, || {
-                        let object = self.parse_object()?;
-                        Ok(RawValue::Object(object))
-                    })?;
+                    let max_depth = self.options.max_depth;
+                    let current_depth = self.ctx.increase_depth();
+                    if current_depth > max_depth {
+                        return Err(Error::RecursionDepthExceeded { max_depth });
+                    }
+                    let object = self.parse_object()?;
+                    self.ctx.decrease_depth();
+                    let v = RawValue::Object(object);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 '"' => {
@@ -289,28 +297,6 @@ impl<R: Read> HoconParser<R> {
                 Err(err) => {
                     return Err(err);
                 }
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn check_depth<F>(max_depth: usize, f: F) -> Result<RawValue>
-    where
-        F: FnOnce() -> Result<RawValue>,
-    {
-        let current_depth = Context::increase_depth();
-        if current_depth > max_depth {
-            Context::reset();
-            return Err(Error::RecursionDepthExceeded { max_depth });
-        }
-        match f() {
-            Ok(raw) => {
-                Context::decrease_depth();
-                Ok(raw)
-            }
-            Err(err) => {
-                Context::reset();
-                Err(err)
             }
         }
     }

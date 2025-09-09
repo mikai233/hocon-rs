@@ -1,11 +1,11 @@
 use derive_more::Constructor;
 
 use crate::raw::raw_object::RawObject;
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Constructor)]
 pub struct Inclusion {
-    pub path: String,
+    pub path: Rc<String>,
     pub required: bool,
     pub location: Option<Location>,
     pub val: Option<Box<RawObject>>,
