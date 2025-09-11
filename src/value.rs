@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
+use std::time::Duration;
 
 use crate::{join, join_format};
 
@@ -171,26 +172,60 @@ impl Value {
         }
     }
 
-    /// Get value from the given path and returns `None` if it's invalid.
+    /// Retrieves a value from a nested `Value::Object` by following a HOCON-style path.
     ///
-    /// A path is considered invalid if:
-    /// - It is empty
-    /// - Contains leading or trailing `.` or `..` components
+    /// # Arguments
+    ///
+    /// * `paths` - A sequence of keys representing the path to the desired value.
+    ///   The path should already be split by `.` (dot).
+    ///
+    /// # Returns
+    ///
+    /// * `Some(&Value)` if the full path exists in the object tree.
+    /// * `None` if any key in the path does not exist or if a non-object value is encountered
+    ///   before reaching the end of the path.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// // Assuming the following HOCON-like structure:
+    /// // {
+    /// //   database: {
+    /// //     connection: {
+    /// //       timeout: 30
+    /// //     }
+    /// //   }
+    /// // }
+    ///
+    /// let val = root.get_by_path(&["database", "connection", "timeout"]);
+    /// assert_eq!(val, Some(&hocon_rs::Value::Number(30.into())));
+    /// ```
     pub fn get_by_path<'a>(&self, paths: impl AsRef<[&'a str]>) -> Option<&Value> {
         let paths = paths.as_ref();
+
+        // An empty path cannot resolve to a value
         if paths.is_empty() {
             return None;
         }
+
+        // Start traversal from the current value
         let mut current = self;
+
+        // Traverse the object tree step by step
         for &path in paths {
             if let Value::Object(obj) = current {
                 if let Some(val) = obj.get(path) {
                     current = val;
                 } else {
+                    // Key not found in the current object
                     return None;
                 }
+            } else {
+                // Current value is not an object, so the path cannot continue
+                return None;
             }
         }
+
         Some(current)
     }
 
@@ -335,10 +370,92 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn as_duration(&self) -> Option<Duration> {
+        fn duration_from_minutes(min: f64) -> Duration {
+            let secs = min * 60.0;
+            let whole = secs.trunc() as u64;
+            let nanos = (secs.fract() * 1_000_000_000.0).round() as u32;
+            Duration::new(whole, nanos)
+        }
+
+        fn duration_from_millis_f64(ms: f64) -> Duration {
+            let secs = (ms / 1000.0) as u64;
+            let nanos = ((ms % 1000.0) * 1_000_000.0) as u32;
+            Duration::new(secs, nanos)
+        }
+
+        fn str_to_duration(s: &str) -> Option<Duration> {
+            let idx = s
+                .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+                .unwrap_or(s.len());
+            let (num, unit) = s.split_at(idx);
+            match unit {
+                "ns" | "nano" | "nanos" | "nanosecond" | "nanoseconds" => {
+                    Some(Duration::from_nanos(num.parse().ok()?))
+                }
+                "us" | "micro" | "micros" | "microsecond" | "microseconds" => {
+                    Some(Duration::from_micros(num.parse().ok()?))
+                }
+                "" | "ms" | "milli" | "millis" | "millisecond" | "milliseconds" => {
+                    Some(duration_from_millis_f64(num.parse().ok()?))
+                }
+                "s" | "second" | "seconds" => {
+                    let s: f64 = num.parse().ok()?;
+                    Some(duration_from_millis_f64(s * 1000.0))
+                }
+                "m" | "minute" | "minutes" => Some(duration_from_minutes(num.parse().ok()?)),
+                "h" | "hour" | "hours" => {
+                    let h: f64 = num.parse().ok()?;
+                    Some(duration_from_minutes(h * 60.0))
+                }
+                "d" | "day" | "days" => {
+                    let d: f64 = num.parse().ok()?;
+                    Some(duration_from_minutes(d * 60.0 * 24.0))
+                }
+                _ => None,
+            }
+        }
+
+        match self {
+            #[cfg(not(feature = "json_arbitrary_precision"))]
+            Value::Number(millis) => match millis.as_u64() {
+                Some(millis) => {
+                    let duration = Duration::from_millis(millis);
+                    Some(duration)
+                }
+                None => millis.as_f64().map(duration_from_millis_f64),
+            },
+            #[cfg(feature = "json_arbitrary_precision")]
+            Value::Number(i) => str_to_duration(i.as_str()),
+            Value::String(s) => str_to_duration(s.as_str().trim()),
+            _ => None,
+        }
+    }
+
+    pub fn as_nanos(&self) -> Option<u128> {
+        self.as_duration().map(|d| d.as_nanos())
+    }
+
+    pub fn as_millis(&self) -> Option<u128> {
+        self.as_duration().map(|d| d.as_millis())
+    }
+
+    pub fn as_secs(&self) -> Option<u64> {
+        self.as_duration().map(|d| d.as_secs())
+    }
+
+    pub fn as_secs_f32(&self) -> Option<f32> {
+        self.as_duration().map(|d| d.as_secs_f32())
+    }
+
+    pub fn as_secs_f64(&self) -> Option<f64> {
+        self.as_duration().map(|d| d.as_secs_f64())
+    }
 }
 
 impl Display for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Value::Object(object) => {
                 write!(f, "{{")?;
@@ -448,7 +565,7 @@ impl<'de> Deserialize<'de> for Value {
         impl<'de> Visitor<'de> for ValueVisitor {
             type Value = Value;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
                 formatter.write_str("any valid HOCON value")
             }
 
@@ -692,5 +809,65 @@ mod tests {
         let input = Value::Number(num);
         let expected = BigUint::parse_bytes(big_num_str.as_bytes(), 10);
         assert_eq!(input.as_bytes(), expected);
+    }
+
+    #[rstest]
+    #[case(Value::String("123ms".into()), Some(123))]
+    #[case(Value::String("1.5s".into()), Some(1500))]
+    #[case(Value::String("1".into()), Some(1))]
+    #[case(Value::String("2m".into()), Some(120_000))]
+    #[case(Value::String("1.2h".into()), Some(4_320_000))]
+    #[case(Value::String("1d".into()), Some(86_400_000))]
+    #[case(Value::Number(Number::from_f64(2500.0).unwrap()), Some(2500))] // 2500ms
+    #[case(Value::String("999us".into()), Some(0))] // <1ms 舍入为 0 毫秒
+    #[case(Value::Null, None)]
+    fn test_as_millis(#[case] v: Value, #[case] expected: Option<u128>) {
+        assert_eq!(v.as_millis(), expected);
+    }
+
+    #[rstest]
+    #[case(Value::String("2s".into()), Some(2))]
+    #[case(Value::String("1.5m".into()), Some(90))]
+    #[case(Value::String("0.5h".into()), Some(1800))]
+    #[case(Value::String("0.1d".into()), Some(8640))]
+    fn test_as_secs(#[case] v: Value, #[case] expected: Option<u64>) {
+        assert_eq!(v.as_secs(), expected);
+    }
+
+    #[rstest]
+    #[case(Value::String("1ns".into()), Some(1))]
+    #[case(Value::String("1us".into()), Some(1000))]
+    #[case(Value::String("1ms".into()), Some(1_000_000))]
+    #[case(Value::String("1s".into()), Some(1_000_000_000))]
+    #[case(Value::String("1m".into()), Some(60_000_000_000))]
+    fn test_as_nanos(#[case] v: Value, #[case] expected: Option<u128>) {
+        assert_eq!(v.as_nanos(), expected);
+    }
+
+    #[rstest]
+    #[case(Value::String("2s".into()), Some(2.0))]
+    #[case(Value::String("1.5s".into()), Some(1.5))]
+    #[case(Value::String("1.2m".into()), Some(72.0))]
+    fn test_as_secs_f32(#[case] v: Value, #[case] expected: Option<f32>) {
+        assert!((v.as_secs_f32().unwrap() - expected.unwrap()).abs() < f32::EPSILON);
+    }
+
+    #[rstest]
+    #[case(Value::String("2s".into()), Some(2.0))]
+    #[case(Value::String("1.5s".into()), Some(1.5))]
+    #[case(Value::String("1.2m".into()), Some(72.0))]
+    fn test_as_secs_f64(#[case] v: Value, #[case] expected: Option<f64>) {
+        assert!((v.as_secs_f64().unwrap() - expected.unwrap()).abs() < f64::EPSILON);
+    }
+
+    #[cfg(feature = "json_arbitrary_precision")]
+    #[rstest]
+    #[case("12300", Some(12300))]
+    #[case("1.2", Some(1))]
+    fn test_as_millis_arbitrary_precision(#[case] duration: &str, #[case] expected: Option<u128>) {
+        let num: Number = serde_json::from_str(duration).unwrap();
+
+        let input = Value::Number(num);
+        assert_eq!(input.as_millis(), expected);
     }
 }
