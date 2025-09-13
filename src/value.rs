@@ -66,13 +66,6 @@ impl Value {
         }
     }
 
-    pub fn as_object_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
-        match self {
-            Value::Object(object) => Some(object),
-            _ => None,
-        }
-    }
-
     pub fn as_array(&self) -> Option<&Vec<Value>> {
         match self {
             Value::Array(array) => Some(array),
@@ -80,23 +73,103 @@ impl Value {
         }
     }
 
-    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
+    /// Attempts to interpret the current [`Value`] as an array by applying
+    /// HOCON's "numerically-indexed object to array" conversion rule.
+    ///
+    /// # Behavior
+    ///
+    /// - If the value is already an array (`Value::Array`), this simply
+    ///   returns a reference to its elements as a `Vec<&Value>`.
+    ///
+    /// - If the value is an object (`Value::Object`) whose keys are strings
+    ///   representing integers (e.g. `"0"`, `"1"`, `"2"`), it is converted
+    ///   into an array:
+    ///   - Keys are filtered to include only those that can be parsed as `usize`.
+    ///   - The key–value pairs are sorted by their numeric key.
+    ///   - The values are collected into a `Vec<&Value>` in ascending key order.
+    ///
+    /// - For any other kind of value, the function returns `None`.
+    ///
+    /// # Example
+    ///
+    /// ```hocon
+    /// {
+    ///   "0": "first",
+    ///   "2": "third",
+    ///   "1": "second"
+    /// }
+    /// ```
+    ///
+    /// Will be interpreted as:
+    ///
+    /// ```hocon
+    /// [ "first", "second", "third" ]
+    /// ```
+    pub fn as_array_numerically(&self) -> Option<Vec<&Value>> {
         match self {
-            Value::Array(array) => Some(array),
+            // Already an array → just return the elements.
+            Value::Array(array) => Some(array.iter().collect()),
+
+            // If it's an object, try to convert it to an array using numeric keys.
+            Value::Object(object) => {
+                // Keep only entries whose keys can be parsed as integers.
+                let mut object_array = object
+                    .iter()
+                    .filter(|(key, _)| key.parse::<usize>().is_ok())
+                    .collect::<Vec<_>>();
+
+                // Sort by numeric key so the order is consistent with array semantics.
+                object_array.sort_by(|a, b| a.0.cmp(b.0));
+
+                // Extract values in order, discarding the string keys.
+                let array = object_array
+                    .into_iter()
+                    .map(|(_, value)| value)
+                    .collect::<Vec<_>>();
+
+                Some(array)
+            }
+
+            // Not an array and not an object → cannot convert.
             _ => None,
         }
     }
 
+    /// Attempts to interpret the current [`Value`] as a boolean, following
+    /// HOCON's relaxed truthy/falsey rules.
+    ///
+    /// # Behavior
+    ///
+    /// - If the value is a `Value::Boolean`, returns the inner `bool`.
+    ///
+    /// - If the value is a `Value::String`, accepts several textual
+    ///   representations:
+    ///   - `"true"`, `"on"`, `"yes"` → `Some(true)`
+    ///   - `"false"`, `"off"`, `"no"` → `Some(false)`
+    ///
+    /// - For all other values (numbers, arrays, objects, or strings that
+    ///   don't match the above), returns `None`.
+    ///
+    /// # Notes
+    /// - The matching is **case-sensitive** (`"True"` will not be recognized).
+    /// - This conversion is specific to HOCON and goes beyond JSON’s strict
+    ///   boolean representation.
     pub fn as_boolean(&self) -> Option<bool> {
         match self {
+            // Direct boolean value
             Value::Boolean(boolean) => Some(*boolean),
-            _ => None,
-        }
-    }
 
-    pub fn as_boolean_mut(&mut self) -> Option<&mut bool> {
-        match self {
-            Value::Boolean(boolean) => Some(boolean),
+            // String representations of truthy values
+            Value::String(boolean) if boolean == "true" || boolean == "on" || boolean == "yes" => {
+                Some(true)
+            }
+
+            // String representations of falsey values
+            Value::String(boolean) if boolean == "false" || boolean == "off" || boolean == "no" => {
+                Some(false)
+            }
+
+            // Everything else → not interpretable as boolean
             _ => None,
         }
     }
@@ -108,16 +181,10 @@ impl Value {
         }
     }
 
-    pub fn as_str_mut(&mut self) -> Option<&mut String> {
-        match self {
-            Value::String(string) => Some(string),
-            _ => None,
-        }
-    }
-
     pub fn as_f64(&mut self) -> Option<f64> {
         match self {
             Value::Number(number) => number.as_f64(),
+            Value::String(number) => number.parse().ok(),
             _ => None,
         }
     }
@@ -125,12 +192,54 @@ impl Value {
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Number(number) => number.as_i64(),
+            Value::String(number) => number.parse().ok(),
             _ => None,
         }
     }
 
+    pub fn as_i128(&self) -> Option<i128> {
+        match self {
+            Value::Number(number) => number.as_i128(),
+            Value::String(number) => number.parse().ok(),
+            _ => None,
+        }
+    }
+
+    pub fn as_u128(&self) -> Option<u128> {
+        match self {
+            Value::Number(number) => number.as_u128(),
+            Value::String(number) => number.parse().ok(),
+            _ => None,
+        }
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Value::Number(number) => number.as_u64(),
+            Value::String(number) => number.parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// Checks whether the current [`Value`] represents `null` in HOCON.
+    ///
+    /// # Behavior
+    ///
+    /// - Returns `true` if the value is explicitly `Value::Null`.
+    /// - Returns `true` if the value is a `Value::String` equal to `"null"`.
+    /// - Otherwise, returns `false`.
+    ///
+    /// # Notes
+    /// - The check for `"null"` is **case-sensitive**. `"Null"` or `"NULL"`
+    ///   will not be considered null.
+    /// - This deviates from strict JSON, where only a literal `null` is valid.
+    ///   HOCON allows the string `"null"` to be treated as a null value.
     pub fn is_null(&self) -> bool {
-        matches!(self, Value::Null)
+        match self {
+            Value::Null => true,
+            Value::String(s) if s == "null" => true,
+            _ => false,
+        }
     }
 
     pub fn ty(&self) -> &'static str {
@@ -168,6 +277,13 @@ impl Value {
     pub fn into_string(self) -> Option<String> {
         match self {
             Value::String(string) => Some(string),
+            _ => None,
+        }
+    }
+
+    pub fn into_number(self) -> Option<serde_json::Number> {
+        match self {
+            Value::Number(number) => Some(number),
             _ => None,
         }
     }
@@ -869,5 +985,123 @@ mod tests {
 
         let input = Value::Number(num);
         assert_eq!(input.as_millis(), expected);
+    }
+
+    fn obj(entries: Vec<(&str, Value)>) -> Value {
+        let mut map = ahash::HashMap::new();
+        for (k, v) in entries {
+            map.insert(k.to_string(), v);
+        }
+        Value::Object(map)
+    }
+
+    #[rstest]
+    #[case(Value::Array(vec![Value::String("a".into()), Value::String("b".into())]),
+             Some(vec![Value::String("a".into()), Value::String("b".into())]))]
+    #[case(obj(vec![("0", Value::String("x".into())),
+                      ("1", Value::String("y".into()))]),
+             Some(vec![Value::String("x".into()), Value::String("y".into())]))]
+    #[case(obj(vec![("0", Value::String("first".into())),
+                      ("2", Value::String("third".into())),
+                      ("1", Value::String("second".into()))]),
+             Some(vec![Value::String("first".into()),
+                       Value::String("second".into()),
+                       Value::String("third".into())]))]
+    #[case(obj(vec![("0", Value::String("ok".into())),
+                      ("foo", Value::String("ignored".into()))]),
+             Some(vec![Value::String("ok".into())]))]
+    #[case(Value::String("not an array or object".into()), None)]
+    fn test_as_array_numerically(#[case] input: Value, #[case] expected: Option<Vec<Value>>) {
+        let expected = expected.as_ref().map(|v| v.iter().collect::<Vec<_>>());
+        let result = input.as_array_numerically();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case(Value::Boolean(true), Some(true))]
+    #[case(Value::Boolean(false), Some(false))]
+    #[case(Value::String("true".into()), Some(true))]
+    #[case(Value::String("on".into()), Some(true))]
+    #[case(Value::String("yes".into()), Some(true))]
+    #[case(Value::String("false".into()), Some(false))]
+    #[case(Value::String("off".into()), Some(false))]
+    #[case(Value::String("no".into()), Some(false))]
+    #[case(Value::String("True".into()), None)] // case-sensitive
+    #[case(Value::String("1".into()), None)] // not accepted
+    #[case(Value::String("maybe".into()), None)] // invalid
+    #[case(Value::Array(vec![]), None)] // wrong type
+    fn test_as_boolean(#[case] input: Value, #[case] expected: Option<bool>) {
+        assert_eq!(input.as_boolean(), expected);
+    }
+
+    #[rstest]
+    #[case(Value::Null, true)]
+    #[case(Value::String("null".into()), true)]
+    #[case(Value::String("Null".into()), false)] // case-sensitive
+    #[case(Value::String("NULL".into()), false)]
+    #[case(Value::Boolean(false), false)]
+    #[case(Value::Array(vec![]), false)]
+    #[case(Value::Object(Default::default()), false)]
+    fn test_is_null(#[case] input: Value, #[case] expected: bool) {
+        assert_eq!(input.is_null(), expected);
+    }
+
+    #[rstest]
+    // Case 1: Simple fallback
+    #[case(
+            obj(vec![("a", Value::String("keep".into()))]),
+            obj(vec![("b", Value::String("fallback".into()))]),
+            obj(vec![
+                ("a", Value::String("keep".into())),
+                ("b", Value::String("fallback".into()))
+            ])
+        )]
+    // Case 2: Conflict on primitive key -> self wins
+    #[case(
+            obj(vec![("a", Value::String("self".into()))]),
+            obj(vec![("a", Value::String("fallback".into()))]),
+            obj(vec![("a", Value::String("self".into()))])
+        )]
+    // Case 3: Nested objects -> deep merge
+    #[case(
+            obj(vec![("nested", obj(vec![("x", Value::String("1".into()))]))]),
+            obj(vec![("nested", obj(vec![("y", Value::String("2".into()))]))]),
+            obj(vec![("nested", obj(vec![
+                ("x", Value::String("1".into())),
+                ("y", Value::String("2".into()))
+            ]))])
+        )]
+    // Case 4: Self is non-object -> fallback ignored
+    #[case(Value::String("self".into()), obj(vec![("a", Value::String("fb".into()))]), Value::String("self".into()))]
+    // Case 5: Empty object -> fallback copied over
+    #[case(obj(vec![]), obj(vec![("z", Value::String("fb".into()))]), obj(vec![("z", Value::String("fb".into()))]))]
+    // Case 6: Multi-level nested merge
+    #[case(
+            obj(vec![("level1", obj(vec![
+                ("level2", obj(vec![
+                    ("key1", Value::String("self".into()))
+                ]))
+            ]))]),
+            obj(vec![("level1", obj(vec![
+                ("level2", obj(vec![
+                    ("key2", Value::String("fallback".into()))
+                ]))
+            ]))]),
+            obj(vec![("level1", obj(vec![
+                ("level2", obj(vec![
+                    ("key1", Value::String("self".into())),
+                    ("key2", Value::String("fallback".into()))
+                ]))
+            ]))])
+        )]
+    // Case 7: Primitive in self vs. object in fallback -> self wins
+    #[case(
+           obj(vec![("conflict", Value::String("primitive".into()))]),
+           obj(vec![("conflict", obj(vec![("nested", Value::String("fb".into()))]))]),
+           obj(vec![("conflict", Value::String("primitive".into()))])
+       )]
+    fn test_with_fallback(#[case] base: Value, #[case] fallback: Value, #[case] expected: Value) {
+        let result = base.with_fallback(fallback);
+        assert_eq!(result, expected);
     }
 }

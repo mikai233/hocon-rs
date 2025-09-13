@@ -190,10 +190,10 @@ You can customize merge priority using the comparison function defined in `Confi
 - [x] Paths as keys
 - [x] Substitutions
 - [x] Includes
-- [ ] Conversion of numerically indexed objects into arrays
-- [ ] Duration unit format
+- [x] Conversion of numerically indexed objects into arrays
+- [x] Duration unit format
 - [ ] Period unit format
-- [ ] Size unit format
+- [x] Size unit format
 
 ## Roadmap
 
@@ -205,7 +205,7 @@ You can customize merge priority using the comparison function defined in `Confi
 
 # Documentation
 
-For detailed API documentation, see [docs.rs]()
+For detailed API documentation, see [docs.rs](https://docs.rs/hocon-rs/latest/hocon_rs/)
 
 # References
 

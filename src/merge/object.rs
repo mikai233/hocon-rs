@@ -179,7 +179,7 @@ impl Object {
             );
         }
         if path.is_empty() {
-            return Err(crate::error::Error::InvalidPathExpression("empty"));
+            return Err(Error::InvalidPathExpression("empty"));
         }
         let mut current = value;
         for ele in path.iter().rev() {
@@ -508,7 +508,7 @@ impl Object {
             }
             Some(i) => {
                 let substitution = &tracker[i];
-                return Err(crate::error::Error::SubstitutionCycle {
+                return Err(Error::SubstitutionCycle {
                     current: substitution.to_string(),
                     backtrace: tracker[i..].iter().map(|s| s.to_string()).collect(),
                 });
@@ -533,7 +533,7 @@ impl Object {
                         *target.borrow_mut() = Value::None;
                         Ok(())
                     } else {
-                        Err(crate::error::Error::SubstitutionCycle {
+                        Err(Error::SubstitutionCycle {
                             current: substitution.to_string(),
                             backtrace: vec![substitution.to_string()],
                         })
@@ -555,9 +555,7 @@ impl Object {
                 }
                 Err(_) => {
                     if !substitution.optional {
-                        return Err(crate::error::Error::SubstitutionNotFound(
-                            substitution.to_string(),
-                        ));
+                        return Err(Error::SubstitutionNotFound(substitution.to_string()));
                     } else {
                         *value.borrow_mut() = Value::None;
                     }
@@ -826,17 +824,5 @@ impl Display for Object {
         }
         write!(f, "}}")?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use ahash::HashMap;
-    use serde::{Deserialize, Serialize};
-
-    #[derive(Debug, Serialize, Deserialize)]
-    struct Test {
-        a: HashMap<String, String>,
-        b: Vec<crate::value::Value>,
     }
 }

@@ -260,7 +260,7 @@ where
     }
 }
 
-fn parse_properties<R>(reader: R) -> crate::Result<RawObject>
+fn parse_properties<R>(reader: R) -> Result<RawObject>
 where
     R: std::io::Read,
 {
