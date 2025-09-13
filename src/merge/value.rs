@@ -7,6 +7,7 @@ use crate::{
         object::Object, path::RefPath, substitution::Substitution,
     },
 };
+use std::fmt::Write;
 use std::{cell::RefCell, fmt::Display};
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -289,7 +290,7 @@ impl Value {
                     left_array.extend(right_array.into_inner());
                     Value::array(left_array)
                 } else {
-                    return Err(crate::error::Error::ConcatenateDifferentType {
+                    return Err(Error::ConcatenateDifferentType {
                         path: path.to_string(),
                         left_type: "array",
                         right_type: right.ty(),
@@ -299,7 +300,10 @@ impl Value {
             Value::None => match space {
                 Some(space) => match right {
                     Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => {
-                        Value::string(format!("{space}{right}"))
+                        let mut s = String::new();
+                        s.push_str(&space);
+                        write!(&mut s, "{right}").unwrap();
+                        Value::string(s)
                     }
                     Value::None => Value::string(space),
                     Value::Substitution(_) => Value::concat(Concat::two(left, Some(space), right)),
@@ -309,15 +313,22 @@ impl Value {
             },
             Value::Null | Value::Boolean(_) | Value::String(_) | Value::Number(_) => match right {
                 Value::Boolean(_) | Value::Null | Value::String(_) | Value::Number(_) => {
-                    match space {
-                        Some(space) => Value::string(format!("{left}{space}{right}")),
-                        None => Value::string(format!("{left}{right}")),
+                    let mut s = String::new();
+                    write!(&mut s, "{left}").unwrap();
+                    if let Some(space) = &space {
+                        s.push_str(space);
                     }
+                    write!(&mut s, "{right}").unwrap();
+                    Value::string(s)
                 }
-                Value::None => match space {
-                    Some(space) => Value::string(format!("{left}{space}")),
-                    None => Value::string(left.to_string()),
-                },
+                Value::None => {
+                    let mut s = String::new();
+                    write!(&mut s, "{left}").unwrap();
+                    if let Some(space) = &space {
+                        s.push_str(space);
+                    }
+                    Value::string(s)
+                }
                 Value::Substitution(_) => Value::concat(Concat::two(left, space, right)),
                 _ => {
                     return Err(Error::ConcatenateDifferentType {
