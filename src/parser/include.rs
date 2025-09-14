@@ -8,9 +8,9 @@ use crate::raw::include::{Inclusion, Location};
 use crate::raw::raw_object::RawObject;
 use std::str::FromStr;
 
-pub(crate) const INCLUDE: [char; 7] = ['i', 'n', 'c', 'l', 'u', 'd', 'e'];
+pub(crate) const INCLUDE: [u8; 7] = [b'i', b'n', b'c', b'l', b'u', b'd', b'e'];
 
-impl<R: Read> HoconParser<R> {
+impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_include(&mut self) -> Result<Inclusion> {
         self.parse_include_token()?;
         self.drop_horizontal_whitespace()?;
@@ -20,7 +20,7 @@ impl<R: Read> HoconParser<R> {
         for _ in [location.is_some(), required].iter().filter(|x| **x) {
             self.drop_horizontal_whitespace()?;
             let ch = self.reader.peek()?;
-            if ch != ')' {
+            if ch != b')' {
                 return Err(Error::UnexpectedToken {
                     expected: ")",
                     found_beginning: ch,
@@ -35,7 +35,7 @@ impl<R: Read> HoconParser<R> {
 
     fn parse_include_token(&mut self) -> Result<()> {
         let ch = self.reader.peek()?;
-        if ch != 'i' {
+        if ch != b'i' {
             return Err(Error::UnexpectedToken {
                 expected: "include",
                 found_beginning: ch,
@@ -44,9 +44,9 @@ impl<R: Read> HoconParser<R> {
         // At this point, we still don't know if it's an include or something else,
         // so we need to use peek instead of consuming it
         const N: usize = 7;
-        let chars = self.reader.peek_n::<N>()?;
-        if chars != INCLUDE {
-            let (_, ch) = chars
+        let bytes = self.reader.peek_n::<N>()?;
+        if bytes != INCLUDE {
+            let (_, ch) = bytes
                 .iter()
                 .enumerate()
                 .find(|(index, ch)| &&INCLUDE[*index] != ch)
@@ -65,10 +65,10 @@ impl<R: Read> HoconParser<R> {
     fn parse_required_token(&mut self) -> Result<bool> {
         let mut required = false;
         let ch = self.reader.peek()?;
-        const REQUIRED: [char; 9] = ['r', 'e', 'q', 'u', 'i', 'r', 'e', 'd', '('];
-        if ch == 'r' {
+        const REQUIRED: [u8; 9] = [b'r', b'e', b'q', b'u', b'i', b'r', b'e', b'd', b'('];
+        if ch == b'r' {
             for ele in REQUIRED {
-                let (next, _) = self.reader.next()?;
+                let next = self.reader.next()?;
                 if ele != next {
                     return Err(Error::UnexpectedToken {
                         expected: "required(",
@@ -86,11 +86,11 @@ impl<R: Read> HoconParser<R> {
 
     fn parse_location_token(&mut self) -> Result<Option<Location>> {
         let ch = self.reader.peek()?;
-        const FILE: [char; 5] = ['f', 'i', 'l', 'e', '('];
+        const FILE: [u8; 5] = [b'f', b'i', b'l', b'e', b'('];
         let location = match ch {
-            'f' => {
+            b'f' => {
                 for ele in FILE {
-                    let (next, _) = self.reader.next()?;
+                    let next = self.reader.next()?;
                     if ele != next {
                         return Err(Error::UnexpectedToken {
                             expected: "file(",
@@ -101,10 +101,10 @@ impl<R: Read> HoconParser<R> {
                 Some(Location::File)
             }
             #[cfg(feature = "urls_includes")]
-            'u' => {
-                const URL: [char; 4] = ['u', 'r', 'l', '('];
+            b'u' => {
+                const URL: [u8; 4] = [b'u', b'r', b'l', b'('];
                 for ele in URL {
-                    let (next, _) = self.reader.next()?;
+                    let next = self.reader.next()?;
                     if ele != next {
                         return Err(Error::UnexpectedToken {
                             expected: "url(",
@@ -115,13 +115,14 @@ impl<R: Read> HoconParser<R> {
                 Some(Location::Url)
             }
             #[cfg(not(feature = "urls_includes"))]
-            'u' => {
+            b'u' => {
                 return Err(Error::UrlsIncludesDisabled);
             }
-            'c' => {
-                const CLASSPATH: [char; 10] = ['c', 'l', 'a', 's', 's', 'p', 'a', 't', 'h', '('];
+            b'c' => {
+                const CLASSPATH: [u8; 10] =
+                    [b'c', b'l', b'a', b's', b's', b'p', b'a', b't', b'h', b'('];
                 for ele in CLASSPATH {
-                    let (next, _) = self.reader.next()?;
+                    let next = self.reader.next()?;
                     if ele != next {
                         return Err(Error::UnexpectedToken {
                             expected: "classpath(",
@@ -131,7 +132,7 @@ impl<R: Read> HoconParser<R> {
                 }
                 Some(Location::Classpath)
             }
-            '"' => None,
+            b'"' => None,
             ch => {
                 return Err(Error::UnexpectedToken {
                     expected: "file( or classpath( or url( or \"",

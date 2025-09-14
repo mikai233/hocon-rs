@@ -153,8 +153,7 @@ impl Config {
         R: std::io::Read,
         T: DeserializeOwned,
     {
-        use crate::parser::read::DEFAULT_BUFFER;
-        let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(std::io::BufReader::new(rdr));
+        let read = StreamRead::new(rdr);
         let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
         Self::resolve_object::<T>(raw)
     }

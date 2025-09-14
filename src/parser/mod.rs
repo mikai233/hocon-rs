@@ -17,19 +17,6 @@ use crate::error::Error;
 use crate::parser::read::Read;
 use crate::raw::raw_object::RawObject;
 
-#[inline]
-fn is_hocon_whitespace(c: char) -> bool {
-    match c {
-        '\u{001C}' | '\u{001D}' | '\u{001E}' | '\u{001F}' => true,
-        _ => c.is_whitespace(),
-    }
-}
-
-#[inline]
-fn is_hocon_horizontal_whitespace(c: char) -> bool {
-    is_hocon_whitespace(c) && c != '\n'
-}
-
 #[derive(Constructor, Default, Debug, Clone)]
 pub(crate) struct Context {
     pub(crate) include_chain: Vec<Rc<String>>,
@@ -49,13 +36,13 @@ impl Context {
 }
 
 #[derive(Debug)]
-pub struct HoconParser<R: Read> {
+pub struct HoconParser<R> {
     pub(crate) reader: R,
     pub(crate) options: ConfigOptions,
     pub(crate) ctx: Context,
 }
 
-impl<R: Read> HoconParser<R> {
+impl<'de, R: Read<'de>> HoconParser<R> {
     pub fn new(reader: R) -> Self {
         HoconParser {
             reader,
@@ -80,48 +67,32 @@ impl<R: Read> HoconParser<R> {
         }
     }
 
-    pub(crate) fn parse_horizontal_whitespace<'a>(
-        &mut self,
-        scratch: &'a mut Vec<u8>,
-    ) -> Result<&'a str> {
+    pub(crate) fn parse_horizontal_whitespace(&mut self, scratch: &mut Vec<u8>) -> Result<()> {
         loop {
-            match self.reader.peek() {
-                Ok(ch) => {
-                    if is_hocon_horizontal_whitespace(ch) {
-                        let (_, bytes) = self.reader.next()?;
-                        scratch.extend_from_slice(bytes);
-                    } else {
-                        break;
+            match self.reader.peek_horizontal_whitespace() {
+                Ok(Some(n)) => {
+                    for _ in 0..n {
+                        let byte = self.reader.next()?;
+                        scratch.push(byte);
                     }
                 }
-                Err(Error::Eof) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
+                Ok(None) | Err(Error::Eof) => break,
+                Err(err) => return Err(err),
             }
         }
-        let s = unsafe { str::from_utf8_unchecked(scratch) };
-        Ok(s)
+        Ok(())
     }
 
     pub(crate) fn drop_horizontal_whitespace(&mut self) -> Result<()> {
         loop {
-            match self.reader.peek() {
-                Ok(ch) => {
-                    if is_hocon_horizontal_whitespace(ch) {
+            match self.reader.peek_horizontal_whitespace() {
+                Ok(Some(n)) => {
+                    for _ in 0..n {
                         self.reader.next()?;
-                    } else {
-                        break;
                     }
                 }
-                Err(Error::Eof) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
+                Ok(None) | Err(Error::Eof) => break,
+                Err(err) => return Err(err),
             }
         }
         Ok(())
@@ -129,20 +100,14 @@ impl<R: Read> HoconParser<R> {
 
     pub(crate) fn drop_whitespace(&mut self) -> Result<()> {
         loop {
-            match self.reader.peek() {
-                Ok(ch) => {
-                    if is_hocon_whitespace(ch) {
+            match self.reader.peek_whitespace() {
+                Ok(Some(n)) => {
+                    for _ in 0..n {
                         self.reader.next()?;
-                    } else {
-                        break;
                     }
                 }
-                Err(Error::Eof) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
+                Ok(None) | Err(Error::Eof) => break,
+                Err(err) => return Err(err),
             }
         }
         Ok(())
@@ -151,7 +116,7 @@ impl<R: Read> HoconParser<R> {
     pub(crate) fn drop_comma_separator(&mut self) -> Result<bool> {
         match self.reader.peek() {
             Ok(ch) => {
-                if ch == ',' {
+                if ch == b',' {
                     self.reader.next()?;
                 }
             }
@@ -167,7 +132,7 @@ impl<R: Read> HoconParser<R> {
         self.drop_whitespace_and_comments()?;
         let raw_obj = match self.reader.peek() {
             Ok(ch) => {
-                if ch == '{' {
+                if ch == b'{' {
                     self.parse_object()?
                 } else {
                     self.parse_braces_omitted_object()?
@@ -218,9 +183,8 @@ mod tests {
     #[cfg_attr(feature = "urls_includes", case("resources/included.conf"))]
     #[cfg_attr(feature = "urls_includes", case("resources/main.conf"))]
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
-        use crate::parser::read::MIN_BUFFER_SIZE;
         let file = std::fs::File::open(&path)?;
-        let read: StreamRead<_, MIN_BUFFER_SIZE> = StreamRead::new(BufReader::new(file));
+        let read = StreamRead::new(BufReader::new(file));
         let options = ConfigOptions::new(false, vec!["resources".to_string()]);
         let mut parser = HoconParser::with_options(read, options);
         parser.parse()?;

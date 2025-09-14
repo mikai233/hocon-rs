@@ -4,10 +4,10 @@ use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::raw_array::RawArray;
 
-impl<R: Read> HoconParser<R> {
+impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_array(&mut self) -> Result<RawArray> {
         let ch = self.reader.peek()?;
-        if ch != '[' {
+        if ch != b'[' {
             return Err(Error::UnexpectedToken {
                 expected: "[",
                 found_beginning: ch,
@@ -18,7 +18,7 @@ impl<R: Read> HoconParser<R> {
         loop {
             self.drop_whitespace_and_comments()?;
             let ch = self.reader.peek()?;
-            if ch == ']' {
+            if ch == b']' {
                 self.reader.next()?;
                 break;
             }

@@ -4,59 +4,47 @@ use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::comment::CommentType;
 
-impl<R: Read> HoconParser<R> {
+impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_comment(&mut self) -> Result<(CommentType, String)> {
         let ty = self.parse_comment_token()?;
         let mut scratch = vec![];
-        loop {
-            match self.reader.peek() {
-                Ok(ch) => {
-                    if ch == '\r' {
-                        match self.reader.peek2() {
-                            Ok((_, ch2)) => {
-                                if ch2 != '\n' {
-                                    let (_, bytes) = self.reader.next()?;
-                                    scratch.extend_from_slice(bytes);
-                                } else {
-                                    break;
-                                }
-                            }
-                            Err(Error::Eof) => {
-                                let (_, bytes) = self.reader.next()?;
-                                scratch.extend_from_slice(bytes);
-                            }
-                            Err(err) => {
-                                return Err(err);
+        self.reader
+            .parse_str(&mut scratch, |reader| match reader.peek() {
+                Ok(ch) => match ch {
+                    b'\r' => match reader.peek2() {
+                        Ok((_, ch2)) => {
+                            if ch2 == b'\n' {
+                                Ok(true)
+                            } else {
+                                Ok(false)
                             }
                         }
-                    } else if ch != '\n' {
-                        let (_, bytes) = self.reader.next()?;
-                        scratch.extend_from_slice(bytes);
-                    } else {
-                        break;
-                    }
-                }
-                Err(Error::Eof) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(err);
-                }
-            }
-        }
-
-        let s = unsafe { str::from_utf8_unchecked(&scratch) };
+                        Err(Error::Eof) => Ok(false),
+                        Err(err) => Err(err),
+                    },
+                    b'\n' => Ok(true),
+                    _ => Ok(false),
+                },
+                Err(Error::Eof) => Ok(true),
+                Err(err) => Err(err),
+            })?;
+        let s = str::from_utf8(&scratch).map_err(|_| {
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid UTF-8",
+            ))
+        })?;
         Ok((ty, s.to_string()))
     }
 
     fn parse_comment_token(&mut self) -> Result<CommentType> {
         let ch = self.reader.peek()?;
-        let ty = if ch == '#' {
+        let ty = if ch == b'#' {
             self.reader.next()?;
             CommentType::Hash
         } else if let Ok((ch1, ch2)) = self.reader.peek2()
-            && ch1 == '/'
-            && ch2 == '/'
+            && ch1 == b'/'
+            && ch2 == b'/'
         {
             self.reader.next()?;
             self.reader.next()?;

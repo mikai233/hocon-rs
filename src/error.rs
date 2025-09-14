@@ -15,7 +15,7 @@ pub enum Error {
     )]
     UnexpectedToken {
         expected: &'static str,
-        found_beginning: char,
+        found_beginning: u8,
     },
     #[error("End of file")]
     Eof,
