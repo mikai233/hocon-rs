@@ -2,7 +2,6 @@ use crate::Result;
 use crate::error::Error;
 use crate::parser::HoconParser;
 use crate::parser::include::INCLUDE;
-use crate::parser::is_hocon_horizontal_whitespace;
 use crate::parser::read::Read;
 use crate::parser::string::TRIPLE_DOUBLE_QUOTE;
 use crate::raw::{
@@ -22,7 +21,7 @@ macro_rules! try_peek {
     };
 }
 
-impl<R: Read> HoconParser<R> {
+impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_key(&mut self) -> Result<RawString> {
         self.drop_horizontal_whitespace()?;
         self.parse_path_expression()
@@ -34,6 +33,7 @@ impl<R: Read> HoconParser<R> {
         let mut scratch = vec![];
         let mut spaces = vec![];
         let mut prev_space = None;
+        #[inline]
         fn push_value_and_space(
             values: &mut Vec<RawValue>,
             spaces: &mut Vec<Option<String>>,
@@ -50,52 +50,52 @@ impl<R: Read> HoconParser<R> {
         loop {
             let ch = try_peek!(self.reader);
             match ch {
-                '[' => {
+                b'[' => {
                     // Parse array
                     let max_depth = self.options.max_depth;
                     let current_depth = self.ctx.increase_depth();
                     if current_depth > max_depth {
                         return Err(Error::RecursionDepthExceeded { max_depth });
                     }
-                    let array = self.parse_array()?;
+                    let array = self.parse_array(false)?;
                     self.ctx.decrease_depth();
                     let v = RawValue::Array(array);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
-                '{' => {
+                b'{' => {
                     // Parse object
                     let max_depth = self.options.max_depth;
                     let current_depth = self.ctx.increase_depth();
                     if current_depth > max_depth {
                         return Err(Error::RecursionDepthExceeded { max_depth });
                     }
-                    let object = self.parse_object()?;
+                    let object = self.parse_object(false)?;
                     self.ctx.decrease_depth();
                     let v = RawValue::Object(object);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
-                '"' => {
+                b'"' => {
                     // Parse quoted string or multi-line string
                     let v = if let Ok(chars) = self.reader.peek_n::<3>()
                         && chars == TRIPLE_DOUBLE_QUOTE
                     {
-                        let multiline = self.parse_multiline_string()?;
+                        let multiline = self.parse_multiline_string(false)?;
                         RawValue::String(RawString::MultilineString(multiline))
                     } else {
-                        let quoted = self.parse_quoted_string()?;
+                        let quoted = self.parse_quoted_string(false)?;
                         RawValue::String(RawString::QuotedString(quoted))
                     };
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
-                '$' => {
+                b'$' => {
                     let substitution = self.parse_substitution()?;
                     let v = RawValue::Substitution(substitution);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
-                ']' | '}' => {
+                b']' | b'}' => {
                     break;
                 }
-                ',' | '#' | '\n' => {
+                b',' | b'#' | b'\n' => {
                     if values.is_empty() {
                         return Err(Error::UnexpectedToken {
                             expected: "a valid value",
@@ -104,7 +104,7 @@ impl<R: Read> HoconParser<R> {
                     }
                     break;
                 }
-                '/' if self.reader.peek2().is_ok_and(|(_, ch2)| ch2 == '/') => {
+                b'/' if self.reader.peek2().is_ok_and(|(_, ch2)| ch2 == b'/') => {
                     if !values.is_empty() {
                         break;
                     } else {
@@ -114,9 +114,9 @@ impl<R: Read> HoconParser<R> {
                         });
                     }
                 }
-                '\r' => {
+                b'\r' => {
                     if let Ok((_, ch2)) = self.reader.peek2() {
-                        if ch2 == '\n' && !values.is_empty() {
+                        if ch2 == b'\n' && !values.is_empty() {
                             break;
                         } else {
                             return Err(Error::UnexpectedToken {
@@ -126,9 +126,9 @@ impl<R: Read> HoconParser<R> {
                         }
                     }
                 }
-                ch => {
+                _ => {
                     // Parse unquoted string or space
-                    if is_hocon_horizontal_whitespace(ch) {
+                    if self.reader.starts_with_horizontal_whitespace()? {
                         scratch.clear();
                         self.parse_horizontal_whitespace(&mut scratch)?;
                         let space = unsafe { str::from_utf8_unchecked(&scratch) };
@@ -160,6 +160,7 @@ impl<R: Read> HoconParser<R> {
         }
     }
 
+    // TODO if key parse success and value parse error, should report an error.
     pub(crate) fn parse_key_value(&mut self) -> Result<(RawString, RawValue)> {
         self.drop_whitespace()?;
         let key = self.parse_key()?;
@@ -176,12 +177,12 @@ impl<R: Read> HoconParser<R> {
     pub fn drop_kv_separator(&mut self) -> Result<bool> {
         let ch = self.reader.peek()?;
         match ch {
-            ':' | '=' => {
+            b':' | b'=' => {
                 self.reader.next()?;
             }
-            '+' => {
+            b'+' => {
                 let (_, ch2) = self.reader.peek2()?;
-                if ch2 != '=' {
+                if ch2 != b'=' {
                     return Err(Error::UnexpectedToken {
                         expected: "=",
                         found_beginning: ch2,
@@ -191,7 +192,7 @@ impl<R: Read> HoconParser<R> {
                 self.reader.next()?;
                 return Ok(true);
             }
-            '{' => {}
+            b'{' => {}
             ch => {
                 return Err(Error::UnexpectedToken {
                     expected: ": or =",
@@ -206,7 +207,7 @@ impl<R: Read> HoconParser<R> {
     pub(crate) fn parse_object_field(&mut self) -> Result<ObjectField> {
         let ch = self.reader.peek()?;
         // It maybe an include syntax, we need to peek more chars to determine.
-        let field = if ch == 'i' && self.reader.peek_n::<7>()? == INCLUDE {
+        let field = if ch == b'i' && self.reader.peek_n::<7>()? == INCLUDE {
             let mut inclusion = self.parse_include()?;
             self.parse_inclusion(&mut inclusion)?;
             ObjectField::inclusion(inclusion)
@@ -222,7 +223,7 @@ impl<R: Read> HoconParser<R> {
         loop {
             self.drop_whitespace_and_comments()?;
             let ch = self.reader.peek()?;
-            if ch == '}' {
+            if ch == b'}' {
                 break;
             }
             match self.parse_object_field() {
@@ -245,18 +246,20 @@ impl<R: Read> HoconParser<R> {
         Ok(raw_obj)
     }
 
-    pub(crate) fn parse_object(&mut self) -> Result<RawObject> {
-        let ch = self.reader.peek()?;
-        if ch != '{' {
-            return Err(Error::UnexpectedToken {
-                expected: "{",
-                found_beginning: ch,
-            });
+    pub(crate) fn parse_object(&mut self, verify_delimiter: bool) -> Result<RawObject> {
+        if verify_delimiter {
+            let ch = self.reader.peek()?;
+            if ch != b'{' {
+                return Err(Error::UnexpectedToken {
+                    expected: "{",
+                    found_beginning: ch,
+                });
+            }
         }
         self.reader.next()?;
         let raw_obj = self.parse_braces_omitted_object()?;
         let ch = self.reader.peek()?;
-        if ch != '}' {
+        if ch != b'}' {
             return Err(Error::UnexpectedToken {
                 expected: "}",
                 found_beginning: ch,

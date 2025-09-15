@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::Result;
 use crate::config_options::ConfigOptions;
 use crate::error::Error;
-use crate::parser::read::{DEFAULT_BUFFER, StreamRead};
+use crate::parser::read::StreamRead;
 use crate::parser::{Context, HoconParser};
 use crate::{
     raw::{field::ObjectField, raw_object::RawObject, raw_value::RawValue},
@@ -111,7 +111,7 @@ pub(crate) fn load_from_path(
     if let Some(hocon) = config_path.hocon {
         let file = std::fs::File::open(hocon)?;
         let reader = std::io::BufReader::new(file);
-        let read: StreamRead<_, DEFAULT_BUFFER> = StreamRead::new(reader);
+        let read = StreamRead::new(reader);
         let raw_obj = parse_hocon(read, options.clone(), ctx)?;
         result.push((raw_obj, Syntax::Hocon));
     }
@@ -180,8 +180,7 @@ pub(crate) fn load_from_url(
             let syntax = extension_syntax.or(header_syntax).unwrap_or(Syntax::Hocon);
             match syntax {
                 Syntax::Hocon => {
-                    let read: StreamRead<_, DEFAULT_BUFFER> =
-                        StreamRead::new(std::io::BufReader::new(response));
+                    let read = StreamRead::new(std::io::BufReader::new(response));
                     parse_hocon(read, options, ctx)
                 }
                 Syntax::Json => parse_json(response),
@@ -246,13 +245,13 @@ where
     }
 }
 
-pub(crate) fn parse_hocon<R>(
+pub(crate) fn parse_hocon<'de, R>(
     read: R,
     options: ConfigOptions,
     ctx: Option<Context>,
 ) -> Result<RawObject>
 where
-    R: crate::parser::read::Read,
+    R: crate::parser::read::Read<'de>,
 {
     match ctx {
         Some(ctx) => HoconParser::with_options_and_ctx(read, options, ctx).parse(),

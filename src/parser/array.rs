@@ -4,21 +4,23 @@ use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::raw_array::RawArray;
 
-impl<R: Read> HoconParser<R> {
-    pub(crate) fn parse_array(&mut self) -> Result<RawArray> {
-        let ch = self.reader.peek()?;
-        if ch != '[' {
-            return Err(Error::UnexpectedToken {
-                expected: "[",
-                found_beginning: ch,
-            });
+impl<'de, R: Read<'de>> HoconParser<R> {
+    pub(crate) fn parse_array(&mut self, verify_delimiter: bool) -> Result<RawArray> {
+        if verify_delimiter {
+            let ch = self.reader.peek()?;
+            if ch != b'[' {
+                return Err(Error::UnexpectedToken {
+                    expected: "[",
+                    found_beginning: ch,
+                });
+            }
         }
         self.reader.next()?;
         let mut values = vec![];
         loop {
             self.drop_whitespace_and_comments()?;
             let ch = self.reader.peek()?;
-            if ch == ']' {
+            if ch == b']' {
                 self.reader.next()?;
                 break;
             }
@@ -39,7 +41,7 @@ mod tests {
 
     use crate::Result;
     use crate::parser::HoconParser;
-    use crate::parser::read::TestStreamRead;
+    use crate::parser::read::StreamRead;
     use crate::raw::raw_value::RawValue;
 
     #[rstest]
@@ -51,9 +53,9 @@ mod tests {
     #[case("[1\r\n2.0001f ,3, \n]", vec![RawValue::number(1), RawValue::unquoted_string("2.0001f"), RawValue::number(3)])]
     fn test_valid_array(#[case] input: &str, #[case] expected: Vec<RawValue>) -> Result<()> {
         use std::io::BufReader;
-        let read = TestStreamRead::new(BufReader::new(input.as_bytes()));
+        let read = StreamRead::new(BufReader::new(input.as_bytes()));
         let mut parser = HoconParser::new(read);
-        let values = parser.parse_array()?.into_inner();
+        let values = parser.parse_array(true)?.into_inner();
         assert_eq!(values, expected);
         Ok(())
     }

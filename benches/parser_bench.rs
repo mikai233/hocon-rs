@@ -21,7 +21,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("pure_parser_stream", |b| {
         b.iter(|| {
             let file = fs::File::open(path).unwrap();
-            let read = StreamRead::<_, 1024>::new(BufReader::new(file));
+            let read = StreamRead::new(BufReader::new(file));
             let mut parser = HoconParser::new(read);
             parser.parse().unwrap();
         });

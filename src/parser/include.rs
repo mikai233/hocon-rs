@@ -8,19 +8,19 @@ use crate::raw::include::{Inclusion, Location};
 use crate::raw::raw_object::RawObject;
 use std::str::FromStr;
 
-pub(crate) const INCLUDE: [char; 7] = ['i', 'n', 'c', 'l', 'u', 'd', 'e'];
+pub(crate) const INCLUDE: &[u8] = b"include";
 
-impl<R: Read> HoconParser<R> {
+impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_include(&mut self) -> Result<Inclusion> {
         self.parse_include_token()?;
         self.drop_horizontal_whitespace()?;
         let required = self.parse_required_token()?;
         let location = self.parse_location_token()?;
-        let include_path = self.parse_quoted_string()?;
+        let include_path = self.parse_quoted_string(true)?;
         for _ in [location.is_some(), required].iter().filter(|x| **x) {
             self.drop_horizontal_whitespace()?;
             let ch = self.reader.peek()?;
-            if ch != ')' {
+            if ch != b')' {
                 return Err(Error::UnexpectedToken {
                     expected: ")",
                     found_beginning: ch,
@@ -35,7 +35,7 @@ impl<R: Read> HoconParser<R> {
 
     fn parse_include_token(&mut self) -> Result<()> {
         let ch = self.reader.peek()?;
-        if ch != 'i' {
+        if ch != b'i' {
             return Err(Error::UnexpectedToken {
                 expected: "include",
                 found_beginning: ch,
@@ -44,9 +44,9 @@ impl<R: Read> HoconParser<R> {
         // At this point, we still don't know if it's an include or something else,
         // so we need to use peek instead of consuming it
         const N: usize = 7;
-        let chars = self.reader.peek_n::<N>()?;
-        if chars != INCLUDE {
-            let (_, ch) = chars
+        let bytes = self.reader.peek_n::<N>()?;
+        if bytes != INCLUDE {
+            let (_, ch) = bytes
                 .iter()
                 .enumerate()
                 .find(|(index, ch)| &&INCLUDE[*index] != ch)
@@ -65,11 +65,11 @@ impl<R: Read> HoconParser<R> {
     fn parse_required_token(&mut self) -> Result<bool> {
         let mut required = false;
         let ch = self.reader.peek()?;
-        const REQUIRED: [char; 9] = ['r', 'e', 'q', 'u', 'i', 'r', 'e', 'd', '('];
-        if ch == 'r' {
+        const REQUIRED: &[u8] = b"required(";
+        if ch == b'r' {
             for ele in REQUIRED {
-                let (next, _) = self.reader.next()?;
-                if ele != next {
+                let next = self.reader.next()?;
+                if *ele != next {
                     return Err(Error::UnexpectedToken {
                         expected: "required(",
                         found_beginning: next,
@@ -86,12 +86,12 @@ impl<R: Read> HoconParser<R> {
 
     fn parse_location_token(&mut self) -> Result<Option<Location>> {
         let ch = self.reader.peek()?;
-        const FILE: [char; 5] = ['f', 'i', 'l', 'e', '('];
+        const FILE: &[u8] = b"file(";
         let location = match ch {
-            'f' => {
+            b'f' => {
                 for ele in FILE {
-                    let (next, _) = self.reader.next()?;
-                    if ele != next {
+                    let next = self.reader.next()?;
+                    if *ele != next {
                         return Err(Error::UnexpectedToken {
                             expected: "file(",
                             found_beginning: next,
@@ -101,11 +101,11 @@ impl<R: Read> HoconParser<R> {
                 Some(Location::File)
             }
             #[cfg(feature = "urls_includes")]
-            'u' => {
-                const URL: [char; 4] = ['u', 'r', 'l', '('];
+            b'u' => {
+                const URL: &[u8] = b"url(";
                 for ele in URL {
-                    let (next, _) = self.reader.next()?;
-                    if ele != next {
+                    let next = self.reader.next()?;
+                    if *ele != next {
                         return Err(Error::UnexpectedToken {
                             expected: "url(",
                             found_beginning: next,
@@ -115,14 +115,14 @@ impl<R: Read> HoconParser<R> {
                 Some(Location::Url)
             }
             #[cfg(not(feature = "urls_includes"))]
-            'u' => {
+            b'u' => {
                 return Err(Error::UrlsIncludesDisabled);
             }
-            'c' => {
-                const CLASSPATH: [char; 10] = ['c', 'l', 'a', 's', 's', 'p', 'a', 't', 'h', '('];
+            b'c' => {
+                const CLASSPATH: &[u8] = b"classpath(";
                 for ele in CLASSPATH {
-                    let (next, _) = self.reader.next()?;
-                    if ele != next {
+                    let next = self.reader.next()?;
+                    if *ele != next {
                         return Err(Error::UnexpectedToken {
                             expected: "classpath(",
                             found_beginning: next,
@@ -131,7 +131,7 @@ impl<R: Read> HoconParser<R> {
                 }
                 Some(Location::Classpath)
             }
-            '"' => None,
+            b'"' => None,
             ch => {
                 return Err(Error::UnexpectedToken {
                     expected: "file( or classpath( or url( or \"",
@@ -263,38 +263,46 @@ impl<R: Read> HoconParser<R> {
 mod tests {
     use crate::Result;
     use crate::parser::HoconParser;
-    use crate::parser::read::TestRead;
+    use crate::parser::read::StrRead;
     use rstest::rstest;
 
     #[rstest]
-    #[case(vec!["i","nclude"," ", "\"demo\".conf"],"include \"demo\"", ".conf")]
-    #[case(vec!["i","nclude", "\"demo.conf\""],"include \"demo.conf\"", "")]
-    #[case(vec!["i","nclude","   r","equired(  ", "  \"demo.conf\" ",")"],"include required(\"demo.conf\")","" )]
-    #[case(vec!["i","nclude","   r","equired(  ", "file(  \"demo.conf\" )",")"],"include required(file(\"demo.conf\"))","")]
+    #[case("include \"demo\".conf", "include \"demo\"", ".conf")]
+    #[case("include\"demo.conf\"", "include \"demo.conf\"", "")]
+    #[case(
+        "include   required(    \"demo.conf\" )",
+        "include required(\"demo.conf\")",
+        ""
+    )]
+    #[case(
+        "include   required(  file(  \"demo.conf\" ))",
+        "include required(file(\"demo.conf\"))",
+        ""
+    )]
     fn test_valid_include(
-        #[case] input: Vec<&str>,
+        #[case] input: &str,
         #[case] expected: &str,
         #[case] rest: &str,
     ) -> Result<()> {
-        let read = TestRead::from_input(input);
+        let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
         let inclusion = parser.parse_include()?;
         assert_eq!(inclusion.to_string(), expected);
-        assert_eq!(parser.reader.rest(), rest);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 
     #[rstest]
-    #[case(vec!["include", "demo"])]
-    #[case(vec!["include", "required (\"demo\")"])]
-    #[case(vec!["include", "required(\"demo\",)"])]
-    #[case(vec!["include", "required(\"demo\""])]
-    #[case(vec!["include", "required1(\"demo\")"])]
-    #[case(vec!["include", "classpat(\"demo\")"])]
-    #[case(vec!["include", "classpath(file(\"demo\"))"])]
-    #[case(vec!["include", "classpath(required(\"demo\"))"])]
-    fn test_invalid_include(#[case] input: Vec<&str>) -> Result<()> {
-        let read = TestRead::from_input(input);
+    #[case("includedemo")]
+    #[case("include required (\"demo\")")]
+    #[case("include required(\"demo\",)")]
+    #[case("include required(\"demo\"")]
+    #[case("include required1(\"demo\")")]
+    #[case("include classpat(\"demo\")")]
+    #[case("include classpath(file(\"demo\"))")]
+    #[case("include classpath(required(\"demo\"))")]
+    fn test_invalid_include(#[case] input: &str) -> Result<()> {
+        let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
         let result = parser.parse_include();
         assert!(result.is_err());

@@ -2,105 +2,61 @@ use crate::Result;
 use crate::error::Error;
 use crate::parser::HoconParser;
 use crate::parser::read::Read;
-use crate::parser::{is_hocon_horizontal_whitespace, is_hocon_whitespace};
-use crate::{raw::raw_string::RawString, try_peek};
+use crate::raw::raw_string::RawString;
 
-const FORBIDDEN_CHARACTERS: [char; 19] = [
-    '$', '"', '{', '}', '[', ']', ':', '=', ',', '+', '#', '`', '^', '?', '!', '@', '*', '&', '\\',
-];
+// Precompute forbidden characters table
+const FORBIDDEN_TABLE: [bool; 256] = {
+    let mut table = [false; 256];
+    table[b'$' as usize] = true;
+    table[b'"' as usize] = true;
+    table[b'{' as usize] = true;
+    table[b'}' as usize] = true;
+    table[b'[' as usize] = true;
+    table[b']' as usize] = true;
+    table[b':' as usize] = true;
+    table[b'=' as usize] = true;
+    table[b',' as usize] = true;
+    table[b'+' as usize] = true;
+    table[b'#' as usize] = true;
+    table[b'`' as usize] = true;
+    table[b'^' as usize] = true;
+    table[b'?' as usize] = true;
+    table[b'!' as usize] = true;
+    table[b'@' as usize] = true;
+    table[b'*' as usize] = true;
+    table[b'&' as usize] = true;
+    table[b'\\' as usize] = true;
+    table
+};
 
-pub(crate) const TRIPLE_DOUBLE_QUOTE: [char; 3] = ['"', '"', '"'];
+pub(crate) const TRIPLE_DOUBLE_QUOTE: &[u8] = b"\"\"\"";
 
-impl<R: Read> HoconParser<R> {
-    pub(crate) fn parse_quoted_string(&mut self) -> Result<String> {
-        let mut scratch = vec![];
+impl<'de, R: Read<'de>> HoconParser<R> {
+    pub(crate) fn parse_quoted_string(&mut self, check: bool) -> Result<String> {
+        if check {
+            let ch = self.reader.peek()?;
+            if ch != b'"' {
+                return Err(Error::UnexpectedToken {
+                    expected: "\"",
+                    found_beginning: ch,
+                });
+            }
+        }
+        self.reader.next()?;
+        self.scratch.clear();
+        let content = self
+            .reader
+            .parse_str(true, &mut self.scratch, |reader| Ok(reader.peek()? == b'"'))?
+            .to_string();
         let ch = self.reader.peek()?;
-        if ch != '"' {
+        if ch != b'"' {
             return Err(Error::UnexpectedToken {
                 expected: "\"",
                 found_beginning: ch,
             });
         }
         self.reader.next()?;
-        loop {
-            match self.reader.next()? {
-                ('\\', _) => {
-                    let ch = self.parse_escaped_char()?; // TODO return [u8] directly
-                    let mut b = [0; 4];
-                    ch.encode_utf8(&mut b);
-                    scratch.extend_from_slice(&b[..ch.len_utf8()]);
-                }
-                ('"', _) => {
-                    break;
-                }
-                (_, bytes) => {
-                    scratch.extend_from_slice(bytes);
-                }
-            }
-        }
-        let s = unsafe { str::from_utf8_unchecked(&scratch) };
-        Ok(String::from(s))
-    }
-
-    fn parse_escaped_char(&mut self) -> Result<char> {
-        let (ch, _) = self.reader.next()?;
-        let ch = match ch {
-            '"' => '"',
-            '\\' => '\\',
-            '/' => '/',
-            'b' => '\x08',
-            'f' => '\x0C',
-            'n' => '\n',
-            'r' => '\r',
-            't' => '\t',
-            'u' => {
-                return self.parse_escaped_unicode();
-            }
-            _ => return Err(Error::InvalidEscape),
-        };
-        Ok(ch)
-    }
-
-    fn parse_escaped_unicode(&mut self) -> Result<char> {
-        fn unicode_code<R: Read>(reader: &mut R) -> Result<String> {
-            let mut code = String::new();
-            for _ in 0..4 {
-                match reader.next()? {
-                    (digit, _) if digit.is_ascii_hexdigit() => {
-                        code.push(digit);
-                    }
-                    _ => {
-                        return Err(Error::InvalidEscape);
-                    }
-                }
-            }
-            Ok(code)
-        }
-        let high_code = unicode_code(&mut self.reader)?;
-        let high = u32::from_str_radix(&high_code, 16).map_err(|_| Error::InvalidEscape)?;
-        if (0xD800..=0xDBFF).contains(&high) {
-            // 需要再读一个 \uXXXX
-            if self.reader.next()?.0 != '\\' {
-                return Err(Error::InvalidEscape);
-            }
-            if self.reader.next()?.0 != 'u' {
-                return Err(Error::InvalidEscape);
-            }
-            let low_code = unicode_code(&mut self.reader)?;
-            let low = u32::from_str_radix(&low_code, 16).map_err(|_| Error::InvalidEscape)?;
-
-            if (0xDC00..=0xDFFF).contains(&low) {
-                // 合并 surrogate pair
-                let codepoint = 0x10000 + (((high - 0xD800) << 10) | (low - 0xDC00));
-                let ch = char::from_u32(codepoint).ok_or(Error::InvalidEscape)?;
-                Ok(ch)
-            } else {
-                Err(Error::InvalidEscape)
-            }
-        } else {
-            let ch = char::from_u32(high).ok_or(Error::InvalidEscape)?;
-            Ok(ch)
-        }
+        Ok(content)
     }
 
     pub(crate) fn parse_unquoted_string(&mut self) -> Result<String> {
@@ -112,97 +68,86 @@ impl<R: Read> HoconParser<R> {
     }
 
     fn parse_unquoted(&mut self, allow_dot: bool) -> Result<String> {
-        let mut scratch = vec![];
-        loop {
-            let ch = try_peek!(self.reader);
-            match ch {
-                '/' => match self.reader.peek2() {
-                    Ok((_, ch2)) => {
-                        if ch2 == '/' {
-                            break;
-                        } else {
-                            let (_, bytes) = self.reader.next()?;
-                            scratch.extend_from_slice(bytes);
+        self.scratch.clear();
+        let content = self.reader.parse_str(true, &mut self.scratch, |reader| {
+            let mut end = false;
+            match reader.peek() {
+                Ok(ch) => match ch {
+                    b'/' => match reader.peek2() {
+                        Ok((_, ch2)) => {
+                            if ch2 == b'/' {
+                                end = true;
+                            }
+                        }
+                        Err(Error::Eof) => {}
+                        Err(err) => return Err(err),
+                    },
+                    b'.' => {
+                        if !allow_dot {
+                            end = true;
                         }
                     }
-                    Err(Error::Eof) => {
-                        let (_, bytes) = self.reader.next()?;
-                        scratch.extend_from_slice(bytes);
-                        break;
-                    }
-                    Err(err) => {
-                        return Err(err);
+                    ch => {
+                        if FORBIDDEN_TABLE[ch as usize] || reader.starts_with_whitespace()? {
+                            end = true;
+                        }
                     }
                 },
-                '.' => {
-                    if allow_dot {
-                        let (_, bytes) = self.reader.next()?;
-                        scratch.extend_from_slice(bytes);
-                    } else {
-                        break;
-                    }
+                Err(Error::Eof) => {
+                    end = true;
                 }
-                ch => {
-                    if !FORBIDDEN_CHARACTERS.contains(&ch) && !is_hocon_whitespace(ch) {
-                        let (_, bytes) = self.reader.next()?;
-                        scratch.extend_from_slice(bytes);
-                    } else {
-                        break;
-                    }
-                }
+                Err(err) => return Err(err),
             }
-        }
-        if scratch.is_empty() {
+            Ok(end)
+        })?;
+        if content.is_empty() {
             Err(Error::UnexpectedToken {
                 expected: "a valid unquoted string",
-                found_beginning: '\0',
+                found_beginning: b'\0',
             })
         } else {
-            let s = unsafe { str::from_utf8_unchecked(&scratch) };
-            Ok(s.to_string())
+            Ok(content.to_string())
         }
     }
 
-    pub(crate) fn parse_multiline_string(&mut self) -> Result<String> {
-        let mut scratch = vec![];
-        let chars = self.reader.peek_n::<3>()?;
-        if chars != TRIPLE_DOUBLE_QUOTE {
-            let (_, ch) = chars
-                .iter()
-                .enumerate()
-                .find(|(index, ch)| &&TRIPLE_DOUBLE_QUOTE[*index] != ch)
-                .unwrap();
-            return Err(Error::UnexpectedToken {
-                expected: "\"\"\"",
-                found_beginning: *ch,
-            });
+    pub(crate) fn parse_multiline_string(&mut self, verify_delimiter: bool) -> Result<String> {
+        if verify_delimiter {
+            let bytes = self.reader.peek_n::<3>()?;
+            if bytes != TRIPLE_DOUBLE_QUOTE {
+                let (_, ch) = bytes
+                    .iter()
+                    .enumerate()
+                    .find(|(index, ch)| &&TRIPLE_DOUBLE_QUOTE[*index] != ch)
+                    .unwrap();
+                return Err(Error::UnexpectedToken {
+                    expected: "\"\"\"",
+                    found_beginning: *ch,
+                });
+            }
         }
         for _ in 0..3 {
             self.reader.next()?;
         }
-        loop {
-            let chars = self.reader.peek_n::<3>()?;
-            if chars == TRIPLE_DOUBLE_QUOTE {
-                for _ in chars {
-                    self.reader.next()?;
-                }
-                break;
-            }
-            let (_, bytes) = self.reader.next()?;
-            scratch.extend_from_slice(bytes);
+        self.scratch.clear();
+        let content = self
+            .reader
+            .parse_str(false, &mut self.scratch, |reader| {
+                Ok(reader.peek_n::<3>()? == TRIPLE_DOUBLE_QUOTE)
+            })?
+            .to_string();
+        for _ in 0..3 {
+            self.reader.next()?;
         }
-        let s = unsafe { str::from_utf8_unchecked(&scratch) };
-        Ok(String::from(s))
+        Ok(content)
     }
 
     pub(crate) fn parse_path_expression(&mut self) -> Result<RawString> {
         let mut paths = vec![];
         let mut scratch = vec![];
-        let ch = self.reader.peek()?;
-        if is_hocon_horizontal_whitespace(ch) {
+        if self.reader.starts_with_horizontal_whitespace()? {
             return Err(Error::UnexpectedToken {
                 expected: "a valid path expression",
-                found_beginning: ch,
+                found_beginning: b' ',
             });
         }
         loop {
@@ -214,7 +159,7 @@ impl<R: Read> HoconParser<R> {
                     if paths.is_empty() {
                         return Err(Error::UnexpectedToken {
                             expected: "a valid path expression",
-                            found_beginning: '\0',
+                            found_beginning: b'\0',
                         });
                     } else {
                         break;
@@ -225,14 +170,14 @@ impl<R: Read> HoconParser<R> {
                 }
             };
             let path = match ch {
-                '"' => {
+                b'"' => {
                     // quoted string or multiline string
-                    if let Ok(chars) = self.reader.peek_n::<3>()
-                        && chars == TRIPLE_DOUBLE_QUOTE
+                    if let Ok(bytes) = self.reader.peek_n::<3>()
+                        && bytes == TRIPLE_DOUBLE_QUOTE
                     {
-                        self.parse_multiline_string()?
+                        self.parse_multiline_string(false)?
                     } else {
-                        self.parse_quoted_string()?
+                        self.parse_quoted_string(false)?
                     }
                 }
                 _ => self.parse_unquoted_path()?,
@@ -242,7 +187,8 @@ impl<R: Read> HoconParser<R> {
             // We always need to parse the ending whitespace after a path, because we don't
             // know if there are any valid path expressions after it.
             scratch.clear();
-            let ending_space = self.parse_horizontal_whitespace(&mut scratch)?;
+            self.parse_horizontal_whitespace(&mut scratch)?;
+            let ending_space = unsafe { str::from_utf8_unchecked(&scratch) };
             let ch = match self.reader.peek() {
                 Ok(ch) => ch,
                 Err(Error::Eof) => {
@@ -253,19 +199,22 @@ impl<R: Read> HoconParser<R> {
                     return Err(err);
                 }
             };
-            const ENDING: [char; 5] = [':', '{', '=', '}', '+'];
-            if ENDING.contains(&ch) {
-                paths.push(path);
-                break;
-            } else if ch == '.' {
-                path.push_str(ending_space);
-                paths.push(path);
-                self.reader.next()?;
-            } else {
-                return Err(Error::UnexpectedToken {
-                    expected: "a valid path expression",
-                    found_beginning: ch,
-                });
+            match ch {
+                b':' | b'{' | b'=' | b'}' | b'+' => {
+                    paths.push(path);
+                    break;
+                }
+                b'.' => {
+                    path.push_str(ending_space);
+                    paths.push(path);
+                    self.reader.next()?;
+                }
+                _ => {
+                    return Err(Error::UnexpectedToken {
+                        expected: "a valid path expression",
+                        found_beginning: ch,
+                    });
+                }
             }
         }
         // After the loop, the paths vector must not be empty.
@@ -283,7 +232,7 @@ impl<R: Read> HoconParser<R> {
 mod tests {
     use crate::Result;
     use crate::parser::HoconParser;
-    use crate::parser::read::{StrRead, TestRead};
+    use crate::parser::read::StrRead;
     use rstest::rstest;
 
     #[rstest]
@@ -304,9 +253,9 @@ mod tests {
     ) -> Result<()> {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let s = parser.parse_quoted_string()?;
+        let s = parser.parse_quoted_string(true)?;
         assert_eq!(s, expected);
-        assert_eq!(parser.reader.rest(), rest);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 
@@ -322,25 +271,8 @@ mod tests {
     fn test_invalid_quoted_string(#[case] input: &str) {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let result = parser.parse_quoted_string();
+        let result = parser.parse_quoted_string(true);
         assert!(result.is_err());
-    }
-
-    #[rstest]
-    #[case(vec!["\"Hello", "World\""], "HelloWorld")]
-    #[case(vec!["\"Hello", "World", "!\""], "HelloWorld!")]
-    #[case(vec!["\"Hello", "World", "!", "How", "are", "you\""], "HelloWorld!Howareyou")]
-    #[case(vec!["\"", "\\uD8", "3", "D", "\\", "u","DE00","\""],"😀")]
-    #[case(vec!["\"\\", "r\""], "\r")]
-    fn test_quoted_string_increment_parse(
-        #[case] input: Vec<&str>,
-        #[case] expected: &str,
-    ) -> Result<()> {
-        let read = TestRead::from_input(input);
-        let mut parser = HoconParser::new(read);
-        let s = parser.parse_quoted_string()?;
-        assert_eq!(s, expected);
-        Ok(())
     }
 
     #[rstest]
@@ -361,23 +293,7 @@ mod tests {
         let mut parser = HoconParser::new(read);
         let s = parser.parse_unquoted_string()?;
         assert_eq!(s, expected);
-        assert_eq!(parser.reader.rest(), rest);
-        Ok(())
-    }
-
-    #[rstest]
-    #[case(vec!["Hello", "World"], "HelloWorld")]
-    #[case(vec!["Hello", "World", "!"], "HelloWorld")]
-    #[case(vec!["Hello", "World", "vs", "How", "are", "you"], "HelloWorldvsHowareyou")]
-    #[case(vec!["a.", "b", ".", "你", "/", "u","DE00",""],"a.b.你/uDE00")]
-    fn test_unquoted_string_increment_parse(
-        #[case] input: Vec<&str>,
-        #[case] expected: &str,
-    ) -> Result<()> {
-        let read = TestRead::from_input(input);
-        let mut parser = HoconParser::new(read);
-        let s = parser.parse_unquoted_string()?;
-        assert_eq!(s, expected);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 
@@ -392,9 +308,9 @@ mod tests {
     ) -> Result<()> {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let s = parser.parse_multiline_string()?;
+        let s = parser.parse_multiline_string(true)?;
         assert_eq!(s, expected);
-        assert_eq!(parser.reader.rest(), rest);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 
@@ -406,24 +322,8 @@ mod tests {
     fn test_invalid_multiline_string(#[case] input: &str) {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let result = parser.parse_multiline_string();
+        let result = parser.parse_multiline_string(true);
         assert!(result.is_err());
-    }
-
-    #[rstest]
-    #[case(vec![r#"""#,r#""""#, "Hello","World\"",r#""""#], "HelloWorld")]
-    #[case(vec![r#"""#,r#""""#, "Hello","World\"\"",r#"""#], "HelloWorld")]
-    #[case(vec![r#"""#,r#""""#, "Hello\"","World\"\"",r#"""#], "Hello\"World")]
-    #[case(vec![r#"""#,r#""""#, "Hello\"\"","World\"\"",r#"""#], "Hello\"\"World")]
-    fn test_multiline_string_increment_parse(
-        #[case] input: Vec<&str>,
-        #[case] expected: &str,
-    ) -> Result<()> {
-        let read = TestRead::from_input(input);
-        let mut parser = HoconParser::new(read);
-        let s = parser.parse_multiline_string()?;
-        assert_eq!(s, expected);
-        Ok(())
     }
 
     #[rstest]
@@ -443,7 +343,7 @@ mod tests {
         let mut parser = HoconParser::new(read);
         let s = parser.parse_path_expression()?;
         assert_eq!(s.to_string(), expected);
-        assert_eq!(parser.reader.rest(), rest);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 }

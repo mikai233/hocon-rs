@@ -513,7 +513,6 @@ dependencies = [
  "criterion",
  "ctor",
  "derive_more",
- "encoding_rs",
  "java-properties",
  "memchr",
  "num-bigint",

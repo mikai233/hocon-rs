@@ -11,7 +11,6 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-encoding_rs = "0.8.35"
 memchr = "2.7.5"
 ahash = "0.8.12"
 thiserror = "2.0.12"
