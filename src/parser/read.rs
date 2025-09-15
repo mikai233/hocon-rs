@@ -1,4 +1,4 @@
-use std::{slice, str};
+use std::str;
 
 use derive_more::{Deref, DerefMut};
 
@@ -6,7 +6,9 @@ use crate::Result;
 use crate::error::Error;
 
 // We should peek at least 7 bytes because the include token has a length of 7 bytes.
-pub(crate) const MIN_BUFFER_SIZE: usize = 4096;
+pub(crate) const MAX_PEEK_N: usize = 7;
+
+pub(crate) const DEFAULT_BUFFER_SIZE: usize = 512;
 
 /// Returns the number of bytes of the first character in `bytes`
 /// if it is a whitespace character, otherwise returns 0.
@@ -34,6 +36,7 @@ pub(crate) const MIN_BUFFER_SIZE: usize = 4096;
 ///
 /// This function only examines the first character and does **not** count
 /// consecutive whitespace.
+#[inline]
 pub fn leading_whitespace_bytes(bytes: &[u8]) -> usize {
     if bytes.is_empty() {
         return 0;
@@ -164,21 +167,24 @@ where
     }
 }
 
-pub trait Read<'a> {
+pub trait Read<'de> {
     fn position(&self) -> Position;
 
     fn peek_n<const N: usize>(&mut self) -> Result<&[u8]>;
 
+    #[inline]
     fn peek(&mut self) -> Result<u8> {
         let chars = self.peek_n::<1>()?;
         Ok(chars[0])
     }
 
+    #[inline]
     fn peek2(&mut self) -> Result<(u8, u8)> {
         let chars = self.peek_n::<2>()?;
         Ok((chars[0], chars[1]))
     }
 
+    #[inline]
     fn peek3(&mut self) -> Result<(u8, u8, u8)> {
         let chars = self.peek_n::<3>()?;
         Ok((chars[0], chars[1], chars[2]))
@@ -191,10 +197,11 @@ pub trait Read<'a> {
         escape: bool,
         scratch: &'s mut Vec<u8>,
         delimiter: F,
-    ) -> Result<Reference<'a, 's, str>>
+    ) -> Result<Reference<'de, 's, str>>
     where
         F: Fn(&mut Self) -> Result<bool>;
 
+    #[inline]
     fn peek_whitespace(&mut self) -> Result<Option<usize>> {
         let n = match self.peek_n::<3>() {
             Ok(bytes) => leading_whitespace_bytes(bytes),
@@ -213,10 +220,12 @@ pub trait Read<'a> {
         if n > 0 { Ok(Some(n)) } else { Ok(None) }
     }
 
+    #[inline]
     fn starts_with_whitespace(&mut self) -> Result<bool> {
         self.peek_whitespace().map(|n| n.is_some())
     }
 
+    #[inline]
     fn peek_horizontal_whitespace(&mut self) -> Result<Option<usize>> {
         if self.peek()? != b'\n' {
             self.peek_whitespace()
@@ -225,6 +234,7 @@ pub trait Read<'a> {
         }
     }
 
+    #[inline]
     fn starts_with_horizontal_whitespace(&mut self) -> Result<bool> {
         self.peek_horizontal_whitespace().map(|n| n.is_some())
     }
@@ -232,13 +242,12 @@ pub trait Read<'a> {
 
 pub struct StreamRead<R: std::io::Read> {
     inner: R,
-    buffer: [u8; MIN_BUFFER_SIZE],
-    decoded_start: usize,
-    decoded_end: usize,
+    buffer: [u8; DEFAULT_BUFFER_SIZE],
+    head: usize,
+    tail: usize,
     eof: bool,
     line: usize,
     col: usize,
-    start_of_line: usize,
 }
 
 impl<R: std::io::Read> StreamRead<R> {
@@ -246,12 +255,11 @@ impl<R: std::io::Read> StreamRead<R> {
         StreamRead {
             inner: reader,
             buffer: [0u8; _],
-            decoded_start: 0,
-            decoded_end: 0,
+            head: 0,
+            tail: 0,
             eof: false,
             line: 0,
             col: 0,
-            start_of_line: 0,
         }
     }
 
@@ -261,25 +269,26 @@ impl<R: std::io::Read> StreamRead<R> {
         }
 
         // 如果 buffer 已经满了，就不能再读
-        if self.decoded_end == self.buffer.len() {
+        if self.tail == self.buffer.len() {
             return Ok(());
         }
 
-        let empty_buf = &mut self.buffer[self.decoded_end..];
+        let empty_buf = &mut self.buffer[self.tail..];
         let n = self.inner.read(empty_buf)?;
         if n == 0 {
             self.eof = true;
         }
-        self.decoded_end += n;
+        self.tail += n;
         Ok(())
     }
 
+    #[inline]
     fn available_data_len(&self) -> usize {
-        self.decoded_end - self.decoded_start
+        self.tail - self.head
     }
 }
 
-impl<'a, R: std::io::Read> Read<'a> for StreamRead<R> {
+impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
     fn position(&self) -> Position {
         Position {
             line: self.line,
@@ -289,57 +298,51 @@ impl<'a, R: std::io::Read> Read<'a> for StreamRead<R> {
 
     #[inline]
     fn peek_n<const N: usize>(&mut self) -> Result<&[u8]> {
-        debug_assert!(N > 0 && N <= MIN_BUFFER_SIZE);
+        debug_assert!(N > 0 && N <= MAX_PEEK_N);
 
-        while self.available_data_len() < N {
+        if self.available_data_len() < N && !self.eof {
             // 如果 buffer 已经写满但数据不够 -> 搬移一下
-            if self.decoded_end == self.buffer.len() && self.decoded_start > 0 {
-                let len = self.decoded_end - self.decoded_start;
-                self.buffer
-                    .copy_within(self.decoded_start..self.decoded_end, 0);
-                self.decoded_start = 0;
-                self.decoded_end = len;
+            if self.tail == self.buffer.len() && self.head > 0 {
+                let len = self.tail - self.head;
+                self.buffer.copy_within(self.head..self.tail, 0);
+                self.head = 0;
+                self.tail = len;
             }
-
-            match self.fill_buf() {
-                Ok(()) => {}
-                Err(Error::Eof) => break,
-                Err(e) => return Err(e),
-            }
+            self.fill_buf()?;
         }
-
         if self.available_data_len() < N {
             Err(Error::Eof)
         } else {
-            Ok(&self.buffer[self.decoded_start..self.decoded_start + N])
+            Ok(&self.buffer[self.head..self.head + N])
         }
     }
 
+    #[inline]
     fn next(&mut self) -> Result<u8> {
-        if self.available_data_len() > 0 {
-            let byte = self.buffer[self.decoded_start];
-            self.decoded_start += 1;
-            if self.decoded_start == self.decoded_end {
-                self.decoded_start = 0;
-                self.decoded_end = 0;
-            }
-            Ok(byte)
-        } else {
-            let mut byte = 0;
-            match self.inner.read(slice::from_mut(&mut byte)) {
-                Ok(0) => Err(Error::Eof),
-                Ok(..) => Ok(byte),
-                Err(e) => Err(Error::Io(e)),
-            }
+        if self.available_data_len() == 0 && !self.eof {
+            self.fill_buf()?;
         }
+        let byte = self.buffer[self.head];
+        if byte == b'\n' {
+            self.line += 1;
+        } else {
+            self.col += 1;
+        }
+        self.head += 1;
+        if self.head == self.tail {
+            self.head = 0;
+            self.tail = 0;
+        }
+        Ok(byte)
     }
 
+    #[inline]
     fn parse_str<'s, F>(
         &'s mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
         delimiter: F,
-    ) -> Result<Reference<'a, 's, str>>
+    ) -> Result<Reference<'de, 's, str>>
     where
         F: Fn(&mut Self) -> Result<bool>,
     {
@@ -357,13 +360,9 @@ impl<'a, R: std::io::Read> Read<'a> for StreamRead<R> {
                 break;
             }
         }
-        match str::from_utf8(scratch) {
-            Ok(s) => Ok(Reference::Copied(s)),
-            Err(_) => Err(Error::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "invalid UTF-8",
-            ))),
-        }
+        str::from_utf8(scratch)
+            .map_err(|_| Error::InvalidUtf8)
+            .map(Reference::Copied)
     }
 }
 
@@ -400,13 +399,13 @@ macro_rules! parse_str_bytes_impl {
     }};
 }
 
-pub struct SliceRead<'a> {
-    slice: &'a [u8],
+pub struct SliceRead<'de> {
+    slice: &'de [u8],
     index: usize,
 }
 
-impl<'a> SliceRead<'a> {
-    pub fn new(slice: &'a [u8]) -> Self {
+impl<'de> SliceRead<'de> {
+    pub fn new(slice: &'de [u8]) -> Self {
         SliceRead { slice, index: 0 }
     }
 
@@ -421,6 +420,7 @@ impl<'a> SliceRead<'a> {
         }
     }
 
+    #[inline]
     fn available_data_len(&self) -> usize {
         self.slice.len() - self.index
     }
@@ -429,13 +429,14 @@ impl<'a> SliceRead<'a> {
         &self.slice[self.index..]
     }
 
+    #[inline]
     fn parse_str_bytes<'s, E, T, R>(
         &'s mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
         delimiter: E,
         result: R,
-    ) -> Result<Reference<'a, 's, T>>
+    ) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
         E: Fn(&mut Self) -> Result<bool>,
@@ -445,14 +446,14 @@ impl<'a> SliceRead<'a> {
     }
 }
 
-impl<'a> Read<'a> for SliceRead<'a> {
+impl<'de> Read<'de> for SliceRead<'de> {
     fn position(&self) -> Position {
         self.position_of_index(self.index)
     }
 
     #[inline]
     fn peek_n<const N: usize>(&mut self) -> Result<&[u8]> {
-        debug_assert!(N > 0 && N <= MIN_BUFFER_SIZE);
+        debug_assert!(N > 0 && N <= MAX_PEEK_N);
         if self.available_data_len() < N {
             Err(Error::Eof)
         } else {
@@ -460,6 +461,7 @@ impl<'a> Read<'a> for SliceRead<'a> {
         }
     }
 
+    #[inline]
     fn next(&mut self) -> Result<u8> {
         if self.index == self.slice.len() {
             return Err(Error::Eof);
@@ -469,12 +471,13 @@ impl<'a> Read<'a> for SliceRead<'a> {
         Ok(byte)
     }
 
+    #[inline]
     fn parse_str<'s, F>(
         &'s mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
         end: F,
-    ) -> Result<Reference<'a, 's, str>>
+    ) -> Result<Reference<'de, 's, str>>
     where
         F: Fn(&mut Self) -> Result<bool>,
     {
@@ -485,12 +488,12 @@ impl<'a> Read<'a> for SliceRead<'a> {
 }
 
 #[derive(Deref, DerefMut)]
-pub struct StrRead<'a> {
-    delegate: SliceRead<'a>,
+pub struct StrRead<'de> {
+    delegate: SliceRead<'de>,
 }
 
-impl<'a> StrRead<'a> {
-    pub fn new(s: &'a str) -> Self {
+impl<'de> StrRead<'de> {
+    pub fn new(s: &'de str) -> Self {
         Self {
             delegate: SliceRead::new(s.as_bytes()),
         }
@@ -500,13 +503,14 @@ impl<'a> StrRead<'a> {
         str::from_utf8(self.delegate.rest()).map_err(|_| Error::InvalidUtf8)
     }
 
+    #[inline]
     fn parse_str_bytes<'s, E, T, R>(
         &'s mut self,
         no_escape: bool,
         scratch: &'s mut Vec<u8>,
         delimiter: E,
         result: R,
-    ) -> Result<Reference<'a, 's, T>>
+    ) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
         E: Fn(&mut Self) -> Result<bool>,
@@ -516,7 +520,7 @@ impl<'a> StrRead<'a> {
     }
 }
 
-impl<'a> Read<'a> for StrRead<'a> {
+impl<'de> Read<'de> for StrRead<'de> {
     fn position(&self) -> Position {
         self.delegate.position()
     }
@@ -526,16 +530,18 @@ impl<'a> Read<'a> for StrRead<'a> {
         self.delegate.peek_n::<N>()
     }
 
+    #[inline]
     fn next(&mut self) -> Result<u8> {
         self.delegate.next()
     }
 
+    #[inline]
     fn parse_str<'s, F>(
         &'s mut self,
         no_escape: bool,
         scratch: &'s mut Vec<u8>,
         end: F,
-    ) -> Result<Reference<'a, 's, str>>
+    ) -> Result<Reference<'de, 's, str>>
     where
         F: Fn(&mut Self) -> Result<bool>,
     {

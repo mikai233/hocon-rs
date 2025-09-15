@@ -33,6 +33,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         let mut scratch = vec![];
         let mut spaces = vec![];
         let mut prev_space = None;
+        #[inline]
         fn push_value_and_space(
             values: &mut Vec<RawValue>,
             spaces: &mut Vec<Option<String>>,

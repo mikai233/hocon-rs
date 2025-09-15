@@ -4,12 +4,32 @@ use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::raw_string::RawString;
 
-const FORBIDDEN_CHARACTERS: [u8; 19] = [
-    b'$', b'"', b'{', b'}', b'[', b']', b':', b'=', b',', b'+', b'#', b'`', b'^', b'?', b'!', b'@',
-    b'*', b'&', b'\\',
-];
+// Precompute forbidden characters table
+const FORBIDDEN_TABLE: [bool; 256] = {
+    let mut table = [false; 256];
+    table[b'$' as usize] = true;
+    table[b'"' as usize] = true;
+    table[b'{' as usize] = true;
+    table[b'}' as usize] = true;
+    table[b'[' as usize] = true;
+    table[b']' as usize] = true;
+    table[b':' as usize] = true;
+    table[b'=' as usize] = true;
+    table[b',' as usize] = true;
+    table[b'+' as usize] = true;
+    table[b'#' as usize] = true;
+    table[b'`' as usize] = true;
+    table[b'^' as usize] = true;
+    table[b'?' as usize] = true;
+    table[b'!' as usize] = true;
+    table[b'@' as usize] = true;
+    table[b'*' as usize] = true;
+    table[b'&' as usize] = true;
+    table[b'\\' as usize] = true;
+    table
+};
 
-pub(crate) const TRIPLE_DOUBLE_QUOTE: [u8; 3] = [b'"', b'"', b'"'];
+pub(crate) const TRIPLE_DOUBLE_QUOTE: &[u8] = b"\"\"\"";
 
 impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_quoted_string(&mut self, check: bool) -> Result<String> {
@@ -68,7 +88,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         }
                     }
                     ch => {
-                        if FORBIDDEN_CHARACTERS.contains(&ch) || reader.starts_with_whitespace()? {
+                        if FORBIDDEN_TABLE[ch as usize] || reader.starts_with_whitespace()? {
                             end = true;
                         }
                     }
@@ -179,19 +199,22 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     return Err(err);
                 }
             };
-            const ENDING: [u8; 5] = [b':', b'{', b'=', b'}', b'+'];
-            if ENDING.contains(&ch) {
-                paths.push(path);
-                break;
-            } else if ch == b'.' {
-                path.push_str(ending_space);
-                paths.push(path);
-                self.reader.next()?;
-            } else {
-                return Err(Error::UnexpectedToken {
-                    expected: "a valid path expression",
-                    found_beginning: ch,
-                });
+            match ch {
+                b':' | b'{' | b'=' | b'}' | b'+' => {
+                    paths.push(path);
+                    break;
+                }
+                b'.' => {
+                    path.push_str(ending_space);
+                    paths.push(path);
+                    self.reader.next()?;
+                }
+                _ => {
+                    return Err(Error::UnexpectedToken {
+                        expected: "a valid path expression",
+                        found_beginning: ch,
+                    });
+                }
             }
         }
         // After the loop, the paths vector must not be empty.
