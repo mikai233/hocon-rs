@@ -15,7 +15,7 @@ memchr = "2.7.5"
 ahash = "0.8.12"
 thiserror = "2.0.12"
 serde = { version = "1.0.223" }
-serde_json = { version = "1.0.142" }
+serde_json = { version = "1.0.145" }
 reqwest = { version = "0.12.22", optional = true, default-features = false, features = [
     "blocking",
     "rustls-tls",
