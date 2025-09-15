@@ -137,7 +137,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         let raw_obj = match self.reader.peek() {
             Ok(ch) => {
                 if ch == b'{' {
-                    self.parse_object()?
+                    self.parse_object(false)?
                 } else {
                     self.parse_braces_omitted_object()?
                 }

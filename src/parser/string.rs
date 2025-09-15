@@ -12,13 +12,15 @@ const FORBIDDEN_CHARACTERS: [u8; 19] = [
 pub(crate) const TRIPLE_DOUBLE_QUOTE: [u8; 3] = [b'"', b'"', b'"'];
 
 impl<'de, R: Read<'de>> HoconParser<R> {
-    pub(crate) fn parse_quoted_string(&mut self) -> Result<String> {
-        let ch = self.reader.peek()?;
-        if ch != b'"' {
-            return Err(Error::UnexpectedToken {
-                expected: "\"",
-                found_beginning: ch,
-            });
+    pub(crate) fn parse_quoted_string(&mut self, check: bool) -> Result<String> {
+        if check {
+            let ch = self.reader.peek()?;
+            if ch != b'"' {
+                return Err(Error::UnexpectedToken {
+                    expected: "\"",
+                    found_beginning: ch,
+                });
+            }
         }
         self.reader.next()?;
         self.scratch.clear();
@@ -88,18 +90,20 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         }
     }
 
-    pub(crate) fn parse_multiline_string(&mut self) -> Result<String> {
-        let bytes = self.reader.peek_n::<3>()?;
-        if bytes != TRIPLE_DOUBLE_QUOTE {
-            let (_, ch) = bytes
-                .iter()
-                .enumerate()
-                .find(|(index, ch)| &&TRIPLE_DOUBLE_QUOTE[*index] != ch)
-                .unwrap();
-            return Err(Error::UnexpectedToken {
-                expected: "\"\"\"",
-                found_beginning: *ch,
-            });
+    pub(crate) fn parse_multiline_string(&mut self, verify_delimiter: bool) -> Result<String> {
+        if verify_delimiter {
+            let bytes = self.reader.peek_n::<3>()?;
+            if bytes != TRIPLE_DOUBLE_QUOTE {
+                let (_, ch) = bytes
+                    .iter()
+                    .enumerate()
+                    .find(|(index, ch)| &&TRIPLE_DOUBLE_QUOTE[*index] != ch)
+                    .unwrap();
+                return Err(Error::UnexpectedToken {
+                    expected: "\"\"\"",
+                    found_beginning: *ch,
+                });
+            }
         }
         for _ in 0..3 {
             self.reader.next()?;
@@ -151,9 +155,9 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     if let Ok(bytes) = self.reader.peek_n::<3>()
                         && bytes == TRIPLE_DOUBLE_QUOTE
                     {
-                        self.parse_multiline_string()?
+                        self.parse_multiline_string(false)?
                     } else {
-                        self.parse_quoted_string()?
+                        self.parse_quoted_string(false)?
                     }
                 }
                 _ => self.parse_unquoted_path()?,
@@ -226,7 +230,7 @@ mod tests {
     ) -> Result<()> {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let s = parser.parse_quoted_string()?;
+        let s = parser.parse_quoted_string(true)?;
         assert_eq!(s, expected);
         assert_eq!(parser.reader.rest()?, rest);
         Ok(())
@@ -244,7 +248,7 @@ mod tests {
     fn test_invalid_quoted_string(#[case] input: &str) {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let result = parser.parse_quoted_string();
+        let result = parser.parse_quoted_string(true);
         assert!(result.is_err());
     }
 
@@ -281,7 +285,7 @@ mod tests {
     ) -> Result<()> {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let s = parser.parse_multiline_string()?;
+        let s = parser.parse_multiline_string(true)?;
         assert_eq!(s, expected);
         assert_eq!(parser.reader.rest()?, rest);
         Ok(())
@@ -295,7 +299,7 @@ mod tests {
     fn test_invalid_multiline_string(#[case] input: &str) {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let result = parser.parse_multiline_string();
+        let result = parser.parse_multiline_string(true);
         assert!(result.is_err());
     }
 

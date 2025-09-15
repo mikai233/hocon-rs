@@ -56,7 +56,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     if current_depth > max_depth {
                         return Err(Error::RecursionDepthExceeded { max_depth });
                     }
-                    let array = self.parse_array()?;
+                    let array = self.parse_array(false)?;
                     self.ctx.decrease_depth();
                     let v = RawValue::Array(array);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
@@ -68,7 +68,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     if current_depth > max_depth {
                         return Err(Error::RecursionDepthExceeded { max_depth });
                     }
-                    let object = self.parse_object()?;
+                    let object = self.parse_object(false)?;
                     self.ctx.decrease_depth();
                     let v = RawValue::Object(object);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
@@ -78,10 +78,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     let v = if let Ok(chars) = self.reader.peek_n::<3>()
                         && chars == TRIPLE_DOUBLE_QUOTE
                     {
-                        let multiline = self.parse_multiline_string()?;
+                        let multiline = self.parse_multiline_string(false)?;
                         RawValue::String(RawString::MultilineString(multiline))
                     } else {
-                        let quoted = self.parse_quoted_string()?;
+                        let quoted = self.parse_quoted_string(false)?;
                         RawValue::String(RawString::QuotedString(quoted))
                     };
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
@@ -245,13 +245,15 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok(raw_obj)
     }
 
-    pub(crate) fn parse_object(&mut self) -> Result<RawObject> {
-        let ch = self.reader.peek()?;
-        if ch != b'{' {
-            return Err(Error::UnexpectedToken {
-                expected: "{",
-                found_beginning: ch,
-            });
+    pub(crate) fn parse_object(&mut self, verify_delimiter: bool) -> Result<RawObject> {
+        if verify_delimiter {
+            let ch = self.reader.peek()?;
+            if ch != b'{' {
+                return Err(Error::UnexpectedToken {
+                    expected: "{",
+                    found_beginning: ch,
+                });
+            }
         }
         self.reader.next()?;
         let raw_obj = self.parse_braces_omitted_object()?;

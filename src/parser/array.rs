@@ -5,13 +5,15 @@ use crate::parser::read::Read;
 use crate::raw::raw_array::RawArray;
 
 impl<'de, R: Read<'de>> HoconParser<R> {
-    pub(crate) fn parse_array(&mut self) -> Result<RawArray> {
-        let ch = self.reader.peek()?;
-        if ch != b'[' {
-            return Err(Error::UnexpectedToken {
-                expected: "[",
-                found_beginning: ch,
-            });
+    pub(crate) fn parse_array(&mut self, verify_delimiter: bool) -> Result<RawArray> {
+        if verify_delimiter {
+            let ch = self.reader.peek()?;
+            if ch != b'[' {
+                return Err(Error::UnexpectedToken {
+                    expected: "[",
+                    found_beginning: ch,
+                });
+            }
         }
         self.reader.next()?;
         let mut values = vec![];
@@ -53,7 +55,7 @@ mod tests {
         use std::io::BufReader;
         let read = StreamRead::new(BufReader::new(input.as_bytes()));
         let mut parser = HoconParser::new(read);
-        let values = parser.parse_array()?.into_inner();
+        let values = parser.parse_array(true)?.into_inner();
         assert_eq!(values, expected);
         Ok(())
     }

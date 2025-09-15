@@ -6,7 +6,7 @@ use crate::Result;
 use crate::error::Error;
 
 // We should peek at least 7 bytes because the include token has a length of 7 bytes.
-pub(crate) const MIN_BUFFER_SIZE: usize = 7;
+pub(crate) const MIN_BUFFER_SIZE: usize = 4096;
 
 /// Returns the number of bytes of the first character in `bytes`
 /// if it is a whitespace character, otherwise returns 0.

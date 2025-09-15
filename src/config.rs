@@ -249,18 +249,18 @@ mod tests {
     }
 
     #[rstest]
-    // #[case("resources/empty.conf", "resources/empty.json")]
-    // #[case("resources/base.conf", "resources/base.json")]
-    // #[case("resources/add_assign.conf", "resources/add_assign_expected.json")]
-    // #[case("resources/concat.conf", "resources/concat.json")]
-    // #[case("resources/concat2.conf", "resources/concat2.json")]
-    // #[case("resources/concat3.conf", "resources/concat3.json")]
-    // #[case("resources/concat4.conf", "resources/concat4.json")]
+    #[case("resources/empty.conf", "resources/empty.json")]
+    #[case("resources/base.conf", "resources/base.json")]
+    #[case("resources/add_assign.conf", "resources/add_assign_expected.json")]
+    #[case("resources/concat.conf", "resources/concat.json")]
+    #[case("resources/concat2.conf", "resources/concat2.json")]
+    #[case("resources/concat3.conf", "resources/concat3.json")]
+    #[case("resources/concat4.conf", "resources/concat4.json")]
     #[case("resources/concat5.conf", "resources/concat5.json")]
-    // #[case("resources/include.conf", "resources/include.json")]
-    // #[case("resources/comment.conf", "resources/comment.json")]
-    // #[case("resources/substitution.conf", "resources/substitution.json")]
-    // #[case("resources/self_referential.conf", "resources/self_referential.json")]
+    #[case("resources/include.conf", "resources/include.json")]
+    #[case("resources/comment.conf", "resources/comment.json")]
+    #[case("resources/substitution.conf", "resources/substitution.json")]
+    #[case("resources/self_referential.conf", "resources/self_referential.json")]
     fn test_hocon(
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,
@@ -275,45 +275,45 @@ mod tests {
         Ok(())
     }
 
-    // #[test]
-    // fn test_max_depth() -> Result<()> {
-    //     let error = Config::load::<Value>("resources/max_depth.conf", None)
-    //         .err()
-    //         .unwrap();
-    //     assert!(matches!(error, Error::RecursionDepthExceeded { .. }));
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_include_cycle() -> Result<()> {
-    //     let mut options = ConfigOptions::default();
-    //     options.classpath = vec!["resources".to_string()].into();
-    //     let error = Config::load::<Value>("resources/include_cycle.conf", Some(options))
-    //         .err()
-    //         .unwrap();
-    //     assert!(matches!(error, Error::Include { .. }));
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_substitution_cycle() -> Result<()> {
-    //     let mut options = ConfigOptions::default();
-    //     options.classpath = vec!["resources".to_string()].into();
-    //     let error = Config::load::<Value>("resources/substitution_cycle.conf", Some(options))
-    //         .err()
-    //         .unwrap();
-    //     assert!(matches!(error, Error::SubstitutionCycle { .. }));
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_substitution_not_found() -> Result<()> {
-    //     let mut options = ConfigOptions::default();
-    //     options.classpath = vec!["resources".to_string()].into();
-    //     let error = Config::load::<Value>("resources/substitution2.conf", Some(options))
-    //         .err()
-    //         .unwrap();
-    //     assert!(matches!(error, Error::SubstitutionNotFound { .. }));
-    //     Ok(())
-    // }
+    #[test]
+    fn test_max_depth() -> Result<()> {
+        let error = Config::load::<Value>("resources/max_depth.conf", None)
+            .err()
+            .unwrap();
+        assert!(matches!(error, Error::RecursionDepthExceeded { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn test_include_cycle() -> Result<()> {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()].into();
+        let error = Config::load::<Value>("resources/include_cycle.conf", Some(options))
+            .err()
+            .unwrap();
+        assert!(matches!(error, Error::Include { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn test_substitution_cycle() -> Result<()> {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()].into();
+        let error = Config::load::<Value>("resources/substitution_cycle.conf", Some(options))
+            .err()
+            .unwrap();
+        assert!(matches!(error, Error::SubstitutionCycle { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn test_substitution_not_found() -> Result<()> {
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["resources".to_string()].into();
+        let error = Config::load::<Value>("resources/substitution2.conf", Some(options))
+            .err()
+            .unwrap();
+        assert!(matches!(error, Error::SubstitutionNotFound { .. }));
+        Ok(())
+    }
 }
