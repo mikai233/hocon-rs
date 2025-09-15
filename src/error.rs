@@ -8,6 +8,8 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
     #[error("Invalid escape")]
     InvalidEscape,
+    #[error("Invalid UTF-8")]
+    InvalidUtf8,
     #[error(
         "Unexpected token, expected:{}, found beginning:{}",
         expected,

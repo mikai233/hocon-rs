@@ -39,7 +39,7 @@ mod tests {
 
     use crate::Result;
     use crate::parser::HoconParser;
-    use crate::parser::read::TestStreamRead;
+    use crate::parser::read::StreamRead;
     use crate::raw::raw_value::RawValue;
 
     #[rstest]
@@ -51,7 +51,7 @@ mod tests {
     #[case("[1\r\n2.0001f ,3, \n]", vec![RawValue::number(1), RawValue::unquoted_string("2.0001f"), RawValue::number(3)])]
     fn test_valid_array(#[case] input: &str, #[case] expected: Vec<RawValue>) -> Result<()> {
         use std::io::BufReader;
-        let read = TestStreamRead::new(BufReader::new(input.as_bytes()));
+        let read = StreamRead::new(BufReader::new(input.as_bytes()));
         let mut parser = HoconParser::new(read);
         let values = parser.parse_array()?.into_inner();
         assert_eq!(values, expected);

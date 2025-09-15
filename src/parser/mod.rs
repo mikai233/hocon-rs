@@ -38,6 +38,7 @@ impl Context {
 #[derive(Debug)]
 pub struct HoconParser<R> {
     pub(crate) reader: R,
+    pub(crate) scratch: Vec<u8>,
     pub(crate) options: ConfigOptions,
     pub(crate) ctx: Context,
 }
@@ -46,6 +47,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub fn new(reader: R) -> Self {
         HoconParser {
             reader,
+            scratch: vec![],
             options: Default::default(),
             ctx: Default::default(),
         }
@@ -54,6 +56,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub fn with_options(reader: R, options: ConfigOptions) -> Self {
         HoconParser {
             reader,
+            scratch: vec![],
             options,
             ctx: Default::default(),
         }
@@ -62,6 +65,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn with_options_and_ctx(reader: R, options: ConfigOptions, ctx: Context) -> Self {
         HoconParser {
             reader,
+            scratch: vec![],
             options,
             ctx,
         }

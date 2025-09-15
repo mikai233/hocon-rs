@@ -180,8 +180,7 @@ pub(crate) fn load_from_url(
             let syntax = extension_syntax.or(header_syntax).unwrap_or(Syntax::Hocon);
             match syntax {
                 Syntax::Hocon => {
-                    let read: StreamRead<_, DEFAULT_BUFFER> =
-                        StreamRead::new(std::io::BufReader::new(response));
+                    let read = StreamRead::new(std::io::BufReader::new(response));
                     parse_hocon(read, options, ctx)
                 }
                 Syntax::Json => parse_json(response),

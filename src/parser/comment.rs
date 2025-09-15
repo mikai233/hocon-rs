@@ -1,40 +1,39 @@
 use crate::Result;
 use crate::error::Error;
 use crate::parser::HoconParser;
-use crate::parser::read::Read;
+use crate::parser::read::{Read, Reference};
 use crate::raw::comment::CommentType;
 
 impl<'de, R: Read<'de>> HoconParser<R> {
-    pub(crate) fn parse_comment(&mut self) -> Result<(CommentType, String)> {
+    fn parse_comment_inner<'s>(&'s mut self) -> Result<(CommentType, Reference<'de, 's, str>)> {
         let ty = self.parse_comment_token()?;
-        let mut scratch = vec![];
-        self.reader
-            .parse_str(&mut scratch, |reader| match reader.peek() {
-                Ok(ch) => match ch {
-                    b'\r' => match reader.peek2() {
-                        Ok((_, ch2)) => {
-                            if ch2 == b'\n' {
-                                Ok(true)
-                            } else {
-                                Ok(false)
+        self.scratch.clear();
+        let content =
+            self.reader
+                .parse_str(true, &mut self.scratch, |reader| match reader.peek() {
+                    Ok(ch) => match ch {
+                        b'\r' => match reader.peek2() {
+                            Ok((_, ch2)) => {
+                                if ch2 == b'\n' {
+                                    Ok(true)
+                                } else {
+                                    Ok(false)
+                                }
                             }
-                        }
-                        Err(Error::Eof) => Ok(false),
-                        Err(err) => Err(err),
+                            Err(Error::Eof) => Ok(false),
+                            Err(err) => Err(err),
+                        },
+                        b'\n' => Ok(true),
+                        _ => Ok(false),
                     },
-                    b'\n' => Ok(true),
-                    _ => Ok(false),
-                },
-                Err(Error::Eof) => Ok(true),
-                Err(err) => Err(err),
-            })?;
-        let s = str::from_utf8(&scratch).map_err(|_| {
-            Error::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "invalid UTF-8",
-            ))
-        })?;
-        Ok((ty, s.to_string()))
+                    Err(Error::Eof) => Ok(true),
+                    Err(err) => Err(err),
+                })?;
+        Ok((ty, content))
+    }
+
+    pub(crate) fn parse_comment(&mut self) -> Result<(CommentType, String)> {
+        self.parse_comment_inner().map(|(t, c)| (t, c.to_string()))
     }
 
     fn parse_comment_token(&mut self) -> Result<CommentType> {
@@ -61,7 +60,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn drop_whitespace_and_comments(&mut self) -> Result<()> {
         loop {
             self.drop_whitespace()?;
-            match self.parse_comment() {
+            match self.parse_comment_inner() {
                 Ok(_) => {}
                 Err(Error::Eof) | Err(Error::UnexpectedToken { .. }) => {
                     break Ok(());
@@ -80,28 +79,28 @@ mod tests {
 
     use crate::Result;
     use crate::parser::HoconParser;
-    use crate::parser::read::TestRead;
+    use crate::parser::read::StrRead;
     use crate::raw::comment::CommentType;
 
     #[rstest]
-    #[case(vec!["#","你","好","👌","\r","\r","\n"],(CommentType::Hash,"你好👌\r"),"\r\n")]
-    #[case(vec!["#","你","好","👌","\r","\n"],(CommentType::Hash,"你好👌"),"\r\n")]
-    #[case(vec!["#","Hello","Wo\nrld","👌","\r","\n"],(CommentType::Hash,"HelloWo"),"\nrld👌\r\n")]
-    #[case(vec!["//","Hello","//World\n"],(CommentType::DoubleSlash,"Hello//World"),"\n")]
-    #[case(vec!["//","\r\n"],(CommentType::DoubleSlash,""),"\r\n")]
-    #[case(vec!["#","\n"],(CommentType::Hash,""),"\n")]
-    #[case(vec!["//","Hello","//World"],(CommentType::DoubleSlash,"Hello//World"),"")]
+    #[case("#你好👌\r\r\n", (CommentType::Hash, "你好👌\r"), "\r\n")]
+    #[case("#你好👌\r\n", (CommentType::Hash, "你好👌"), "\r\n")]
+    #[case("#HelloWo\nrld👌\r\n", (CommentType::Hash, "HelloWo"), "\nrld👌\r\n")]
+    #[case("//Hello//World\n", (CommentType::DoubleSlash, "Hello//World"), "\n")]
+    #[case("//\r\n", (CommentType::DoubleSlash, ""), "\r\n")]
+    #[case("#\n", (CommentType::Hash, ""), "\n")]
+    #[case("//Hello//World", (CommentType::DoubleSlash, "Hello//World"), "")]
     fn test_valid_comment(
-        #[case] input: Vec<&str>,
+        #[case] input: &str,
         #[case] expected: (CommentType, &str),
         #[case] rest: &str,
     ) -> Result<()> {
-        let read = TestRead::from_input(input);
+        let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
         let (t, c) = parser.parse_comment()?;
         assert_eq!(t, expected.0);
         assert_eq!(c, expected.1);
-        assert_eq!(parser.reader.rest(), rest);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 }

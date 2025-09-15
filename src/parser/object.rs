@@ -159,6 +159,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         }
     }
 
+    // TODO if key parse success and value parse error, should report an error.
     pub(crate) fn parse_key_value(&mut self) -> Result<(RawString, RawValue)> {
         self.drop_whitespace()?;
         let key = self.parse_key()?;

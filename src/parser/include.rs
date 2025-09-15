@@ -264,38 +264,46 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 mod tests {
     use crate::Result;
     use crate::parser::HoconParser;
-    use crate::parser::read::TestRead;
+    use crate::parser::read::StrRead;
     use rstest::rstest;
 
     #[rstest]
-    #[case(vec!["i","nclude"," ", "\"demo\".conf"],"include \"demo\"", ".conf")]
-    #[case(vec!["i","nclude", "\"demo.conf\""],"include \"demo.conf\"", "")]
-    #[case(vec!["i","nclude","   r","equired(  ", "  \"demo.conf\" ",")"],"include required(\"demo.conf\")","" )]
-    #[case(vec!["i","nclude","   r","equired(  ", "file(  \"demo.conf\" )",")"],"include required(file(\"demo.conf\"))","")]
+    #[case("include \"demo\".conf", "include \"demo\"", ".conf")]
+    #[case("include\"demo.conf\"", "include \"demo.conf\"", "")]
+    #[case(
+        "include   required(    \"demo.conf\" )",
+        "include required(\"demo.conf\")",
+        ""
+    )]
+    #[case(
+        "include   required(  file(  \"demo.conf\" ))",
+        "include required(file(\"demo.conf\"))",
+        ""
+    )]
     fn test_valid_include(
-        #[case] input: Vec<&str>,
+        #[case] input: &str,
         #[case] expected: &str,
         #[case] rest: &str,
     ) -> Result<()> {
-        let read = TestRead::from_input(input);
+        let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
         let inclusion = parser.parse_include()?;
         assert_eq!(inclusion.to_string(), expected);
-        assert_eq!(parser.reader.rest(), rest);
+        assert_eq!(parser.reader.rest()?, rest);
         Ok(())
     }
 
     #[rstest]
-    #[case(vec!["include", "demo"])]
-    #[case(vec!["include", "required (\"demo\")"])]
-    #[case(vec!["include", "required(\"demo\",)"])]
-    #[case(vec!["include", "required(\"demo\""])]
-    #[case(vec!["include", "required1(\"demo\")"])]
-    #[case(vec!["include", "classpat(\"demo\")"])]
-    #[case(vec!["include", "classpath(file(\"demo\"))"])]
-    #[case(vec!["include", "classpath(required(\"demo\"))"])]
-    fn test_invalid_include(#[case] input: Vec<&str>) -> Result<()> {
-        let read = TestRead::from_input(input);
+    #[case("includedemo")]
+    #[case("include required (\"demo\")")]
+    #[case("include required(\"demo\",)")]
+    #[case("include required(\"demo\"")]
+    #[case("include required1(\"demo\")")]
+    #[case("include classpat(\"demo\")")]
+    #[case("include classpath(file(\"demo\"))")]
+    #[case("include classpath(required(\"demo\"))")]
+    fn test_invalid_include(#[case] input: &str) -> Result<()> {
+        let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
         let result = parser.parse_include();
         assert!(result.is_err());

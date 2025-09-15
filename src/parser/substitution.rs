@@ -45,11 +45,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
+    use crate::{Result, parser::read::StreamRead};
     use std::io::BufReader;
 
     use crate::parser::HoconParser;
-    use crate::parser::read::TestStreamRead;
     use rstest::rstest;
 
     #[rstest]
@@ -59,7 +58,7 @@ mod tests {
     #[case(r#"${? a. b."c"}"#, "${?a. b.c}")]
     #[case(r#"${? """a""". b."c"}"#, "${?a. b.c}")]
     fn test_valid_path_expression(#[case] input: &str, #[case] expected: &str) -> Result<()> {
-        let read = TestStreamRead::new(BufReader::new(input.as_bytes()));
+        let read = StreamRead::new(BufReader::new(input.as_bytes()));
         let mut parser = HoconParser::new(read);
         let substitution = parser.parse_substitution()?;
         assert_eq!(substitution.to_string(), expected);
@@ -72,7 +71,7 @@ mod tests {
     #[case("${?foo.bar.}")]
     #[case("${?foo.bar")]
     fn test_invalid_path_expression(#[case] input: &str) {
-        let read = TestStreamRead::new(BufReader::new(input.as_bytes()));
+        let read = StreamRead::new(BufReader::new(input.as_bytes()));
         let mut parser = HoconParser::new(read);
         let result = parser.parse_substitution();
         assert!(result.is_err());
