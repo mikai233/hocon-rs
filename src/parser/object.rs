@@ -76,7 +76,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
                 b'"' => {
                     // Parse quoted string or multi-line string
-                    let v = if let Ok(chars) = self.reader.peek_n::<3>()
+                    let v = if let Ok(chars) = self.reader.peek_n(3)
                         && chars == TRIPLE_DOUBLE_QUOTE
                     {
                         let multiline = self.parse_multiline_string(false)?;
@@ -178,7 +178,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         let ch = self.reader.peek()?;
         match ch {
             b':' | b'=' => {
-                self.reader.next()?;
+                self.reader.discard(1)?;
             }
             b'+' => {
                 let (_, ch2) = self.reader.peek2()?;
@@ -188,8 +188,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         found_beginning: ch2,
                     });
                 }
-                self.reader.next()?;
-                self.reader.next()?;
+                self.reader.discard(2)?;
                 return Ok(true);
             }
             b'{' => {}
@@ -207,7 +206,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_object_field(&mut self) -> Result<ObjectField> {
         let ch = self.reader.peek()?;
         // It maybe an include syntax, we need to peek more chars to determine.
-        let field = if ch == b'i' && self.reader.peek_n::<7>()? == INCLUDE {
+        let field = if ch == b'i' && self.reader.peek_n(7)? == INCLUDE {
             let mut inclusion = self.parse_include()?;
             self.parse_inclusion(&mut inclusion)?;
             ObjectField::inclusion(inclusion)
@@ -256,7 +255,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 });
             }
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         let raw_obj = self.parse_braces_omitted_object()?;
         let ch = self.reader.peek()?;
         if ch != b'}' {
@@ -265,7 +264,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 found_beginning: ch,
             });
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         Ok(raw_obj)
     }
 

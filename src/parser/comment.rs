@@ -39,14 +39,13 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     fn parse_comment_token(&mut self) -> Result<CommentType> {
         let ch = self.reader.peek()?;
         let ty = if ch == b'#' {
-            self.reader.next()?;
+            self.reader.discard(1)?;
             CommentType::Hash
         } else if let Ok((ch1, ch2)) = self.reader.peek2()
             && ch1 == b'/'
             && ch2 == b'/'
         {
-            self.reader.next()?;
-            self.reader.next()?;
+            self.reader.discard(2)?;
             CommentType::DoubleSlash
         } else {
             return Err(Error::UnexpectedToken {
