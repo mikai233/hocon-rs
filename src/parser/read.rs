@@ -170,27 +170,29 @@ where
 pub trait Read<'de> {
     fn position(&self) -> Position;
 
-    fn peek_n<const N: usize>(&mut self) -> Result<&[u8]>;
+    fn peek_n(&mut self, n: usize) -> Result<&[u8]>;
 
     #[inline]
     fn peek(&mut self) -> Result<u8> {
-        let chars = self.peek_n::<1>()?;
+        let chars = self.peek_n(1)?;
         Ok(chars[0])
     }
 
     #[inline]
     fn peek2(&mut self) -> Result<(u8, u8)> {
-        let chars = self.peek_n::<2>()?;
+        let chars = self.peek_n(2)?;
         Ok((chars[0], chars[1]))
     }
 
-    #[inline]
-    fn peek3(&mut self) -> Result<(u8, u8, u8)> {
-        let chars = self.peek_n::<3>()?;
-        Ok((chars[0], chars[1], chars[2]))
-    }
-
     fn next(&mut self) -> Result<u8>;
+
+    #[inline]
+    fn discard(&mut self, n: usize) -> Result<()> {
+        for _ in 0..n {
+            self.next()?;
+        }
+        Ok(())
+    }
 
     fn parse_str<'s, F>(
         &'s mut self,
@@ -203,11 +205,11 @@ pub trait Read<'de> {
 
     #[inline]
     fn peek_whitespace(&mut self) -> Result<Option<usize>> {
-        let n = match self.peek_n::<3>() {
+        let n = match self.peek_n(3) {
             Ok(bytes) => leading_whitespace_bytes(bytes),
-            Err(Error::Eof) => match self.peek_n::<2>() {
+            Err(Error::Eof) => match self.peek_n(2) {
                 Ok(bytes) => leading_whitespace_bytes(bytes),
-                Err(Error::Eof) => match self.peek_n::<1>() {
+                Err(Error::Eof) => match self.peek_n(1) {
                     Ok(bytes) => leading_whitespace_bytes(bytes),
                     Err(err) => {
                         return Err(err);
@@ -297,10 +299,10 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
     }
 
     #[inline]
-    fn peek_n<const N: usize>(&mut self) -> Result<&[u8]> {
-        debug_assert!(N > 0 && N <= MAX_PEEK_N);
+    fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
+        debug_assert!(n > 0 && n <= MAX_PEEK_N);
 
-        if self.available_data_len() < N && !self.eof {
+        if self.available_data_len() < n && !self.eof {
             // 如果 buffer 已经写满但数据不够 -> 搬移一下
             if self.tail == self.buffer.len() && self.head > 0 {
                 let len = self.tail - self.head;
@@ -310,10 +312,10 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             }
             self.fill_buf()?;
         }
-        if self.available_data_len() < N {
+        if self.available_data_len() < n {
             Err(Error::Eof)
         } else {
-            Ok(&self.buffer[self.head..self.head + N])
+            Ok(&self.buffer[self.head..self.head + n])
         }
     }
 
@@ -452,12 +454,12 @@ impl<'de> Read<'de> for SliceRead<'de> {
     }
 
     #[inline]
-    fn peek_n<const N: usize>(&mut self) -> Result<&[u8]> {
-        debug_assert!(N > 0 && N <= MAX_PEEK_N);
-        if self.available_data_len() < N {
+    fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
+        debug_assert!(n > 0 && n <= MAX_PEEK_N);
+        if self.available_data_len() < n {
             Err(Error::Eof)
         } else {
-            Ok(&self.slice[self.index..self.index + N])
+            Ok(&self.slice[self.index..self.index + n])
         }
     }
 
@@ -469,6 +471,15 @@ impl<'de> Read<'de> for SliceRead<'de> {
         let byte = self.slice[self.index];
         self.index += 1;
         Ok(byte)
+    }
+
+    fn discard(&mut self, n: usize) -> Result<()> {
+        if self.available_data_len() < n {
+            Err(Error::Eof)
+        } else {
+            self.index += n;
+            Ok(())
+        }
     }
 
     #[inline]
@@ -526,8 +537,8 @@ impl<'de> Read<'de> for StrRead<'de> {
     }
 
     #[inline]
-    fn peek_n<const N: usize>(&mut self) -> Result<&[u8]> {
-        self.delegate.peek_n::<N>()
+    fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
+        self.delegate.peek_n(n)
     }
 
     #[inline]
@@ -565,22 +576,16 @@ mod tests {
         let (ch1, ch2) = read.peek2()?;
         assert_eq!(ch1, b'h');
         assert_eq!(ch2, b'e');
-        let (ch1, ch2, ch3) = read.peek3()?;
-        assert_eq!(ch1, b'h');
-        assert_eq!(ch2, b'e');
-        assert_eq!(ch3, b'l');
-        read.next()?;
-        read.next()?;
-        read.next()?;
+        let chars = read.peek_n(3)?;
+        assert_eq!(chars, b"hel");
+        read.discard(3)?;
         let ch = read.peek()?;
         assert_eq!(ch, b'l');
         let (ch1, ch2) = read.peek2()?;
         assert_eq!(ch1, b'l');
         assert_eq!(ch2, b'o');
-        let (ch1, ch2, ch3) = read.peek3()?;
-        assert_eq!(ch1, b'l');
-        assert_eq!(ch2, b'o');
-        assert_eq!(ch3, b' ');
+        let chars = read.peek_n(3)?;
+        assert_eq!(chars, b"lo ");
         Ok(())
     }
 }

@@ -15,13 +15,13 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 });
             }
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         let mut values = vec![];
         loop {
             self.drop_whitespace_and_comments()?;
             let ch = self.reader.peek()?;
             if ch == b']' {
-                self.reader.next()?;
+                self.reader.discard(1)?;
                 break;
             }
             let v = self.parse_value()?;

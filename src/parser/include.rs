@@ -26,7 +26,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     found_beginning: ch,
                 });
             } else {
-                self.reader.next()?;
+                self.reader.discard(1)?;
             }
         }
         let inclusion = Inclusion::new(include_path.into(), required, location, None);
@@ -44,7 +44,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         // At this point, we still don't know if it's an include or something else,
         // so we need to use peek instead of consuming it
         const N: usize = 7;
-        let bytes = self.reader.peek_n::<N>()?;
+        let bytes = self.reader.peek_n(N)?;
         if bytes != INCLUDE {
             let (_, ch) = bytes
                 .iter()
@@ -56,9 +56,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 found_beginning: *ch,
             });
         }
-        for _ in 0..N {
-            self.reader.next()?;
-        }
+        self.reader.discard(N)?;
         Ok(())
     }
 

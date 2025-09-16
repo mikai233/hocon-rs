@@ -42,7 +42,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 });
             }
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         self.scratch.clear();
         let content = self
             .reader
@@ -55,7 +55,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 found_beginning: ch,
             });
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         Ok(content)
     }
 
@@ -112,7 +112,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 
     pub(crate) fn parse_multiline_string(&mut self, verify_delimiter: bool) -> Result<String> {
         if verify_delimiter {
-            let bytes = self.reader.peek_n::<3>()?;
+            let bytes = self.reader.peek_n(3)?;
             if bytes != TRIPLE_DOUBLE_QUOTE {
                 let (_, ch) = bytes
                     .iter()
@@ -125,19 +125,15 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 });
             }
         }
-        for _ in 0..3 {
-            self.reader.next()?;
-        }
+        self.reader.discard(3)?;
         self.scratch.clear();
         let content = self
             .reader
             .parse_str(false, &mut self.scratch, |reader| {
-                Ok(reader.peek_n::<3>()? == TRIPLE_DOUBLE_QUOTE)
+                Ok(reader.peek_n(3)? == TRIPLE_DOUBLE_QUOTE)
             })?
             .to_string();
-        for _ in 0..3 {
-            self.reader.next()?;
-        }
+        self.reader.discard(3)?;
         Ok(content)
     }
 
@@ -172,7 +168,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             let path = match ch {
                 b'"' => {
                     // quoted string or multiline string
-                    if let Ok(bytes) = self.reader.peek_n::<3>()
+                    if let Ok(bytes) = self.reader.peek_n(3)
                         && bytes == TRIPLE_DOUBLE_QUOTE
                     {
                         self.parse_multiline_string(false)?
@@ -207,7 +203,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 b'.' => {
                     path.push_str(ending_space);
                     paths.push(path);
-                    self.reader.next()?;
+                    self.reader.discard(1)?;
                 }
                 _ => {
                     return Err(Error::UnexpectedToken {

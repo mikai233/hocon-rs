@@ -91,9 +91,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         loop {
             match self.reader.peek_horizontal_whitespace() {
                 Ok(Some(n)) => {
-                    for _ in 0..n {
-                        self.reader.next()?;
-                    }
+                    self.reader.discard(n)?;
                 }
                 Ok(None) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
@@ -106,9 +104,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         loop {
             match self.reader.peek_whitespace() {
                 Ok(Some(n)) => {
-                    for _ in 0..n {
-                        self.reader.next()?;
-                    }
+                    self.reader.discard(n)?;
                 }
                 Ok(None) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
@@ -121,7 +117,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         match self.reader.peek() {
             Ok(ch) => {
                 if ch == b',' {
-                    self.reader.next()?;
+                    self.reader.discard(1)?;
                 }
             }
             Err(Error::Eof) => return Ok(true),

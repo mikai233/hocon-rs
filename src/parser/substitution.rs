@@ -13,17 +13,17 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 found_beginning: ch1,
             });
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         if ch2 != b'{' {
             return Err(Error::UnexpectedToken {
                 expected: "{",
                 found_beginning: ch2,
             });
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         let ch = self.reader.peek()?;
         let optional = if ch == b'?' {
-            self.reader.next()?;
+            self.reader.discard(1)?;
             true
         } else {
             false
@@ -37,7 +37,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 found_beginning: ch,
             });
         }
-        self.reader.next()?;
+        self.reader.discard(1)?;
         let substitution = Substitution::new(path_expression, optional);
         Ok(substitution)
     }
