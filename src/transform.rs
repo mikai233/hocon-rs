@@ -1,7 +1,6 @@
 use crate::value::Value;
-use ahash::HashMap;
 use serde_json::Number;
-use std::iter::once;
+use std::{collections::HashMap, iter::once};
 
 impl From<i64> for Value {
     fn from(value: i64) -> Self {

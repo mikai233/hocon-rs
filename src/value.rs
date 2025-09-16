@@ -1,11 +1,10 @@
-use ahash::{HashMap, HashMapExt};
 use bigdecimal::BigDecimal;
 use num_bigint::{BigUint, ToBigInt};
 use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
-use std::collections::BTreeMap;
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
@@ -988,7 +987,7 @@ mod tests {
     }
 
     fn obj(entries: Vec<(&str, Value)>) -> Value {
-        let mut map = ahash::HashMap::new();
+        let mut map = HashMap::new();
         for (k, v) in entries {
             map.insert(k.to_string(), v);
         }

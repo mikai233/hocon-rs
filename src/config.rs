@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
@@ -131,7 +133,7 @@ impl Config {
                 Value::Number(number) => RawValue::Number(number),
             }
         }
-        let raw = into_raw(Value::Object(ahash::HashMap::from_iter(values)));
+        let raw = into_raw(Value::Object(HashMap::from_iter(values)));
         if let RawValue::Object(raw_obj) = raw {
             Self::resolve_object::<T>(raw_obj)
         } else {

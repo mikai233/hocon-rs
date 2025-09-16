@@ -12,7 +12,6 @@ readme = "README.md"
 
 [dependencies]
 memchr = "2.7.5"
-ahash = "0.8.12"
 thiserror = "2.0.12"
 serde = { version = "1.0.223" }
 serde_json = { version = "1.0.145" }

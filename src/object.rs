@@ -1,6 +1,6 @@
 use crate::join_format;
 use crate::value::Value;
-use ahash::HashMap;
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::ops::{Deref, DerefMut};
 
