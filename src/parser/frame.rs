@@ -48,4 +48,13 @@ impl Frame {
             Frame::Array { .. } => "Frame::Array",
         }
     }
+
+    pub(crate) fn expect_value(&self) -> bool {
+        match self {
+            Frame::Object { next_entry, .. } => next_entry
+                .as_ref()
+                .is_some_and(|e| e.key.is_some() && e.separator.is_some()),
+            Frame::Array { .. } => true,
+        }
+    }
 }

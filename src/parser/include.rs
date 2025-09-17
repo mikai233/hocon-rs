@@ -13,18 +13,18 @@ pub(crate) const INCLUDE: &[u8] = b"include";
 impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_include(&mut self) -> Result<Inclusion> {
         self.parse_include_token()?;
-        self.drop_horizontal_whitespace()?;
+        Self::drop_horizontal_whitespace(&mut self.reader)?;
         let required = self.parse_required_token()?;
         let location = self.parse_location_token()?;
-        let include_path = self.parse_quoted_string(true)?;
+        let include_path =
+            Self::parse_quoted_string(&mut self.reader, &mut self.scratch, true, |s| {
+                Ok(s.to_string())
+            })?;
         for _ in [location.is_some(), required].iter().filter(|x| **x) {
-            self.drop_horizontal_whitespace()?;
+            Self::drop_horizontal_whitespace(&mut self.reader)?;
             let ch = self.reader.peek()?;
             if ch != b')' {
-                return Err(Error::UnexpectedToken {
-                    expected: ")",
-                    found_beginning: ch,
-                });
+                return Err(self.reader.peek_error(")"));
             } else {
                 self.reader.discard(1)?;
             }
@@ -34,29 +34,11 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     }
 
     fn parse_include_token(&mut self) -> Result<()> {
-        let ch = self.reader.peek()?;
-        if ch != b'i' {
-            return Err(Error::UnexpectedToken {
-                expected: "include",
-                found_beginning: ch,
-            });
-        }
-        // At this point, we still don't know if it's an include or something else,
-        // so we need to use peek instead of consuming it
-        const N: usize = 7;
-        let bytes = self.reader.peek_n(N)?;
+        let bytes = self.reader.peek_n(INCLUDE.len())?;
         if bytes != INCLUDE {
-            let (_, ch) = bytes
-                .iter()
-                .enumerate()
-                .find(|(index, ch)| &&INCLUDE[*index] != ch)
-                .unwrap();
-            return Err(Error::UnexpectedToken {
-                expected: "include",
-                found_beginning: *ch,
-            });
+            return Err(self.reader.peek_error("include"));
         }
-        self.reader.discard(N)?;
+        self.reader.discard(INCLUDE.len())?;
         Ok(())
     }
 
@@ -65,19 +47,17 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         let ch = self.reader.peek()?;
         const REQUIRED: &[u8] = b"required(";
         if ch == b'r' {
-            for ele in REQUIRED {
-                let next = self.reader.next()?;
-                if *ele != next {
-                    return Err(Error::UnexpectedToken {
-                        expected: "required(",
-                        found_beginning: next,
-                    });
+            match self.reader.peek_n(REQUIRED.len()) {
+                Ok(bytes) if bytes == REQUIRED => (),
+                _ => {
+                    return Err(self.reader.peek_error("required("));
                 }
             }
+            self.reader.discard(REQUIRED.len())?;
             required = true
         }
         if required {
-            self.drop_horizontal_whitespace()?;
+            Self::drop_horizontal_whitespace(&mut self.reader)?;
         }
         Ok(required)
     }
@@ -87,29 +67,25 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         const FILE: &[u8] = b"file(";
         let location = match ch {
             b'f' => {
-                for ele in FILE {
-                    let next = self.reader.next()?;
-                    if *ele != next {
-                        return Err(Error::UnexpectedToken {
-                            expected: "file(",
-                            found_beginning: next,
-                        });
+                match self.reader.peek_n(FILE.len()) {
+                    Ok(bytes) if bytes == FILE => (),
+                    _ => {
+                        return Err(self.reader.peek_error("file("));
                     }
                 }
+                self.reader.discard(FILE.len())?;
                 Some(Location::File)
             }
             #[cfg(feature = "urls_includes")]
             b'u' => {
                 const URL: &[u8] = b"url(";
-                for ele in URL {
-                    let next = self.reader.next()?;
-                    if *ele != next {
-                        return Err(Error::UnexpectedToken {
-                            expected: "url(",
-                            found_beginning: next,
-                        });
+                match self.reader.peek_n(URL.len()) {
+                    Ok(bytes) if bytes == URL => (),
+                    _ => {
+                        return Err(self.reader.peek_error("url("));
                     }
                 }
+                self.reader.discard(URL.len())?;
                 Some(Location::Url)
             }
             #[cfg(not(feature = "urls_includes"))]
@@ -118,27 +94,22 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
             b'c' => {
                 const CLASSPATH: &[u8] = b"classpath(";
-                for ele in CLASSPATH {
-                    let next = self.reader.next()?;
-                    if *ele != next {
-                        return Err(Error::UnexpectedToken {
-                            expected: "classpath(",
-                            found_beginning: next,
-                        });
+                match self.reader.peek_n(CLASSPATH.len()) {
+                    Ok(bytes) if bytes == CLASSPATH => (),
+                    _ => {
+                        return Err(self.reader.peek_error("classpath("));
                     }
                 }
+                self.reader.discard(CLASSPATH.len())?;
                 Some(Location::Classpath)
             }
             b'"' => None,
-            ch => {
-                return Err(Error::UnexpectedToken {
-                    expected: "file( or classpath( or url( or \"",
-                    found_beginning: ch,
-                });
+            _ => {
+                return Err(self.reader.peek_error("file( or classpath( or url( or \""));
             }
         };
         if location.is_some() {
-            self.drop_horizontal_whitespace()?;
+            Self::drop_horizontal_whitespace(&mut self.reader)?;
         }
         Ok(location)
     }

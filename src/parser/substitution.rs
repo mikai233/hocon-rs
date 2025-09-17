@@ -1,26 +1,17 @@
 use crate::Result;
-use crate::error::Error;
 use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::substitution::Substitution;
 
 impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_substitution(&mut self) -> Result<Substitution> {
-        let (ch1, ch2) = self.reader.peek2()?;
-        if ch1 != b'$' {
-            return Err(Error::UnexpectedToken {
-                expected: "$",
-                found_beginning: ch1,
-            });
+        match self.reader.peek_n(2) {
+            Ok(bytes) if bytes == b"${" => {}
+            _ => {
+                return Err(self.reader.peek_error("${"));
+            }
         }
-        self.reader.discard(1)?;
-        if ch2 != b'{' {
-            return Err(Error::UnexpectedToken {
-                expected: "{",
-                found_beginning: ch2,
-            });
-        }
-        self.reader.discard(1)?;
+        self.reader.discard(2)?;
         let ch = self.reader.peek()?;
         let optional = if ch == b'?' {
             self.reader.discard(1)?;
@@ -28,14 +19,13 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         } else {
             false
         };
-        self.drop_horizontal_whitespace()?;
-        let path_expression = self.parse_path_expression()?;
-        let ch = self.reader.peek()?;
-        if ch != b'}' {
-            return Err(Error::UnexpectedToken {
-                expected: "}",
-                found_beginning: ch,
-            });
+        Self::drop_horizontal_whitespace(&mut self.reader)?;
+        let path_expression = Self::parse_path_expression(&mut self.reader, &mut self.scratch)?;
+        match self.reader.peek() {
+            Ok(b'}') => {}
+            _ => {
+                return Err(self.reader.peek_error("}"));
+            }
         }
         self.reader.discard(1)?;
         let substitution = Substitution::new(path_expression, optional);

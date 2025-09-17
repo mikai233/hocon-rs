@@ -2,11 +2,11 @@ use std::str;
 
 use derive_more::{Deref, DerefMut};
 
-use crate::error::Error;
 use crate::Result;
+use crate::error::Error;
 
-// We should peek at least 7 bytes because the include token has a length of 7 bytes.
-pub(crate) const MAX_PEEK_N: usize = 7;
+// We should peek at least 9 bytes because the `classpath(` token has a length of 11 bytes.
+pub(crate) const MAX_PEEK_N: usize = 11;
 
 pub(crate) const DEFAULT_BUFFER_SIZE: usize = 512;
 
@@ -170,6 +170,8 @@ where
 pub trait Read<'de> {
     fn position(&self) -> Position;
 
+    fn peek_position(&mut self) -> Position;
+
     fn peek_n(&mut self, n: usize) -> Result<&[u8]>;
 
     #[inline]
@@ -240,6 +242,13 @@ pub trait Read<'de> {
     fn starts_with_horizontal_whitespace(&mut self) -> Result<bool> {
         self.peek_horizontal_whitespace().map(|n| n.is_some())
     }
+
+    fn peek_error(&mut self, expected: &'static str) -> Error {
+        Error::UnexpectedToken {
+            expected,
+            position: self.peek_position(),
+        }
+    }
 }
 
 pub struct StreamRead<R: std::io::Read> {
@@ -298,6 +307,20 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         }
     }
 
+    fn peek_position(&mut self) -> Position {
+        let mut line = self.line;
+        let mut column = self.col;
+        if let Ok(ch) = self.peek() {
+            if ch == b'\n' {
+                line += 1;
+                column = 0;
+            } else {
+                column += 1;
+            }
+        }
+        Position { line, column }
+    }
+
     #[inline]
     fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
         debug_assert!(n > 0 && n <= MAX_PEEK_N);
@@ -327,6 +350,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         let byte = self.buffer[self.head];
         if byte == b'\n' {
             self.line += 1;
+            self.col = 0;
         } else {
             self.col += 1;
         }
@@ -365,6 +389,39 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         str::from_utf8(scratch)
             .map_err(|_| Error::InvalidUtf8)
             .map(Reference::Copied)
+    }
+
+    fn peek(&mut self) -> Result<u8> {
+        let chars = self.peek_n(1)?;
+        Ok(chars[0])
+    }
+
+    fn peek2(&mut self) -> Result<(u8, u8)> {
+        let chars = self.peek_n(2)?;
+        Ok((chars[0], chars[1]))
+    }
+
+    fn discard(&mut self, n: usize) -> Result<()> {
+        for _ in 0..n {
+            self.next()?;
+        }
+        Ok(())
+    }
+
+    fn starts_with_whitespace(&mut self) -> Result<bool> {
+        self.peek_whitespace().map(|n| n.is_some())
+    }
+
+    fn peek_horizontal_whitespace(&mut self) -> Result<Option<usize>> {
+        if self.peek()? != b'\n' {
+            self.peek_whitespace()
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn starts_with_horizontal_whitespace(&mut self) -> Result<bool> {
+        self.peek_horizontal_whitespace().map(|n| n.is_some())
     }
 }
 
@@ -453,6 +510,10 @@ impl<'de> Read<'de> for SliceRead<'de> {
         self.position_of_index(self.index)
     }
 
+    fn peek_position(&mut self) -> Position {
+        self.position_of_index(self.slice.len().min(self.index + 1))
+    }
+
     #[inline]
     fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
         debug_assert!(n > 0 && n <= MAX_PEEK_N);
@@ -536,6 +597,10 @@ impl<'de> Read<'de> for StrRead<'de> {
         self.delegate.position()
     }
 
+    fn peek_position(&mut self) -> Position {
+        self.delegate.peek_position()
+    }
+
     #[inline]
     fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
         self.delegate.peek_n(n)
@@ -564,8 +629,8 @@ impl<'de> Read<'de> for StrRead<'de> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::read::{Read, StreamRead};
     use crate::Result;
+    use crate::parser::read::{Read, StreamRead};
 
     #[test]
     fn test_stream_peek() -> Result<()> {

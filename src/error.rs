@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::parser::read::Position;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -10,14 +12,10 @@ pub enum Error {
     InvalidEscape,
     #[error("Invalid UTF-8")]
     InvalidUtf8,
-    #[error(
-        "Unexpected token, expected:{}, found beginning:{}",
-        expected,
-        found_beginning
-    )]
+    #[error("Unexpected token, expected: {} at line: {}, column: {}", expected, position.line, position.column)]
     UnexpectedToken {
         expected: &'static str,
-        found_beginning: u8,
+        position: Position,
     },
     #[error("End of file")]
     Eof,
