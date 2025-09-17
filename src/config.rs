@@ -204,8 +204,8 @@ impl From<std::collections::HashMap<String, Value>> for Config {
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
     use crate::error::Error;
+    use crate::Result;
     use crate::{config::Config, config_options::ConfigOptions, value::Value};
     use rstest::rstest;
 

@@ -1,13 +1,13 @@
-use crate::Result;
 use crate::error::Error;
-use crate::parser::HoconParser;
 use crate::parser::include::INCLUDE;
 use crate::parser::read::Read;
 use crate::parser::string::TRIPLE_DOUBLE_QUOTE;
+use crate::parser::HoconParser;
 use crate::raw::{
     comment::Comment, field::ObjectField, raw_object::RawObject, raw_string::RawString,
     raw_value::RawValue,
 };
+use crate::Result;
 use std::str::FromStr;
 
 #[macro_export]
@@ -25,6 +25,11 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_key(&mut self) -> Result<RawString> {
         self.drop_horizontal_whitespace()?;
         self.parse_path_expression()
+    }
+
+    pub(crate) fn parse_key2(reader: &mut R, scratch: &mut Vec<u8>) -> Result<RawString> {
+        Self::drop_horizontal_whitespace2(reader)?;
+        Self::parse_path_expression2(reader, scratch)
     }
 
     pub(crate) fn parse_value(&mut self) -> Result<RawValue> {
@@ -206,7 +211,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_object_field(&mut self) -> Result<ObjectField> {
         let ch = self.reader.peek()?;
         // It maybe an include syntax, we need to peek more chars to determine.
-        let field = if ch == b'i' && self.reader.peek_n(7)? == INCLUDE {
+        let field = if ch == b'i' && self.reader.peek_n(7).is_ok_and(|chars| chars == INCLUDE) {
             let mut inclusion = self.parse_include()?;
             self.parse_inclusion(&mut inclusion)?;
             ObjectField::inclusion(inclusion)

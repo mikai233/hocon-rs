@@ -2,8 +2,8 @@ use std::str;
 
 use derive_more::{Deref, DerefMut};
 
-use crate::Result;
 use crate::error::Error;
+use crate::Result;
 
 // We should peek at least 7 bytes because the include token has a length of 7 bytes.
 pub(crate) const MAX_PEEK_N: usize = 7;
@@ -564,8 +564,8 @@ impl<'de> Read<'de> for StrRead<'de> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
     use crate::parser::read::{Read, StreamRead};
+    use crate::Result;
 
     #[test]
     fn test_stream_peek() -> Result<()> {

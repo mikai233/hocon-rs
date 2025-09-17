@@ -32,8 +32,41 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok((ty, content))
     }
 
+    fn parse_comment_inner2<'s>(
+        reader: &'s mut R,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<(CommentType, Reference<'de, 's, str>)> {
+        let ty = Self::parse_comment_token2(reader)?;
+        scratch.clear();
+        let content = reader.parse_str(true, scratch, |reader| match reader.peek() {
+            Ok(ch) => match ch {
+                b'\r' => match reader.peek2() {
+                    Ok((_, ch2)) => {
+                        if ch2 == b'\n' {
+                            Ok(true)
+                        } else {
+                            Ok(false)
+                        }
+                    }
+                    Err(Error::Eof) => Ok(false),
+                    Err(err) => Err(err),
+                },
+                b'\n' => Ok(true),
+                _ => Ok(false),
+            },
+            Err(Error::Eof) => Ok(true),
+            Err(err) => Err(err),
+        })?;
+        Ok((ty, content))
+    }
+
     pub(crate) fn parse_comment(&mut self) -> Result<(CommentType, String)> {
         self.parse_comment_inner().map(|(t, c)| (t, c.to_string()))
+    }
+
+    pub(crate) fn parse_comment2<'s>(reader: &'s mut R) -> Result<(CommentType, String)> {
+        let mut scratch = vec![];
+        Self::parse_comment_inner2(reader, &mut scratch).map(|(t, c)| (t, c.to_string()))
     }
 
     fn parse_comment_token(&mut self) -> Result<CommentType> {
@@ -56,10 +89,44 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok(ty)
     }
 
+    fn parse_comment_token2(reader: &mut R) -> Result<CommentType> {
+        let ch = reader.peek()?;
+        let ty = if ch == b'#' {
+            reader.discard(1)?;
+            CommentType::Hash
+        } else if let Ok((ch1, ch2)) = reader.peek2()
+            && ch1 == b'/'
+            && ch2 == b'/'
+        {
+            reader.discard(2)?;
+            CommentType::DoubleSlash
+        } else {
+            return Err(Error::UnexpectedToken {
+                expected: "# or //",
+                found_beginning: ch,
+            });
+        };
+        Ok(ty)
+    }
     pub(crate) fn drop_whitespace_and_comments(&mut self) -> Result<()> {
         loop {
             self.drop_whitespace()?;
             match self.parse_comment_inner() {
+                Ok(_) => {}
+                Err(Error::Eof) | Err(Error::UnexpectedToken { .. }) => {
+                    break Ok(());
+                }
+                Err(err) => {
+                    return Err(err);
+                }
+            }
+        }
+    }
+    pub(crate) fn drop_whitespace_and_comments2(reader: &mut R) -> Result<()> {
+        let mut scratch = vec![];
+        loop {
+            Self::drop_whitespace2(reader)?;
+            match Self::parse_comment_inner2(reader, &mut scratch) {
                 Ok(_) => {}
                 Err(Error::Eof) | Err(Error::UnexpectedToken { .. }) => {
                     break Ok(());

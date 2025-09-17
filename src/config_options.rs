@@ -2,7 +2,7 @@ use std::{fmt::Debug, rc::Rc};
 
 use crate::syntax::Syntax;
 
-pub(crate) const MAX_DEPTH: usize = 64;
+pub(crate) const MAX_DEPTH: usize = 128;
 
 pub(crate) const MAX_INCLUDE_DEPTH: usize = 64;
 
