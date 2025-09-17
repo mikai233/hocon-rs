@@ -356,6 +356,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
                 b'"' if Self::last_frame(&mut self.stack).expect_value() => {
                     // Parse quoted string or multi-line string
+                    self.scratch.clear();
                     let v = if let Ok(chars) = self.reader.peek_n(3)
                         && chars == TRIPLE_DOUBLE_QUOTE
                     {
@@ -363,16 +364,11 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             &mut self.reader,
                             &mut self.scratch,
                             false,
-                            |s| Ok(s.to_string()),
                         )?;
                         RawValue::String(RawString::MultilineString(multiline))
                     } else {
-                        let quoted = Self::parse_quoted_string(
-                            &mut self.reader,
-                            &mut self.scratch,
-                            false,
-                            |s| Ok(s.to_string()),
-                        )?;
+                        let quoted =
+                            Self::parse_quoted_string(&mut self.reader, &mut self.scratch, false)?;
                         RawValue::String(RawString::QuotedString(quoted))
                     };
                     Self::push_value(self.stack.last_mut().unwrap(), v)?;
@@ -429,8 +425,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     Frame::Object { next_entry, .. } => match next_entry {
                         Some(entry) => {
                             let entry_value = entry.value.get_or_insert_default();
+                            self.scratch.clear();
                             if self.reader.starts_with_horizontal_whitespace()? {
-                                self.scratch.clear();
                                 Self::parse_horizontal_whitespace(
                                     &mut self.reader,
                                     &mut self.scratch,

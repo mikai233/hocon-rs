@@ -20,7 +20,7 @@ mod tests {
         let read = StreamRead::new(BufReader::new(input.as_bytes()));
         let mut parser = HoconParser::new(read);
         parser.parse_iteration()?;
-        assert!(parser.stack.len() == 1);
+        assert_eq!(parser.stack.len(), 1);
         let frame = parser.stack.pop().unwrap();
         match frame {
             Frame::Array {

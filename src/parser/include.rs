@@ -16,10 +16,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Self::drop_horizontal_whitespace(&mut self.reader)?;
         let required = self.parse_required_token()?;
         let location = self.parse_location_token()?;
-        let include_path =
-            Self::parse_quoted_string(&mut self.reader, &mut self.scratch, true, |s| {
-                Ok(s.to_string())
-            })?;
+        self.scratch.clear();
+        let include_path = Self::parse_quoted_string(&mut self.reader, &mut self.scratch, true)?;
         for _ in [location.is_some(), required].iter().filter(|x| **x) {
             Self::drop_horizontal_whitespace(&mut self.reader)?;
             let ch = self.reader.peek()?;

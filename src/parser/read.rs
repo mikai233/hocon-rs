@@ -2,8 +2,8 @@ use std::str;
 
 use derive_more::{Deref, DerefMut};
 
-use crate::Result;
 use crate::error::Error;
+use crate::Result;
 
 // We should peek at least 9 bytes because the `classpath(` token has a length of 11 bytes.
 pub(crate) const MAX_PEEK_N: usize = 11;
@@ -243,6 +243,7 @@ pub trait Read<'de> {
         self.peek_horizontal_whitespace().map(|n| n.is_some())
     }
 
+    #[inline]
     fn peek_error(&mut self, expected: &'static str) -> Error {
         Error::UnexpectedToken {
             expected,
@@ -342,6 +343,16 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         }
     }
 
+    fn peek(&mut self) -> Result<u8> {
+        let chars = self.peek_n(1)?;
+        Ok(chars[0])
+    }
+
+    fn peek2(&mut self) -> Result<(u8, u8)> {
+        let chars = self.peek_n(2)?;
+        Ok((chars[0], chars[1]))
+    }
+
     #[inline]
     fn next(&mut self) -> Result<u8> {
         if self.available_data_len() == 0 && !self.eof {
@@ -360,6 +371,13 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             self.tail = 0;
         }
         Ok(byte)
+    }
+
+    fn discard(&mut self, n: usize) -> Result<()> {
+        for _ in 0..n {
+            self.next()?;
+        }
+        Ok(())
     }
 
     #[inline]
@@ -391,23 +409,6 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             .map(Reference::Copied)
     }
 
-    fn peek(&mut self) -> Result<u8> {
-        let chars = self.peek_n(1)?;
-        Ok(chars[0])
-    }
-
-    fn peek2(&mut self) -> Result<(u8, u8)> {
-        let chars = self.peek_n(2)?;
-        Ok((chars[0], chars[1]))
-    }
-
-    fn discard(&mut self, n: usize) -> Result<()> {
-        for _ in 0..n {
-            self.next()?;
-        }
-        Ok(())
-    }
-
     fn starts_with_whitespace(&mut self) -> Result<bool> {
         self.peek_whitespace().map(|n| n.is_some())
     }
@@ -428,6 +429,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
 macro_rules! parse_str_bytes_impl {
     ($self:expr, $escape:expr, $scratch:expr, $delimiter:expr, $result:expr) => {{
         let mut start = $self.index;
+        let len_before = $scratch.len();
         loop {
             if !$delimiter($self)? {
                 if $self.index == $self.slice.len() {
@@ -448,7 +450,7 @@ macro_rules! parse_str_bytes_impl {
                 break;
             }
         }
-        if $scratch.is_empty() {
+        if len_before == $scratch.len() {
             let borrowed = &$self.slice[start..$self.index];
             $result(borrowed).map(Reference::Borrowed)
         } else {
@@ -629,8 +631,8 @@ impl<'de> Read<'de> for StrRead<'de> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Result;
     use crate::parser::read::{Read, StreamRead};
+    use crate::Result;
 
     #[test]
     fn test_stream_peek() -> Result<()> {

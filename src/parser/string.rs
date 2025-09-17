@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::error::Error;
 use crate::parser::HoconParser;
-use crate::parser::read::Read;
+use crate::parser::read::{Read, Reference};
 use crate::raw::raw_string::RawString;
 
 // Precompute forbidden characters table
@@ -31,16 +31,30 @@ const FORBIDDEN_TABLE: [bool; 256] = {
 
 pub(crate) const TRIPLE_DOUBLE_QUOTE: &[u8] = b"\"\"\"";
 
+macro_rules! ref_to_string {
+    ($s:expr, $scratch:expr) => {
+        match $s {
+            Reference::Borrowed(b) => {
+                if $scratch.is_empty() {
+                    b.to_string()
+                } else {
+                    $scratch.extend_from_slice(b.as_bytes());
+                    unsafe { String::from_utf8_unchecked(std::mem::take($scratch)) }
+                }
+            }
+            Reference::Copied(_) => unsafe {
+                String::from_utf8_unchecked(std::mem::take($scratch))
+            },
+        }
+    };
+}
+
 impl<'de, R: Read<'de>> HoconParser<R> {
-    pub(crate) fn parse_quoted_string<F, T>(
+    pub(crate) fn parse_quoted_string(
         reader: &mut R,
         scratch: &mut Vec<u8>,
         check: bool,
-        result: F,
-    ) -> Result<T>
-    where
-        F: FnOnce(&str) -> Result<T>,
-    {
+    ) -> Result<String> {
         if check {
             match reader.peek() {
                 Ok(b'"') => {}
@@ -50,13 +64,12 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
         }
         reader.discard(1)?;
-        scratch.clear();
-        let content = reader.parse_str(true, scratch, |reader| match reader.peek() {
+        let s = reader.parse_str(true, scratch, |reader| match reader.peek() {
             Ok(b'"') => Ok(true),
             Ok(_) => Ok(false),
             _ => Err(reader.peek_error("\"")),
         })?;
-        let r = result(&content)?;
+        let s = ref_to_string!(s, scratch);
         match reader.peek() {
             Ok(b'"') => {}
             _ => {
@@ -64,28 +77,19 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
         }
         reader.discard(1)?;
-        Ok(r)
+        Ok(s)
     }
 
     pub(crate) fn parse_unquoted_string(reader: &mut R, scratch: &mut Vec<u8>) -> Result<String> {
-        Self::parse_unquoted(reader, scratch, true, |s| Ok(s.to_string()))
+        Self::parse_unquoted(reader, scratch, true)
     }
 
-    pub(crate) fn parse_unquoted_path(reader: &mut R, scratch: &mut Vec<u8>) -> Result<Vec<u8>> {
-        Self::parse_unquoted(reader, scratch, false, |s| Ok(Vec::from(s.as_bytes())))
+    pub(crate) fn parse_unquoted_path(reader: &mut R, scratch: &mut Vec<u8>) -> Result<String> {
+        Self::parse_unquoted(reader, scratch, false)
     }
 
-    fn parse_unquoted<F, T>(
-        reader: &mut R,
-        scratch: &mut Vec<u8>,
-        allow_dot: bool,
-        result: F,
-    ) -> Result<T>
-    where
-        F: FnOnce(&str) -> Result<T>,
-    {
-        scratch.clear();
-        let content = reader.parse_str(true, scratch, |reader| {
+    fn parse_unquoted(reader: &mut R, scratch: &mut Vec<u8>, allow_dot: bool) -> Result<String> {
+        let s = reader.parse_str(true, scratch, |reader| {
             let mut end = false;
             match reader.peek() {
                 Ok(ch) => match ch {
@@ -116,22 +120,28 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
             Ok(end)
         })?;
-        if content.is_empty() {
+        if s.is_empty() {
             Err(reader.peek_error("a valid unquoted string"))
         } else {
-            result(&content)
+            Ok(ref_to_string!(s, scratch))
         }
     }
 
-    pub(crate) fn parse_multiline_string<F, T>(
+    /// Parses a multiline string delimited by triple quotes (`"""`).
+    ///
+    /// This behaves similarly to `serde_json`: if the parsed string requires
+    /// allocation (e.g. due to escaping), its contents will be written into
+    /// the provided `scratch` buffer. If `scratch` is not empty, it may
+    /// contain leftover data from a previous parse.
+    ///
+    /// # Note
+    /// It is the caller’s responsibility to ensure that `scratch` is empty
+    /// before calling this function.
+    pub(crate) fn parse_multiline_string(
         reader: &mut R,
         scratch: &mut Vec<u8>,
         verify_delimiter: bool,
-        result: F,
-    ) -> Result<T>
-    where
-        F: FnOnce(&str) -> Result<T>,
-    {
+    ) -> Result<String> {
         if verify_delimiter {
             match reader.peek_n(3) {
                 Ok(bytes) if bytes == TRIPLE_DOUBLE_QUOTE => {}
@@ -141,13 +151,12 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
         }
         reader.discard(3)?;
-        scratch.clear();
-        let content = reader.parse_str(false, scratch, |reader| match reader.peek_n(3) {
+        let s = reader.parse_str(false, scratch, |reader| match reader.peek_n(3) {
             Ok(bytes) if bytes == TRIPLE_DOUBLE_QUOTE => Ok(true),
             Ok(_) => Ok(false),
             _ => Err(reader.peek_error("\"\"\"")),
         })?;
-        let r = result(&content)?;
+        let s = ref_to_string!(s, scratch);
         match reader.peek_n(3) {
             Ok(bytes) if bytes == TRIPLE_DOUBLE_QUOTE => {}
             _ => {
@@ -155,7 +164,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
         }
         reader.discard(3)?;
-        Ok(r)
+        Ok(s)
     }
 
     pub(crate) fn parse_path_expression(
@@ -182,26 +191,19 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     return Err(err);
                 }
             };
-            let mut path_scratch = Vec::with_capacity(8);
-            let path_bytes = match ch {
+            let mut path = match ch {
                 b'"' => {
                     // quoted string or multiline string
                     if let Ok(bytes) = reader.peek_n(3)
                         && bytes == TRIPLE_DOUBLE_QUOTE
                     {
-                        Self::parse_multiline_string(reader, &mut path_scratch, false, |s| {
-                            Ok(Vec::from(s.as_bytes()))
-                        })?
+                        Self::parse_multiline_string(reader, scratch, false)?
                     } else {
-                        Self::parse_quoted_string(reader, &mut path_scratch, false, |s| {
-                            Ok(Vec::from(s.as_bytes()))
-                        })?
+                        Self::parse_quoted_string(reader, scratch, false)?
                     }
                 }
-                _ => Self::parse_unquoted_path(reader, &mut path_scratch)?,
+                _ => Self::parse_unquoted_path(reader, scratch)?,
             };
-            scratch.extend(path_bytes);
-            let mut path = unsafe { str::from_utf8_unchecked(scratch) }.to_string();
             // We always need to parse the ending whitespace after a path, because we don't
             // know if there are any valid path expressions after it.
             scratch.clear();
@@ -269,10 +271,7 @@ mod tests {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
         parser.scratch.clear();
-        let s =
-            HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true, |s| {
-                Ok(s.to_string())
-            })?;
+        let s = HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true)?;
         assert_eq!(s, expected);
         assert_eq!(parser.reader.rest()?, rest);
         Ok(())
@@ -290,10 +289,9 @@ mod tests {
     fn test_invalid_quoted_string(#[case] input: &str) {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
+        parser.scratch.clear();
         let result =
-            HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true, |s| {
-                Ok(s.to_string())
-            });
+            HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true);
         assert!(result.is_err());
     }
 
@@ -331,12 +329,7 @@ mod tests {
     ) -> Result<()> {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let s = HoconParser::parse_multiline_string(
-            &mut parser.reader,
-            &mut parser.scratch,
-            true,
-            |s| Ok(s.to_string()),
-        )?;
+        let s = HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true)?;
         assert_eq!(s, expected);
         assert_eq!(parser.reader.rest()?, rest);
         Ok(())
@@ -350,12 +343,8 @@ mod tests {
     fn test_invalid_multiline_string(#[case] input: &str) {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let result = HoconParser::parse_multiline_string(
-            &mut parser.reader,
-            &mut parser.scratch,
-            true,
-            |s| Ok(s.to_string()),
-        );
+        let result =
+            HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true);
         assert!(result.is_err());
     }
 
