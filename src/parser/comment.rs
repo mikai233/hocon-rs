@@ -1,8 +1,8 @@
-use crate::Result;
 use crate::error::Error;
-use crate::parser::HoconParser;
 use crate::parser::read::{Read, Reference};
+use crate::parser::HoconParser;
 use crate::raw::comment::CommentType;
+use crate::{ref_to_string, Result};
 
 impl<'de, R: Read<'de>> HoconParser<R> {
     fn parse_comment_inner<'s>(
@@ -11,31 +11,15 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     ) -> Result<(CommentType, Reference<'de, 's, str>)> {
         let ty = Self::parse_comment_token(reader)?;
         scratch.clear();
-        let content = reader.parse_str(true, scratch, |reader| match reader.peek() {
-            Ok(ch) => match ch {
-                b'\r' => match reader.peek2() {
-                    Ok((_, ch2)) => {
-                        if ch2 == b'\n' {
-                            Ok(true)
-                        } else {
-                            Ok(false)
-                        }
-                    }
-                    Err(Error::Eof) => Ok(false),
-                    Err(err) => Err(err),
-                },
-                b'\n' => Ok(true),
-                _ => Ok(false),
-            },
-            Err(Error::Eof) => Ok(true),
-            Err(err) => Err(err),
-        })?;
-        Ok((ty, content))
+        let s = reader.parse_to_line_ending(scratch)?;
+        Ok((ty, s))
     }
 
     pub(crate) fn parse_comment(reader: &mut R) -> Result<(CommentType, String)> {
         let mut scratch = vec![];
-        Self::parse_comment_inner(reader, &mut scratch).map(|(t, c)| (t, c.to_string()))
+        let (ty, s) = Self::parse_comment_inner(reader, &mut scratch)?;
+        let s = ref_to_string!(s, &mut scratch);
+        Ok((ty, s))
     }
 
     fn parse_comment_token(reader: &mut R) -> Result<CommentType> {
@@ -76,10 +60,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 mod tests {
     use rstest::rstest;
 
-    use crate::Result;
-    use crate::parser::HoconParser;
     use crate::parser::read::StrRead;
+    use crate::parser::HoconParser;
     use crate::raw::comment::CommentType;
+    use crate::Result;
 
     #[rstest]
     #[case("#你好👌\r\r\n", (CommentType::Hash, "你好👌\r"), "\r\n")]

@@ -4,6 +4,7 @@ use derive_more::{Deref, DerefMut};
 
 use crate::Result;
 use crate::error::Error;
+use crate::parser::string::FORBIDDEN_TABLE;
 
 // We should peek at least 9 bytes because the `classpath(` token has a length of 11 bytes.
 pub(crate) const MAX_PEEK_N: usize = 11;
@@ -196,14 +197,27 @@ pub trait Read<'de> {
         Ok(())
     }
 
-    fn parse_str<'s, F>(
+    fn parse_quoted_str<'s>(
         &'s mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
-        delimiter: F,
-    ) -> Result<Reference<'de, 's, str>>
-    where
-        F: Fn(&mut Self) -> Result<bool>;
+    ) -> Result<Reference<'de, 's, str>>;
+
+    fn parse_multiline_str<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>>;
+
+    fn parse_unquoted_str<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+        allow_dot: bool,
+    ) -> Result<Reference<'de, 's, str>>;
+
+    fn parse_to_line_ending<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>>;
 
     #[inline]
     fn peek_whitespace(&mut self) -> Result<Option<usize>> {
@@ -363,68 +377,137 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         Ok(byte)
     }
 
-    #[inline]
-    fn parse_str<'s, F>(
+    fn parse_quoted_str<'s>(
         &'s mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
-        delimiter: F,
-    ) -> Result<Reference<'de, 's, str>>
-    where
-        F: Fn(&mut Self) -> Result<bool>,
-    {
+    ) -> Result<Reference<'de, 's, str>> {
         loop {
-            if !delimiter(self)? {
-                match self.next()? {
-                    b'\\' if escape => {
-                        parse_escaped_char(self, scratch)?;
-                    }
-                    ch => {
-                        scratch.push(ch);
-                    }
+            match self.next() {
+                Ok(b'\\') if escape => parse_escaped_char(self, scratch)?,
+                Ok(b'"') => {
+                    break;
                 }
-            } else {
-                break;
+                Ok(byte) => {
+                    scratch.push(byte);
+                }
+                Err(_) => {
+                    let err = Error::UnexpectedToken {
+                        expected: "\"",
+                        position: self.position(),
+                    };
+                    return Err(err);
+                }
             }
         }
         str::from_utf8(scratch)
             .map_err(|_| Error::InvalidUtf8)
             .map(Reference::Copied)
     }
-}
 
-macro_rules! parse_str_bytes_impl {
-    ($self:expr, $escape:expr, $scratch:expr, $delimiter:expr, $result:expr) => {{
-        let mut start = $self.index;
-        let len_before = $scratch.len();
+    fn parse_multiline_str<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
         loop {
-            if !$delimiter($self)? {
-                if $self.index == $self.slice.len() {
-                    break;
-                }
-                match $self.slice[$self.index] {
-                    b'\\' if $escape => {
-                        $scratch.extend_from_slice(&$self.slice[start..$self.index]);
-                        $self.index += 1;
-                        parse_escaped_char($self, $scratch)?;
-                        start = $self.index;
+            match self.next() {
+                Ok(b'"') => match self.peek_n(2) {
+                    Ok(bytes) if bytes == b"\"\"" => {
+                        self.discard(2)?;
+                        break;
                     }
-                    _ => {
-                        $self.index += 1;
+                    Ok(_) => {
+                        scratch.push(b'\"');
                     }
+                    Err(_) => {
+                        let err = Error::UnexpectedToken {
+                            expected: "\"\"",
+                            position: self.position(),
+                        };
+                        return Err(err);
+                    }
+                },
+                Ok(byte) => {
+                    scratch.push(byte);
                 }
-            } else {
-                break;
+                Err(_) => {
+                    let err = Error::UnexpectedToken {
+                        expected: "\"\"\"",
+                        position: self.position(),
+                    };
+                    return Err(err);
+                }
             }
         }
-        if len_before == $scratch.len() {
-            let borrowed = &$self.slice[start..$self.index];
-            $result(borrowed).map(Reference::Borrowed)
-        } else {
-            $scratch.extend_from_slice(&$self.slice[start..$self.index]);
-            $result($scratch).map(Reference::Copied)
+        str::from_utf8(scratch)
+            .map_err(|_| Error::InvalidUtf8)
+            .map(Reference::Copied)
+    }
+
+    fn parse_unquoted_str<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+        allow_dot: bool,
+    ) -> Result<Reference<'de, 's, str>> {
+        loop {
+            match self.peek() {
+                Ok(b'/') => match self.peek_n(2) {
+                    Ok(bytes) if bytes == b"//" => break,
+                    Ok(_) | Err(Error::Eof) => {
+                        self.discard(1)?;
+                        scratch.push(b'/');
+                    }
+                    Err(err) => return Err(err),
+                },
+                Ok(b'.') if !allow_dot => break,
+                Ok(byte) => {
+                    if FORBIDDEN_TABLE[byte as usize] || self.starts_with_whitespace()? {
+                        break;
+                    } else {
+                        self.discard(1)?;
+                        scratch.push(byte);
+                    }
+                }
+                Err(Error::Eof) => break,
+                Err(err) => return Err(err),
+            }
         }
-    }};
+        str::from_utf8(scratch)
+            .map_err(|_| Error::InvalidUtf8)
+            .map(Reference::Copied)
+    }
+
+    fn parse_to_line_ending<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        loop {
+            match self.peek() {
+                Ok(b'\n') => {
+                    break;
+                }
+                Ok(b'\r') => match self.peek_n(2) {
+                    Ok(bytes) if bytes == b"\r\n" => {
+                        break;
+                    }
+                    Ok(_) | Err(Error::Eof) => {
+                        self.discard(1)?;
+                        scratch.push(b'\r');
+                    }
+                    Err(err) => return Err(err),
+                },
+                Ok(byte) => {
+                    self.discard(1)?;
+                    scratch.push(byte);
+                }
+                Err(Error::Eof) => break,
+                Err(err) => return Err(err),
+            }
+        }
+        str::from_utf8(scratch)
+            .map_err(|_| Error::InvalidUtf8)
+            .map(Reference::Copied)
+    }
 }
 
 pub struct SliceRead<'de> {
@@ -455,22 +538,6 @@ impl<'de> SliceRead<'de> {
 
     pub(crate) fn rest(&self) -> &[u8] {
         &self.slice[self.index..]
-    }
-
-    #[inline]
-    fn parse_str_bytes<'s, E, T, R>(
-        &'s mut self,
-        escape: bool,
-        scratch: &'s mut Vec<u8>,
-        delimiter: E,
-        result: R,
-    ) -> Result<Reference<'de, 's, T>>
-    where
-        T: ?Sized + 's,
-        E: Fn(&mut Self) -> Result<bool>,
-        R: for<'f> FnOnce(&'f [u8]) -> Result<&'f T>,
-    {
-        parse_str_bytes_impl!(self, escape, scratch, delimiter, result)
     }
 }
 
@@ -515,19 +582,145 @@ impl<'de> Read<'de> for SliceRead<'de> {
         }
     }
 
-    #[inline]
-    fn parse_str<'s, F>(
+    fn parse_quoted_str<'s>(
         &'s mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
-        end: F,
-    ) -> Result<Reference<'de, 's, str>>
-    where
-        F: Fn(&mut Self) -> Result<bool>,
-    {
-        self.parse_str_bytes(escape, scratch, end, |bytes| {
-            str::from_utf8(bytes).map_err(|_| Error::InvalidUtf8)
-        })
+    ) -> Result<Reference<'de, 's, str>> {
+        let mut start = self.index;
+        let len_before = scratch.len();
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'\\') if escape => {
+                    scratch.extend_from_slice(&self.slice[start..self.index]);
+                    self.index += 1;
+                    parse_escaped_char(self, scratch)?;
+                    start = self.index;
+                }
+                Some(b'"') => break,
+                Some(_) => {
+                    self.index += 1;
+                }
+                None => {
+                    let err = Error::UnexpectedToken {
+                        expected: "\"",
+                        position: self.position(),
+                    };
+                    return Err(err);
+                }
+            }
+        }
+        let r = if len_before == scratch.len() {
+            let borrowed = &self.slice[start..self.index];
+            let s = unsafe { str::from_utf8_unchecked(borrowed) };
+            Reference::Borrowed(s)
+        } else {
+            scratch.extend_from_slice(&self.slice[start..self.index]);
+            let s = unsafe { str::from_utf8_unchecked(scratch) };
+            Reference::Copied(s)
+        };
+        self.index += 1;
+        Ok(r)
+    }
+
+    fn parse_multiline_str<'s>(
+        &'s mut self,
+        _scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        let start = self.index;
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'"') => match self.slice.get(self.index + 1..=self.index + 2) {
+                    Some(bytes) if bytes == b"\"\"" => {
+                        break;
+                    }
+                    Some(_) => {
+                        self.index += 1;
+                    }
+                    None => {
+                        let err = Error::UnexpectedToken {
+                            expected: "\"\"",
+                            position: self.position(),
+                        };
+                        return Err(err);
+                    }
+                },
+                Some(_) => {
+                    self.index += 1;
+                }
+                None => {
+                    let err = Error::UnexpectedToken {
+                        expected: "\"\"\"",
+                        position: self.position(),
+                    };
+                    return Err(err);
+                }
+            }
+        }
+        let borrowed = &self.slice[start..self.index];
+        let s = unsafe { str::from_utf8_unchecked(borrowed) };
+        let result = Ok(Reference::Borrowed(s));
+        self.index += 3;
+        result
+    }
+
+    fn parse_unquoted_str<'s>(
+        &'s mut self,
+        _scratch: &'s mut Vec<u8>,
+        allow_dot: bool,
+    ) -> Result<Reference<'de, 's, str>> {
+        let start = self.index;
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'/') => match self.slice.get(self.index..=self.index + 1) {
+                    Some(bytes) if bytes == b"//" => break,
+                    Some(_) | None => {
+                        self.index += 1;
+                    }
+                },
+                Some(b'.') if !allow_dot => break,
+                Some(byte) => {
+                    if FORBIDDEN_TABLE[*byte as usize] || self.starts_with_whitespace()? {
+                        break;
+                    } else {
+                        self.index += 1;
+                    }
+                }
+                None => break,
+            }
+        }
+        let borrowed = &self.slice[start..self.index];
+        let s = unsafe { str::from_utf8_unchecked(borrowed) };
+        Ok(Reference::Borrowed(s))
+    }
+
+    fn parse_to_line_ending<'s>(
+        &'s mut self,
+        _scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        let start = self.index;
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'\n') => {
+                    break;
+                }
+                Some(b'\r') => match self.slice.get(self.index..=self.index + 1) {
+                    Some(bytes) if bytes == b"\r\n" => {
+                        break;
+                    }
+                    Some(_) | None => {
+                        self.index += 1;
+                    }
+                },
+                Some(_) => {
+                    self.index += 1;
+                }
+                None => break,
+            }
+        }
+        let borrowed = &self.slice[start..self.index];
+        let s = unsafe { str::from_utf8_unchecked(borrowed) };
+        Ok(Reference::Borrowed(s))
     }
 }
 
@@ -545,22 +738,6 @@ impl<'de> StrRead<'de> {
 
     pub fn rest(&self) -> Result<&str> {
         str::from_utf8(self.delegate.rest()).map_err(|_| Error::InvalidUtf8)
-    }
-
-    #[inline]
-    fn parse_str_bytes<'s, E, T, R>(
-        &'s mut self,
-        no_escape: bool,
-        scratch: &'s mut Vec<u8>,
-        delimiter: E,
-        result: R,
-    ) -> Result<Reference<'de, 's, T>>
-    where
-        T: ?Sized + 's,
-        E: Fn(&mut Self) -> Result<bool>,
-        R: for<'f> FnOnce(&'f [u8]) -> Result<&'f T>,
-    {
-        parse_str_bytes_impl!(self, no_escape, scratch, delimiter, result)
     }
 }
 
@@ -585,19 +762,34 @@ impl<'de> Read<'de> for StrRead<'de> {
         self.delegate.next()
     }
 
-    #[inline]
-    fn parse_str<'s, F>(
+    fn parse_quoted_str<'s>(
         &'s mut self,
-        no_escape: bool,
+        escape: bool,
         scratch: &'s mut Vec<u8>,
-        end: F,
-    ) -> Result<Reference<'de, 's, str>>
-    where
-        F: Fn(&mut Self) -> Result<bool>,
-    {
-        self.parse_str_bytes(no_escape, scratch, end, |bytes| {
-            Ok(unsafe { str::from_utf8_unchecked(bytes) })
-        })
+    ) -> Result<Reference<'de, 's, str>> {
+        self.delegate.parse_quoted_str(escape, scratch)
+    }
+
+    fn parse_multiline_str<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        self.delegate.parse_multiline_str(scratch)
+    }
+
+    fn parse_unquoted_str<'s>(
+        &'s mut self,
+        scratch: &'s mut Vec<u8>,
+        allow_dot: bool,
+    ) -> Result<Reference<'de, 's, str>> {
+        self.delegate.parse_unquoted_str(scratch, allow_dot)
+    }
+
+    fn parse_to_line_ending<'s>(
+        &'s mut self,
+        _scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
+        self.delegate.parse_to_line_ending(_scratch)
     }
 }
 
