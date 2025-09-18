@@ -2,8 +2,8 @@ use std::str;
 
 use derive_more::{Deref, DerefMut};
 
-use crate::error::Error;
 use crate::Result;
+use crate::error::Error;
 
 // We should peek at least 9 bytes because the `classpath(` token has a length of 11 bytes.
 pub(crate) const MAX_PEEK_N: usize = 11;
@@ -343,16 +343,6 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         }
     }
 
-    fn peek(&mut self) -> Result<u8> {
-        let chars = self.peek_n(1)?;
-        Ok(chars[0])
-    }
-
-    fn peek2(&mut self) -> Result<(u8, u8)> {
-        let chars = self.peek_n(2)?;
-        Ok((chars[0], chars[1]))
-    }
-
     #[inline]
     fn next(&mut self) -> Result<u8> {
         if self.available_data_len() == 0 && !self.eof {
@@ -371,13 +361,6 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             self.tail = 0;
         }
         Ok(byte)
-    }
-
-    fn discard(&mut self, n: usize) -> Result<()> {
-        for _ in 0..n {
-            self.next()?;
-        }
-        Ok(())
     }
 
     #[inline]
@@ -407,22 +390,6 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         str::from_utf8(scratch)
             .map_err(|_| Error::InvalidUtf8)
             .map(Reference::Copied)
-    }
-
-    fn starts_with_whitespace(&mut self) -> Result<bool> {
-        self.peek_whitespace().map(|n| n.is_some())
-    }
-
-    fn peek_horizontal_whitespace(&mut self) -> Result<Option<usize>> {
-        if self.peek()? != b'\n' {
-            self.peek_whitespace()
-        } else {
-            Ok(None)
-        }
-    }
-
-    fn starts_with_horizontal_whitespace(&mut self) -> Result<bool> {
-        self.peek_horizontal_whitespace().map(|n| n.is_some())
     }
 }
 
@@ -508,10 +475,12 @@ impl<'de> SliceRead<'de> {
 }
 
 impl<'de> Read<'de> for SliceRead<'de> {
+    #[inline]
     fn position(&self) -> Position {
         self.position_of_index(self.index)
     }
 
+    #[inline]
     fn peek_position(&mut self) -> Position {
         self.position_of_index(self.slice.len().min(self.index + 1))
     }
@@ -536,6 +505,7 @@ impl<'de> Read<'de> for SliceRead<'de> {
         Ok(byte)
     }
 
+    #[inline]
     fn discard(&mut self, n: usize) -> Result<()> {
         if self.available_data_len() < n {
             Err(Error::Eof)
@@ -595,10 +565,12 @@ impl<'de> StrRead<'de> {
 }
 
 impl<'de> Read<'de> for StrRead<'de> {
+    #[inline]
     fn position(&self) -> Position {
         self.delegate.position()
     }
 
+    #[inline]
     fn peek_position(&mut self) -> Position {
         self.delegate.peek_position()
     }
@@ -631,8 +603,8 @@ impl<'de> Read<'de> for StrRead<'de> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::read::{Read, StreamRead};
     use crate::Result;
+    use crate::parser::read::{Read, StreamRead};
 
     #[test]
     fn test_stream_peek() -> Result<()> {
