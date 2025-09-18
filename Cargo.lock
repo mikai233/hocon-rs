@@ -500,7 +500,6 @@ dependencies = [
  "ctor",
  "derive_more",
  "java-properties",
- "memchr",
  "num-bigint",
  "reqwest",
  "rstest",

@@ -11,7 +11,6 @@ license = "MIT"
 readme = "README.md"
 
 [dependencies]
-memchr = "2.7.5"
 thiserror = "2.0.12"
 serde = { version = "1.0.225" }
 serde_json = { version = "1.0.145" }

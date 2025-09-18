@@ -1,8 +1,8 @@
 use crate::error::Error;
-use crate::parser::read::{Read, Reference};
 use crate::parser::HoconParser;
+use crate::parser::read::{Read, Reference};
 use crate::raw::comment::CommentType;
-use crate::{ref_to_string, Result};
+use crate::{Result, ref_to_string};
 
 impl<'de, R: Read<'de>> HoconParser<R> {
     fn parse_comment_inner<'s>(
@@ -60,10 +60,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 mod tests {
     use rstest::rstest;
 
-    use crate::parser::read::StrRead;
-    use crate::parser::HoconParser;
-    use crate::raw::comment::CommentType;
     use crate::Result;
+    use crate::parser::HoconParser;
+    use crate::parser::read::StrRead;
+    use crate::raw::comment::CommentType;
 
     #[rstest]
     #[case("#你好👌\r\r\n", (CommentType::Hash, "你好👌\r"), "\r\n")]

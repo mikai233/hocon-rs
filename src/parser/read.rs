@@ -1,7 +1,5 @@
 use std::str;
 
-use derive_more::{Deref, DerefMut};
-
 use crate::Result;
 use crate::error::Error;
 use crate::parser::string::FORBIDDEN_TABLE;
@@ -140,7 +138,22 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy)]
+fn as_str(slice: &[u8]) -> Result<&str> {
+    str::from_utf8(slice).map_err(|_| Error::InvalidUtf8)
+}
+
+#[inline]
+fn next_position(mut position: Position, byte: u8) -> Position {
+    if byte == b'\n' {
+        position.line += 1;
+        position.column = 0;
+    } else {
+        position.column += 1;
+    }
+    position
+}
+
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Position {
     pub line: usize,
     pub column: usize,
@@ -272,8 +285,7 @@ pub struct StreamRead<R: std::io::Read> {
     head: usize,
     tail: usize,
     eof: bool,
-    line: usize,
-    col: usize,
+    position: Position,
 }
 
 impl<R: std::io::Read> StreamRead<R> {
@@ -284,8 +296,7 @@ impl<R: std::io::Read> StreamRead<R> {
             head: 0,
             tail: 0,
             eof: false,
-            line: 0,
-            col: 0,
+            position: Default::default(),
         }
     }
 
@@ -315,25 +326,18 @@ impl<R: std::io::Read> StreamRead<R> {
 }
 
 impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
+    #[inline]
     fn position(&self) -> Position {
-        Position {
-            line: self.line,
-            column: self.col,
-        }
+        self.position
     }
 
+    #[inline]
     fn peek_position(&mut self) -> Position {
-        let mut line = self.line;
-        let mut column = self.col;
-        if let Ok(ch) = self.peek() {
-            if ch == b'\n' {
-                line += 1;
-                column = 0;
-            } else {
-                column += 1;
-            }
+        let mut position = self.position;
+        if let Ok(byte) = self.peek() {
+            position = next_position(position, byte);
         }
-        Position { line, column }
+        position
     }
 
     #[inline]
@@ -363,12 +367,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             self.fill_buf()?;
         }
         let byte = self.buffer[self.head];
-        if byte == b'\n' {
-            self.line += 1;
-            self.col = 0;
-        } else {
-            self.col += 1;
-        }
+        self.position = next_position(self.position, byte);
         self.head += 1;
         if self.head == self.tail {
             self.head = 0;
@@ -513,21 +512,15 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
 pub struct SliceRead<'de> {
     slice: &'de [u8],
     index: usize,
+    position: Position,
 }
 
 impl<'de> SliceRead<'de> {
     pub fn new(slice: &'de [u8]) -> Self {
-        SliceRead { slice, index: 0 }
-    }
-
-    fn position_of_index(&self, i: usize) -> Position {
-        let start_of_line = match memchr::memrchr(b'\n', &self.slice[..i]) {
-            Some(position) => position + 1,
-            None => 0,
-        };
-        Position {
-            line: 1 + memchr::memchr_iter(b'\n', &self.slice[..start_of_line]).count(),
-            column: i - start_of_line,
+        SliceRead {
+            slice,
+            index: 0,
+            position: Default::default(),
         }
     }
 
@@ -539,17 +532,206 @@ impl<'de> SliceRead<'de> {
     pub(crate) fn rest(&self) -> &[u8] {
         &self.slice[self.index..]
     }
+
+    fn parse_quoted_str_bytes<'s, F, T>(
+        &'s mut self,
+        escape: bool,
+        scratch: &'s mut Vec<u8>,
+        result: F,
+    ) -> Result<Reference<'de, 's, T>>
+    where
+        T: ?Sized + 's,
+        F: FnOnce(&[u8]) -> Result<&T>,
+    {
+        let mut start = self.index;
+        let len_before = scratch.len();
+        let mut break_from_quote = false;
+        for byte in &self.slice[self.index..] {
+            match byte {
+                b'\\' if escape => {
+                    scratch.extend_from_slice(&self.slice[start..self.index]);
+                    self.position.column += 1;
+                    self.index += 1;
+                    parse_escaped_char(self, scratch)?;
+                    start = self.index;
+                }
+                b'"' => {
+                    break_from_quote = true;
+                    break;
+                }
+                byte => {
+                    self.position = next_position(self.position, *byte);
+                    self.index += 1;
+                }
+            }
+        }
+        if !break_from_quote {
+            let err = Error::UnexpectedToken {
+                expected: "\"",
+                position: self.position(),
+            };
+            return Err(err);
+        }
+        // loop {
+        //     match self.slice.get(self.index) {
+        //         Some(b'\\') if escape => {
+        //             scratch.extend_from_slice(&self.slice[start..self.index]);
+        //             self.index += 1;
+        //             parse_escaped_char(self, scratch)?;
+        //             start = self.index;
+        //         }
+        //         Some(b'"') => break,
+        //         Some(_) => {
+        //             self.index += 1;
+        //         }
+        //         None => {
+        //             let err = Error::UnexpectedToken {
+        //                 expected: "\"",
+        //                 position: self.position(),
+        //             };
+        //             return Err(err);
+        //         }
+        //     }
+        // }
+        let result = if len_before == scratch.len() {
+            let borrowed = &self.slice[start..self.index];
+            result(borrowed).map(Reference::Borrowed)
+        } else {
+            scratch.extend_from_slice(&self.slice[start..self.index]);
+            result(scratch).map(Reference::Copied)
+        };
+        self.position.column += 1;
+        self.index += 1;
+        result
+    }
+
+    fn parse_multiline_str_bytes<'s, F, T>(&'s mut self, result: F) -> Result<Reference<'de, 's, T>>
+    where
+        T: ?Sized + 's,
+        F: FnOnce(&[u8]) -> Result<&T>,
+    {
+        let start = self.index;
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'"') => match self.slice.get(self.index + 1..=self.index + 2) {
+                    Some(bytes) if bytes == b"\"\"" => {
+                        break;
+                    }
+                    Some(_) => {
+                        self.position.column += 1;
+                        self.index += 1;
+                    }
+                    None => {
+                        let err = Error::UnexpectedToken {
+                            expected: "\"\"",
+                            position: self.position(),
+                        };
+                        return Err(err);
+                    }
+                },
+                Some(byte) => {
+                    self.position = next_position(self.position, *byte);
+                    self.index += 1;
+                }
+                None => {
+                    let err = Error::UnexpectedToken {
+                        expected: "\"\"\"",
+                        position: self.position(),
+                    };
+                    return Err(err);
+                }
+            }
+        }
+        let borrowed = &self.slice[start..self.index];
+        let result = result(borrowed).map(Reference::Borrowed);
+        self.position.column += 3;
+        self.index += 3;
+        result
+    }
+
+    fn parse_unquoted_str_bytes<'s, F, T>(
+        &'s mut self,
+        allow_dot: bool,
+        result: F,
+    ) -> Result<Reference<'de, 's, T>>
+    where
+        T: ?Sized + 's,
+        F: FnOnce(&[u8]) -> Result<&T>,
+    {
+        let start = self.index;
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'/') => match self.slice.get(self.index..=self.index + 1) {
+                    Some(bytes) if bytes == b"//" => break,
+                    Some(_) | None => {
+                        self.position.column += 1;
+                        self.index += 1;
+                    }
+                },
+                Some(b'.') if !allow_dot => break,
+                Some(byte) => {
+                    if FORBIDDEN_TABLE[*byte as usize] || self.starts_with_whitespace()? {
+                        break;
+                    } else {
+                        self.position = next_position(self.position, *byte);
+                        self.index += 1;
+                    }
+                }
+                None => break,
+            }
+        }
+        let borrowed = &self.slice[start..self.index];
+        result(borrowed).map(Reference::Borrowed)
+    }
+
+    fn parse_to_line_ending_bytes<'s, F, T>(
+        &'s mut self,
+        result: F,
+    ) -> Result<Reference<'de, 's, T>>
+    where
+        T: ?Sized + 's,
+        F: FnOnce(&[u8]) -> Result<&T>,
+    {
+        let start = self.index;
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'\n') => {
+                    break;
+                }
+                Some(b'\r') => match self.slice.get(self.index..=self.index + 1) {
+                    Some(bytes) if bytes == b"\r\n" => {
+                        break;
+                    }
+                    Some(_) | None => {
+                        self.position.column += 1;
+                        self.index += 1;
+                    }
+                },
+                Some(byte) => {
+                    self.position = next_position(self.position, *byte);
+                    self.index += 1;
+                }
+                None => break,
+            }
+        }
+        let borrowed = &self.slice[start..self.index];
+        result(borrowed).map(Reference::Borrowed)
+    }
 }
 
 impl<'de> Read<'de> for SliceRead<'de> {
     #[inline]
     fn position(&self) -> Position {
-        self.position_of_index(self.index)
+        self.position
     }
 
     #[inline]
     fn peek_position(&mut self) -> Position {
-        self.position_of_index(self.slice.len().min(self.index + 1))
+        let mut position = self.position;
+        if let Some(byte) = self.slice.get(self.index + 1) {
+            position = next_position(position, *byte);
+        }
+        position
     }
 
     #[inline]
@@ -568,6 +750,7 @@ impl<'de> Read<'de> for SliceRead<'de> {
             return Err(Error::Eof);
         }
         let byte = self.slice[self.index];
+        self.position = next_position(self.position, byte);
         self.index += 1;
         Ok(byte)
     }
@@ -577,6 +760,9 @@ impl<'de> Read<'de> for SliceRead<'de> {
         if self.available_data_len() < n {
             Err(Error::Eof)
         } else {
+            for byte in &self.slice[self.index..] {
+                self.position = next_position(self.position, *byte);
+            }
             self.index += n;
             Ok(())
         }
@@ -587,81 +773,14 @@ impl<'de> Read<'de> for SliceRead<'de> {
         escape: bool,
         scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
-        let mut start = self.index;
-        let len_before = scratch.len();
-        loop {
-            match self.slice.get(self.index) {
-                Some(b'\\') if escape => {
-                    scratch.extend_from_slice(&self.slice[start..self.index]);
-                    self.index += 1;
-                    parse_escaped_char(self, scratch)?;
-                    start = self.index;
-                }
-                Some(b'"') => break,
-                Some(_) => {
-                    self.index += 1;
-                }
-                None => {
-                    let err = Error::UnexpectedToken {
-                        expected: "\"",
-                        position: self.position(),
-                    };
-                    return Err(err);
-                }
-            }
-        }
-        let r = if len_before == scratch.len() {
-            let borrowed = &self.slice[start..self.index];
-            let s = unsafe { str::from_utf8_unchecked(borrowed) };
-            Reference::Borrowed(s)
-        } else {
-            scratch.extend_from_slice(&self.slice[start..self.index]);
-            let s = unsafe { str::from_utf8_unchecked(scratch) };
-            Reference::Copied(s)
-        };
-        self.index += 1;
-        Ok(r)
+        self.parse_quoted_str_bytes(escape, scratch, as_str)
     }
 
     fn parse_multiline_str<'s>(
         &'s mut self,
         _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
-        let start = self.index;
-        loop {
-            match self.slice.get(self.index) {
-                Some(b'"') => match self.slice.get(self.index + 1..=self.index + 2) {
-                    Some(bytes) if bytes == b"\"\"" => {
-                        break;
-                    }
-                    Some(_) => {
-                        self.index += 1;
-                    }
-                    None => {
-                        let err = Error::UnexpectedToken {
-                            expected: "\"\"",
-                            position: self.position(),
-                        };
-                        return Err(err);
-                    }
-                },
-                Some(_) => {
-                    self.index += 1;
-                }
-                None => {
-                    let err = Error::UnexpectedToken {
-                        expected: "\"\"\"",
-                        position: self.position(),
-                    };
-                    return Err(err);
-                }
-            }
-        }
-        let borrowed = &self.slice[start..self.index];
-        let s = unsafe { str::from_utf8_unchecked(borrowed) };
-        let result = Ok(Reference::Borrowed(s));
-        self.index += 3;
-        result
+        self.parse_multiline_str_bytes(as_str)
     }
 
     fn parse_unquoted_str<'s>(
@@ -669,62 +788,17 @@ impl<'de> Read<'de> for SliceRead<'de> {
         _scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>> {
-        let start = self.index;
-        loop {
-            match self.slice.get(self.index) {
-                Some(b'/') => match self.slice.get(self.index..=self.index + 1) {
-                    Some(bytes) if bytes == b"//" => break,
-                    Some(_) | None => {
-                        self.index += 1;
-                    }
-                },
-                Some(b'.') if !allow_dot => break,
-                Some(byte) => {
-                    if FORBIDDEN_TABLE[*byte as usize] || self.starts_with_whitespace()? {
-                        break;
-                    } else {
-                        self.index += 1;
-                    }
-                }
-                None => break,
-            }
-        }
-        let borrowed = &self.slice[start..self.index];
-        let s = unsafe { str::from_utf8_unchecked(borrowed) };
-        Ok(Reference::Borrowed(s))
+        self.parse_unquoted_str_bytes(allow_dot, as_str)
     }
 
     fn parse_to_line_ending<'s>(
         &'s mut self,
         _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
-        let start = self.index;
-        loop {
-            match self.slice.get(self.index) {
-                Some(b'\n') => {
-                    break;
-                }
-                Some(b'\r') => match self.slice.get(self.index..=self.index + 1) {
-                    Some(bytes) if bytes == b"\r\n" => {
-                        break;
-                    }
-                    Some(_) | None => {
-                        self.index += 1;
-                    }
-                },
-                Some(_) => {
-                    self.index += 1;
-                }
-                None => break,
-            }
-        }
-        let borrowed = &self.slice[start..self.index];
-        let s = unsafe { str::from_utf8_unchecked(borrowed) };
-        Ok(Reference::Borrowed(s))
+        self.parse_to_line_ending_bytes(as_str)
     }
 }
 
-#[derive(Deref, DerefMut)]
 pub struct StrRead<'de> {
     delegate: SliceRead<'de>,
 }
@@ -767,29 +841,36 @@ impl<'de> Read<'de> for StrRead<'de> {
         escape: bool,
         scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
-        self.delegate.parse_quoted_str(escape, scratch)
+        self.delegate
+            .parse_quoted_str_bytes(escape, scratch, |bytes| {
+                Ok(unsafe { str::from_utf8_unchecked(bytes) })
+            })
     }
 
     fn parse_multiline_str<'s>(
         &'s mut self,
-        scratch: &'s mut Vec<u8>,
+        _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
-        self.delegate.parse_multiline_str(scratch)
+        self.delegate
+            .parse_multiline_str_bytes(|bytes| Ok(unsafe { str::from_utf8_unchecked(bytes) }))
     }
 
     fn parse_unquoted_str<'s>(
         &'s mut self,
-        scratch: &'s mut Vec<u8>,
+        _scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>> {
-        self.delegate.parse_unquoted_str(scratch, allow_dot)
+        self.delegate.parse_unquoted_str_bytes(allow_dot, |bytes| {
+            Ok(unsafe { str::from_utf8_unchecked(bytes) })
+        })
     }
 
     fn parse_to_line_ending<'s>(
         &'s mut self,
         _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
-        self.delegate.parse_to_line_ending(_scratch)
+        self.delegate
+            .parse_to_line_ending_bytes(|bytes| Ok(unsafe { str::from_utf8_unchecked(bytes) }))
     }
 }
 
