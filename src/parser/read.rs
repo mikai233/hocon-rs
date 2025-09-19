@@ -35,7 +35,7 @@ pub(crate) const DEFAULT_BUFFER_SIZE: usize = 512;
 ///
 /// This function only examines the first character and does **not** count
 /// consecutive whitespace.
-#[inline]
+#[inline(always)]
 pub fn leading_whitespace_bytes(bytes: &[u8]) -> usize {
     if bytes.is_empty() {
         return 0;
@@ -142,15 +142,26 @@ fn as_str(slice: &[u8]) -> Result<&str> {
     str::from_utf8(slice).map_err(|_| Error::InvalidUtf8)
 }
 
-#[inline]
-fn next_position(mut line: usize, mut column: usize, byte: u8) -> (usize, usize) {
-    if byte == b'\n' {
-        line += 1;
-        column = 0;
-    } else {
-        column += 1;
-    }
-    (line, column)
+macro_rules! next_position {
+    ($self:expr, $byte:expr) => {{
+        if $byte == b'\n' {
+            $self.line += 1;
+            $self.column = 0;
+        } else {
+            $self.column += 1;
+        }
+    }};
+}
+
+macro_rules! peek_position {
+    ($line:expr, $column:expr, $byte:expr) => {{
+        if $byte == b'\n' {
+            $line += 1;
+            $column = 0;
+        } else {
+            $column += 1;
+        }
+    }};
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -188,13 +199,13 @@ pub trait Read<'de> {
 
     fn peek_n(&mut self, n: usize) -> Result<&[u8]>;
 
-    #[inline]
+    #[inline(always)]
     fn peek(&mut self) -> Result<u8> {
         let chars = self.peek_n(1)?;
         Ok(chars[0])
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek2(&mut self) -> Result<(u8, u8)> {
         let chars = self.peek_n(2)?;
         Ok((chars[0], chars[1]))
@@ -202,7 +213,7 @@ pub trait Read<'de> {
 
     fn next(&mut self) -> Result<u8>;
 
-    #[inline]
+    #[inline(always)]
     fn discard(&mut self, n: usize) -> Result<()> {
         for _ in 0..n {
             self.next()?;
@@ -232,7 +243,7 @@ pub trait Read<'de> {
         scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>>;
 
-    #[inline]
+    #[inline(always)]
     fn peek_whitespace(&mut self) -> Result<Option<usize>> {
         let n = match self.peek_n(3) {
             Ok(bytes) => leading_whitespace_bytes(bytes),
@@ -251,7 +262,7 @@ pub trait Read<'de> {
         if n > 0 { Ok(Some(n)) } else { Ok(None) }
     }
 
-    #[inline]
+    #[inline(always)]
     fn starts_with_whitespace(&mut self) -> Result<bool> {
         self.peek_whitespace().map(|n| n.is_some())
     }
@@ -321,7 +332,7 @@ impl<R: std::io::Read> StreamRead<R> {
         Ok(())
     }
 
-    #[inline]
+    #[inline(always)]
     fn available_data_len(&self) -> usize {
         self.tail - self.head
     }
@@ -336,16 +347,16 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_position(&mut self) -> Position {
         let (mut line, mut column) = (self.line, self.column);
         if let Ok(byte) = self.peek() {
-            (line, column) = next_position(line, column, byte);
+            peek_position!(line, column, byte);
         }
         Position { line, column }
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
         debug_assert!(n > 0 && n <= MAX_PEEK_N);
 
@@ -366,13 +377,13 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Result<u8> {
         if self.available_data_len() == 0 && !self.eof {
             self.fill_buf()?;
         }
         let byte = self.buffer[self.head];
-        (self.line, self.column) = next_position(self.line, self.column, byte);
+        next_position!(self, byte);
         self.head += 1;
         if self.head == self.tail {
             self.head = 0;
@@ -531,7 +542,7 @@ impl<'de> SliceRead<'de> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn available_data_len(&self) -> usize {
         self.slice.len() - self.index
     }
@@ -610,7 +621,7 @@ impl<'de> SliceRead<'de> {
                     }
                 },
                 Some(byte) => {
-                    (self.line, self.column) = next_position(self.line, self.column, *byte);
+                    next_position!(self, *byte);
                     self.index += 1;
                 }
                 None => {
@@ -653,7 +664,7 @@ impl<'de> SliceRead<'de> {
                     if FORBIDDEN_TABLE[*byte as usize] || self.starts_with_whitespace()? {
                         break;
                     } else {
-                        (self.line, self.column) = next_position(self.line, self.column, *byte);
+                        next_position!(self, *byte);
                         self.index += 1;
                     }
                 }
@@ -688,7 +699,7 @@ impl<'de> SliceRead<'de> {
                     }
                 },
                 Some(byte) => {
-                    (self.line, self.column) = next_position(self.line, self.column, *byte);
+                    next_position!(self, *byte);
                     self.index += 1;
                 }
                 None => break,
@@ -700,7 +711,7 @@ impl<'de> SliceRead<'de> {
 }
 
 impl<'de> Read<'de> for SliceRead<'de> {
-    #[inline]
+    #[inline(always)]
     fn position(&self) -> Position {
         Position {
             line: self.line,
@@ -708,16 +719,16 @@ impl<'de> Read<'de> for SliceRead<'de> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_position(&mut self) -> Position {
         let (mut line, mut column) = (self.line, self.column);
         if let Some(byte) = self.slice.get(self.index + 1) {
-            (line, column) = next_position(line, column, *byte);
+            peek_position!(line, column, *byte);
         }
         Position { line, column }
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
         debug_assert!(n > 0 && n <= MAX_PEEK_N);
         if self.available_data_len() < n {
@@ -727,24 +738,24 @@ impl<'de> Read<'de> for SliceRead<'de> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Result<u8> {
         if self.index == self.slice.len() {
             return Err(Error::Eof);
         }
         let byte = self.slice[self.index];
-        (self.line, self.column) = next_position(self.line, self.column, byte);
+        next_position!(self, byte);
         self.index += 1;
         Ok(byte)
     }
 
-    #[inline]
+    #[inline(always)]
     fn discard(&mut self, n: usize) -> Result<()> {
         if self.available_data_len() < n {
             Err(Error::Eof)
         } else {
             for byte in &self.slice[self.index..] {
-                (self.line, self.column) = next_position(self.line, self.column, *byte);
+                next_position!(self, *byte);
             }
             self.index += n;
             Ok(())
@@ -799,22 +810,22 @@ impl<'de> StrRead<'de> {
 }
 
 impl<'de> Read<'de> for StrRead<'de> {
-    #[inline]
+    #[inline(always)]
     fn position(&self) -> Position {
         self.delegate.position()
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_position(&mut self) -> Position {
         self.delegate.peek_position()
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_n(&mut self, n: usize) -> Result<&[u8]> {
         self.delegate.peek_n(n)
     }
 
-    #[inline]
+    #[inline(always)]
     fn next(&mut self) -> Result<u8> {
         self.delegate.next()
     }

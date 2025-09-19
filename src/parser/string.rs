@@ -31,7 +31,7 @@ pub(crate) const FORBIDDEN_TABLE: [bool; 256] = {
 
 pub(crate) const TRIPLE_DOUBLE_QUOTE: &[u8] = b"\"\"\"";
 
-#[macro_export]
+#[macro_export(local_inner_macros)]
 macro_rules! ref_to_string {
     ($s:expr, $scratch:expr) => {
         match $s {
