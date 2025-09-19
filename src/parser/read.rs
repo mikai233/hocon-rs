@@ -545,54 +545,27 @@ impl<'de> SliceRead<'de> {
     {
         let mut start = self.index;
         let len_before = scratch.len();
-        let mut break_from_quote = false;
-        for byte in &self.slice[self.index..] {
-            match byte {
-                b'\\' if escape => {
+        loop {
+            match self.slice.get(self.index) {
+                Some(b'\\') if escape => {
                     scratch.extend_from_slice(&self.slice[start..self.index]);
-                    self.position.column += 1;
                     self.index += 1;
                     parse_escaped_char(self, scratch)?;
                     start = self.index;
                 }
-                b'"' => {
-                    break_from_quote = true;
-                    break;
-                }
-                byte => {
-                    self.position = next_position(self.position, *byte);
+                Some(b'"') => break,
+                Some(_) => {
                     self.index += 1;
+                }
+                None => {
+                    let err = Error::UnexpectedToken {
+                        expected: "\"",
+                        position: self.position(),
+                    };
+                    return Err(err);
                 }
             }
         }
-        if !break_from_quote {
-            let err = Error::UnexpectedToken {
-                expected: "\"",
-                position: self.position(),
-            };
-            return Err(err);
-        }
-        // loop {
-        //     match self.slice.get(self.index) {
-        //         Some(b'\\') if escape => {
-        //             scratch.extend_from_slice(&self.slice[start..self.index]);
-        //             self.index += 1;
-        //             parse_escaped_char(self, scratch)?;
-        //             start = self.index;
-        //         }
-        //         Some(b'"') => break,
-        //         Some(_) => {
-        //             self.index += 1;
-        //         }
-        //         None => {
-        //             let err = Error::UnexpectedToken {
-        //                 expected: "\"",
-        //                 position: self.position(),
-        //             };
-        //             return Err(err);
-        //         }
-        //     }
-        // }
         let result = if len_before == scratch.len() {
             let borrowed = &self.slice[start..self.index];
             result(borrowed).map(Reference::Borrowed)

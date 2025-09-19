@@ -197,58 +197,58 @@ mod tests {
     use crate::parser::read::StrRead;
     use rstest::rstest;
 
-    // #[rstest]
-    // #[case("\"hello\"", "hello", "")]
-    // #[case("\"hello\\nworld\"", "hello\nworld", "")]
-    // #[case(
-    //     r#""line1\nline2\tindent\\slash\"quote""#,
-    //     "line1\nline2\tindent\\slash\"quote",
-    //     ""
-    // )]
-    // #[case(r#""\u4F60\u597D""#, "你好", "")]
-    // #[case(r#""\uD83D\uDE00""#, "😀", "")]
-    // #[case(r#""Hello \u4F60\u597D \n 😀!""#, "Hello 你好 \n 😀!", "")]
-    // fn test_valid_quoted_string(
-    //     #[case] input: &str,
-    //     #[case] expected: &str,
-    //     #[case] rest: &str,
-    // ) -> Result<()> {
-    //     let read = StrRead::new(input);
-    //     let mut parser = HoconParser::new(read);
-    //     parser.scratch.clear();
-    //     let s = HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true)?;
-    //     assert_eq!(s, expected);
-    //     assert_eq!(parser.reader.rest()?, rest);
-    //     Ok(())
-    // }
-    //
-    // #[rstest]
-    // #[case(r#""Hello \"#)]
-    // #[case(r#""\uD83D\u0041""#)]
-    // #[case("")]
-    // #[case("\"")]
-    // #[case("\"\\u")]
-    // #[case("\"\\uD83")]
-    // #[case(r#""\uD83D\u004`""#)]
-    // #[case(r#""\uD83D\u004""#)]
-    // fn test_invalid_quoted_string(#[case] input: &str) {
-    //     let read = StrRead::new(input);
-    //     let mut parser = HoconParser::new(read);
-    //     parser.scratch.clear();
-    //     let result =
-    //         HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true);
-    //     assert!(result.is_err());
-    // }
+    #[rstest]
+    #[case("\"hello\"", "hello", "")]
+    #[case("\"hello\\nworld\"", "hello\nworld", "")]
+    #[case(
+        r#""line1\nline2\tindent\\slash\"quote""#,
+        "line1\nline2\tindent\\slash\"quote",
+        ""
+    )]
+    #[case(r#""\u4F60\u597D""#, "你好", "")]
+    #[case(r#""\uD83D\uDE00""#, "😀", "")]
+    #[case(r#""Hello \u4F60\u597D \n 😀!""#, "Hello 你好 \n 😀!", "")]
+    fn test_valid_quoted_string(
+        #[case] input: &str,
+        #[case] expected: &str,
+        #[case] rest: &str,
+    ) -> Result<()> {
+        let read = StrRead::new(input);
+        let mut parser = HoconParser::new(read);
+        parser.scratch.clear();
+        let s = HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true)?;
+        assert_eq!(s, expected);
+        assert_eq!(parser.reader.rest()?, rest);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(r#""Hello \"#)]
+    #[case(r#""\uD83D\u0041""#)]
+    #[case("")]
+    #[case("\"")]
+    #[case("\"\\u")]
+    #[case("\"\\uD83")]
+    #[case(r#""\uD83D\u004`""#)]
+    #[case(r#""\uD83D\u004""#)]
+    fn test_invalid_quoted_string(#[case] input: &str) {
+        let read = StrRead::new(input);
+        let mut parser = HoconParser::new(read);
+        parser.scratch.clear();
+        let result =
+            HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true);
+        assert!(result.is_err());
+    }
 
     #[rstest]
     #[case("a.b.c", "a.b.c", "")]
-    // #[case("a.b.c//", "a.b.c", "//")]
-    // #[case("a.b.c/b", "a.b.c/b", "")]
-    // #[case("hello#world", "hello", "#world")]
-    // #[case("你 好", "你", " 好")]
-    // #[case("你 \\r\n不好", "你", " \\r\n不好")]
-    // #[case("你 \r\n不好", "你", " \r\n不好")]
-    // #[case("a，\n", "a，", "\n")]
+    #[case("a.b.c//", "a.b.c", "//")]
+    #[case("a.b.c/b", "a.b.c/b", "")]
+    #[case("hello#world", "hello", "#world")]
+    #[case("你 好", "你", " 好")]
+    #[case("你 \\r\n不好", "你", " \\r\n不好")]
+    #[case("你 \r\n不好", "你", " \r\n不好")]
+    #[case("a，\n", "a，", "\n")]
     fn test_valid_unquoted_string(
         #[case] input: &str,
         #[case] expected: &str,
@@ -263,57 +263,57 @@ mod tests {
         Ok(())
     }
 
-    // #[rstest]
-    // #[case(r#""""a.bbc""""#, "a.bbc", "")]
-    // #[case(r#""""a.bbc😀"""😀"#, "a.bbc😀", "😀")]
-    // #[case(r#""""a.b\r\nbc""""#, "a.b\\r\\nbc", "")]
-    // #[case(r#""""a.bb"c""""#, "a.bb\"c", "")]
-    // #[case(r#""""a.bb""c""""#, "a.bb\"\"c", "")]
-    // fn test_valid_multiline_string(
-    //     #[case] input: &str,
-    //     #[case] expected: &str,
-    //     #[case] rest: &str,
-    // ) -> Result<()> {
-    //     let read = StrRead::new(input);
-    //     let mut parser = HoconParser::new(read);
-    //     let s = HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true)?;
-    //     assert_eq!(s, expected);
-    //     assert_eq!(parser.reader.rest()?, rest);
-    //     Ok(())
-    // }
-    //
-    // #[rstest]
-    // #[case(r#""#)]
-    // #[case(r#""""Hello"""#)]
-    // #[case(r#"""Hello"""#)]
-    // #[case(r#""Hello""""#)]
-    // fn test_invalid_multiline_string(#[case] input: &str) {
-    //     let read = StrRead::new(input);
-    //     let mut parser = HoconParser::new(read);
-    //     let result =
-    //         HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true);
-    //     assert!(result.is_err());
-    // }
-    //
-    // #[rstest]
-    // #[case(r#"a.b.c "#, "a.b.c", "")]
-    // #[case(r#"a. b.c "#, "a. b.c", "")]
-    // #[case(r#"a. "..".c "#, "a. ...c", "")]
-    // #[case(r#"a.b.c :"#, "a.b.c", ":")]
-    // #[case(r#"a.b.c ="#, "a.b.c", "=")]
-    // #[case(r#"a.b.c{"#, "a.b.c", "{")]
-    // #[case(r#"a. """b""" . c }"#, "a. b . c", "}")]
-    // fn test_valid_path_expression(
-    //     #[case] input: &str,
-    //     #[case] expected: &str,
-    //     #[case] rest: &str,
-    // ) -> Result<()> {
-    //     let read = StrRead::new(input);
-    //     let mut parser = HoconParser::new(read);
-    //     parser.scratch.clear();
-    //     let s = HoconParser::parse_path_expression(&mut parser.reader, &mut parser.scratch)?;
-    //     assert_eq!(s.to_string(), expected);
-    //     assert_eq!(parser.reader.rest()?, rest);
-    //     Ok(())
-    // }
+    #[rstest]
+    #[case(r#""""a.bbc""""#, "a.bbc", "")]
+    #[case(r#""""a.bbc😀"""😀"#, "a.bbc😀", "😀")]
+    #[case(r#""""a.b\r\nbc""""#, "a.b\\r\\nbc", "")]
+    #[case(r#""""a.bb"c""""#, "a.bb\"c", "")]
+    #[case(r#""""a.bb""c""""#, "a.bb\"\"c", "")]
+    fn test_valid_multiline_string(
+        #[case] input: &str,
+        #[case] expected: &str,
+        #[case] rest: &str,
+    ) -> Result<()> {
+        let read = StrRead::new(input);
+        let mut parser = HoconParser::new(read);
+        let s = HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true)?;
+        assert_eq!(s, expected);
+        assert_eq!(parser.reader.rest()?, rest);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(r#""#)]
+    #[case(r#""""Hello"""#)]
+    #[case(r#"""Hello"""#)]
+    #[case(r#""Hello""""#)]
+    fn test_invalid_multiline_string(#[case] input: &str) {
+        let read = StrRead::new(input);
+        let mut parser = HoconParser::new(read);
+        let result =
+            HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true);
+        assert!(result.is_err());
+    }
+
+    #[rstest]
+    #[case(r#"a.b.c "#, "a.b.c", "")]
+    #[case(r#"a. b.c "#, "a. b.c", "")]
+    #[case(r#"a. "..".c "#, "a. ...c", "")]
+    #[case(r#"a.b.c :"#, "a.b.c", ":")]
+    #[case(r#"a.b.c ="#, "a.b.c", "=")]
+    #[case(r#"a.b.c{"#, "a.b.c", "{")]
+    #[case(r#"a. """b""" . c }"#, "a. b . c", "}")]
+    fn test_valid_path_expression(
+        #[case] input: &str,
+        #[case] expected: &str,
+        #[case] rest: &str,
+    ) -> Result<()> {
+        let read = StrRead::new(input);
+        let mut parser = HoconParser::new(read);
+        parser.scratch.clear();
+        let s = HoconParser::parse_path_expression(&mut parser.reader, &mut parser.scratch)?;
+        assert_eq!(s.to_string(), expected);
+        assert_eq!(parser.reader.rest()?, rest);
+        Ok(())
+    }
 }
