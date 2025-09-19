@@ -143,14 +143,14 @@ fn as_str(slice: &[u8]) -> Result<&str> {
 }
 
 #[inline]
-fn next_position(mut position: Position, byte: u8) -> Position {
+fn next_position(mut line: usize, mut column: usize, byte: u8) -> (usize, usize) {
     if byte == b'\n' {
-        position.line += 1;
-        position.column = 0;
+        line += 1;
+        column = 0;
     } else {
-        position.column += 1;
+        column += 1;
     }
-    position
+    (line, column)
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -285,7 +285,8 @@ pub struct StreamRead<R: std::io::Read> {
     head: usize,
     tail: usize,
     eof: bool,
-    position: Position,
+    line: usize,
+    column: usize,
 }
 
 impl<R: std::io::Read> StreamRead<R> {
@@ -296,7 +297,8 @@ impl<R: std::io::Read> StreamRead<R> {
             head: 0,
             tail: 0,
             eof: false,
-            position: Default::default(),
+            line: 0,
+            column: 0,
         }
     }
 
@@ -328,16 +330,19 @@ impl<R: std::io::Read> StreamRead<R> {
 impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
     #[inline]
     fn position(&self) -> Position {
-        self.position
+        Position {
+            line: self.line,
+            column: self.column,
+        }
     }
 
     #[inline]
     fn peek_position(&mut self) -> Position {
-        let mut position = self.position;
+        let (mut line, mut column) = (self.line, self.column);
         if let Ok(byte) = self.peek() {
-            position = next_position(position, byte);
+            (line, column) = next_position(line, column, byte);
         }
-        position
+        Position { line, column }
     }
 
     #[inline]
@@ -367,7 +372,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             self.fill_buf()?;
         }
         let byte = self.buffer[self.head];
-        self.position = next_position(self.position, byte);
+        (self.line, self.column) = next_position(self.line, self.column, byte);
         self.head += 1;
         if self.head == self.tail {
             self.head = 0;
@@ -512,7 +517,8 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
 pub struct SliceRead<'de> {
     slice: &'de [u8],
     index: usize,
-    position: Position,
+    line: usize,
+    column: usize,
 }
 
 impl<'de> SliceRead<'de> {
@@ -520,7 +526,8 @@ impl<'de> SliceRead<'de> {
         SliceRead {
             slice,
             index: 0,
-            position: Default::default(),
+            line: 0,
+            column: 0,
         }
     }
 
@@ -573,7 +580,7 @@ impl<'de> SliceRead<'de> {
             scratch.extend_from_slice(&self.slice[start..self.index]);
             result(scratch).map(Reference::Copied)
         };
-        self.position.column += 1;
+        self.column += 1;
         self.index += 1;
         result
     }
@@ -591,7 +598,7 @@ impl<'de> SliceRead<'de> {
                         break;
                     }
                     Some(_) => {
-                        self.position.column += 1;
+                        self.column += 1;
                         self.index += 1;
                     }
                     None => {
@@ -603,7 +610,7 @@ impl<'de> SliceRead<'de> {
                     }
                 },
                 Some(byte) => {
-                    self.position = next_position(self.position, *byte);
+                    (self.line, self.column) = next_position(self.line, self.column, *byte);
                     self.index += 1;
                 }
                 None => {
@@ -617,7 +624,7 @@ impl<'de> SliceRead<'de> {
         }
         let borrowed = &self.slice[start..self.index];
         let result = result(borrowed).map(Reference::Borrowed);
-        self.position.column += 3;
+        self.column += 3;
         self.index += 3;
         result
     }
@@ -637,7 +644,7 @@ impl<'de> SliceRead<'de> {
                 Some(b'/') => match self.slice.get(self.index..=self.index + 1) {
                     Some(bytes) if bytes == b"//" => break,
                     Some(_) | None => {
-                        self.position.column += 1;
+                        self.column += 1;
                         self.index += 1;
                     }
                 },
@@ -646,7 +653,7 @@ impl<'de> SliceRead<'de> {
                     if FORBIDDEN_TABLE[*byte as usize] || self.starts_with_whitespace()? {
                         break;
                     } else {
-                        self.position = next_position(self.position, *byte);
+                        (self.line, self.column) = next_position(self.line, self.column, *byte);
                         self.index += 1;
                     }
                 }
@@ -676,12 +683,12 @@ impl<'de> SliceRead<'de> {
                         break;
                     }
                     Some(_) | None => {
-                        self.position.column += 1;
+                        self.column += 1;
                         self.index += 1;
                     }
                 },
                 Some(byte) => {
-                    self.position = next_position(self.position, *byte);
+                    (self.line, self.column) = next_position(self.line, self.column, *byte);
                     self.index += 1;
                 }
                 None => break,
@@ -695,16 +702,19 @@ impl<'de> SliceRead<'de> {
 impl<'de> Read<'de> for SliceRead<'de> {
     #[inline]
     fn position(&self) -> Position {
-        self.position
+        Position {
+            line: self.line,
+            column: self.column,
+        }
     }
 
     #[inline]
     fn peek_position(&mut self) -> Position {
-        let mut position = self.position;
+        let (mut line, mut column) = (self.line, self.column);
         if let Some(byte) = self.slice.get(self.index + 1) {
-            position = next_position(position, *byte);
+            (line, column) = next_position(line, column, *byte);
         }
-        position
+        Position { line, column }
     }
 
     #[inline]
@@ -723,7 +733,7 @@ impl<'de> Read<'de> for SliceRead<'de> {
             return Err(Error::Eof);
         }
         let byte = self.slice[self.index];
-        self.position = next_position(self.position, byte);
+        (self.line, self.column) = next_position(self.line, self.column, byte);
         self.index += 1;
         Ok(byte)
     }
@@ -734,7 +744,7 @@ impl<'de> Read<'de> for SliceRead<'de> {
             Err(Error::Eof)
         } else {
             for byte in &self.slice[self.index..] {
-                self.position = next_position(self.position, *byte);
+                (self.line, self.column) = next_position(self.line, self.column, *byte);
             }
             self.index += n;
             Ok(())
