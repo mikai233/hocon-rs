@@ -1,7 +1,8 @@
+use std::fmt::Display;
 use std::str;
 
 use crate::Result;
-use crate::error::Error;
+use crate::error::{Error, Parse};
 use crate::parser::string::FORBIDDEN_TABLE;
 
 // We should peek at least 9 bytes because the `classpath(` token has a length of 11 bytes.
@@ -84,7 +85,9 @@ fn parse_escaped_char<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8>) 
         b'r' => scratch.push(b'\r'),
         b't' => scratch.push(b'\t'),
         b'u' => parse_escaped_unicode(reader, scratch)?,
-        _ => return Err(Error::InvalidEscape),
+        _ => {
+            return Err(reader.error(Parse::InvalidEscape));
+        }
     }
     Ok(())
 }
@@ -97,7 +100,9 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
                 b'0'..=b'9' => (n << 4) | (b - b'0') as u16,
                 b'a'..=b'f' => (n << 4) | (10 + b - b'a') as u16,
                 b'A'..=b'F' => (n << 4) | (10 + b - b'A') as u16,
-                _ => return Err(Error::InvalidEscape),
+                _ => {
+                    return Err(reader.error(Parse::InvalidEscape));
+                }
             };
         }
         Ok(n)
@@ -108,11 +113,11 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
     if (0xD800..=0xDBFF).contains(&n) {
         // Expect \u for low surrogate
         if reader.next()? != b'\\' || reader.next()? != b'u' {
-            return Err(Error::InvalidEscape);
+            return Err(reader.error(Parse::InvalidEscape));
         }
         let n2 = parse_hex16(reader)? as u32;
         if !(0xDC00..=0xDFFF).contains(&n2) {
-            return Err(Error::InvalidEscape);
+            return Err(reader.error(Parse::InvalidEscape));
         }
         n = 0x10000 + (((n - 0xD800) << 10) | (n2 - 0xDC00));
     }
@@ -133,13 +138,17 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
         scratch.push((n >> 6 & 0x3F) as u8 | 0x80);
         scratch.push((n & 0x3F) as u8 | 0x80);
     } else {
-        return Err(Error::InvalidEscape);
+        return Err(reader.error(Parse::InvalidEscape));
     }
     Ok(())
 }
 
-fn as_str(slice: &[u8]) -> Result<&str> {
-    str::from_utf8(slice).map_err(|_| Error::InvalidUtf8)
+#[inline(always)]
+fn as_str<'de, 's, R>(reader: &R, slice: &'s [u8]) -> Result<&'s str>
+where
+    R: Read<'de>,
+{
+    str::from_utf8(slice).map_err(|_| reader.error(Parse::InvalidUtf8))
 }
 
 macro_rules! next_position {
@@ -168,6 +177,12 @@ macro_rules! peek_position {
 pub struct Position {
     pub line: usize,
     pub column: usize,
+}
+
+impl Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "line: {}, column: {}", self.line, self.column)
+    }
 }
 
 pub enum Reference<'b, 'c, T>
@@ -267,7 +282,7 @@ pub trait Read<'de> {
         self.peek_whitespace().map(|n| n.is_some())
     }
 
-    #[inline]
+    #[inline(always)]
     fn peek_horizontal_whitespace(&mut self) -> Result<Option<usize>> {
         if self.peek()? != b'\n' {
             self.peek_whitespace()
@@ -276,15 +291,23 @@ pub trait Read<'de> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn starts_with_horizontal_whitespace(&mut self) -> Result<bool> {
         self.peek_horizontal_whitespace().map(|n| n.is_some())
     }
 
-    #[inline]
-    fn peek_error(&mut self, expected: &'static str) -> Error {
-        Error::UnexpectedToken {
-            expected,
+    #[inline(always)]
+    fn error(&self, error: Parse) -> Error {
+        Error::Parse {
+            parse: error,
+            position: self.position(),
+        }
+    }
+
+    #[inline(always)]
+    fn peek_error(&mut self, error: Parse) -> Error {
+        Error::Parse {
+            parse: error,
             position: self.peek_position(),
         }
     }
@@ -407,17 +430,11 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                     scratch.push(byte);
                 }
                 Err(_) => {
-                    let err = Error::UnexpectedToken {
-                        expected: "\"",
-                        position: self.position(),
-                    };
-                    return Err(err);
+                    return Err(self.error(Parse::Expected("\"")));
                 }
             }
         }
-        str::from_utf8(scratch)
-            .map_err(|_| Error::InvalidUtf8)
-            .map(Reference::Copied)
+        as_str(self, scratch).map(Reference::Copied)
     }
 
     fn parse_multiline_str<'s>(
@@ -435,28 +452,18 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                         scratch.push(b'\"');
                     }
                     Err(_) => {
-                        let err = Error::UnexpectedToken {
-                            expected: "\"\"",
-                            position: self.position(),
-                        };
-                        return Err(err);
+                        return Err(self.error(Parse::Expected("\"\"")));
                     }
                 },
                 Ok(byte) => {
                     scratch.push(byte);
                 }
                 Err(_) => {
-                    let err = Error::UnexpectedToken {
-                        expected: "\"\"\"",
-                        position: self.position(),
-                    };
-                    return Err(err);
+                    return Err(self.error(Parse::Expected("\"\"\"")));
                 }
             }
         }
-        str::from_utf8(scratch)
-            .map_err(|_| Error::InvalidUtf8)
-            .map(Reference::Copied)
+        as_str(self, scratch).map(Reference::Copied)
     }
 
     fn parse_unquoted_str<'s>(
@@ -487,9 +494,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                 Err(err) => return Err(err),
             }
         }
-        str::from_utf8(scratch)
-            .map_err(|_| Error::InvalidUtf8)
-            .map(Reference::Copied)
+        as_str(self, scratch).map(Reference::Copied)
     }
 
     fn parse_to_line_ending<'s>(
@@ -519,9 +524,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                 Err(err) => return Err(err),
             }
         }
-        str::from_utf8(scratch)
-            .map_err(|_| Error::InvalidUtf8)
-            .map(Reference::Copied)
+        as_str(self, scratch).map(Reference::Copied)
     }
 }
 
@@ -559,7 +562,7 @@ impl<'de> SliceRead<'de> {
     ) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
-        F: FnOnce(&[u8]) -> Result<&T>,
+        F: for<'a> FnOnce(&Self, &'a [u8]) -> Result<&'a T>,
     {
         let mut start = self.index;
         let len_before = scratch.len();
@@ -576,20 +579,16 @@ impl<'de> SliceRead<'de> {
                     self.index += 1;
                 }
                 None => {
-                    let err = Error::UnexpectedToken {
-                        expected: "\"",
-                        position: self.position(),
-                    };
-                    return Err(err);
+                    return Err(self.error(Parse::Expected("\"")));
                 }
             }
         }
         let result = if len_before == scratch.len() {
             let borrowed = &self.slice[start..self.index];
-            result(borrowed).map(Reference::Borrowed)
+            result(self, borrowed).map(Reference::Borrowed)
         } else {
             scratch.extend_from_slice(&self.slice[start..self.index]);
-            result(scratch).map(Reference::Copied)
+            result(self, scratch).map(Reference::Copied)
         };
         self.column += 1;
         self.index += 1;
@@ -599,7 +598,7 @@ impl<'de> SliceRead<'de> {
     fn parse_multiline_str_bytes<'s, F, T>(&'s mut self, result: F) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
-        F: FnOnce(&[u8]) -> Result<&T>,
+        F: for<'a> FnOnce(&Self, &'a [u8]) -> Result<&'a T>,
     {
         let start = self.index;
         loop {
@@ -613,11 +612,7 @@ impl<'de> SliceRead<'de> {
                         self.index += 1;
                     }
                     None => {
-                        let err = Error::UnexpectedToken {
-                            expected: "\"\"",
-                            position: self.position(),
-                        };
-                        return Err(err);
+                        return Err(self.error(Parse::Expected("\"\"")));
                     }
                 },
                 Some(byte) => {
@@ -625,16 +620,12 @@ impl<'de> SliceRead<'de> {
                     self.index += 1;
                 }
                 None => {
-                    let err = Error::UnexpectedToken {
-                        expected: "\"\"\"",
-                        position: self.position(),
-                    };
-                    return Err(err);
+                    return Err(self.error(Parse::Expected("\"\"\"")));
                 }
             }
         }
         let borrowed = &self.slice[start..self.index];
-        let result = result(borrowed).map(Reference::Borrowed);
+        let result = result(self, borrowed).map(Reference::Borrowed);
         self.column += 3;
         self.index += 3;
         result
@@ -647,7 +638,7 @@ impl<'de> SliceRead<'de> {
     ) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
-        F: FnOnce(&[u8]) -> Result<&T>,
+        F: for<'a> FnOnce(&Self, &'a [u8]) -> Result<&'a T>,
     {
         let start = self.index;
         loop {
@@ -672,7 +663,7 @@ impl<'de> SliceRead<'de> {
             }
         }
         let borrowed = &self.slice[start..self.index];
-        result(borrowed).map(Reference::Borrowed)
+        result(self, borrowed).map(Reference::Borrowed)
     }
 
     fn parse_to_line_ending_bytes<'s, F, T>(
@@ -681,7 +672,7 @@ impl<'de> SliceRead<'de> {
     ) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
-        F: FnOnce(&[u8]) -> Result<&T>,
+        F: for<'a> FnOnce(&Self, &'a [u8]) -> Result<&'a T>,
     {
         let start = self.index;
         loop {
@@ -706,7 +697,7 @@ impl<'de> SliceRead<'de> {
             }
         }
         let borrowed = &self.slice[start..self.index];
-        result(borrowed).map(Reference::Borrowed)
+        result(self, borrowed).map(Reference::Borrowed)
     }
 }
 
@@ -804,8 +795,8 @@ impl<'de> StrRead<'de> {
         }
     }
 
-    pub fn rest(&self) -> Result<&str> {
-        str::from_utf8(self.delegate.rest()).map_err(|_| Error::InvalidUtf8)
+    pub fn rest(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(self.delegate.rest()) }
     }
 }
 
@@ -836,7 +827,7 @@ impl<'de> Read<'de> for StrRead<'de> {
         scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
         self.delegate
-            .parse_quoted_str_bytes(escape, scratch, |bytes| {
+            .parse_quoted_str_bytes(escape, scratch, |_, bytes| {
                 Ok(unsafe { str::from_utf8_unchecked(bytes) })
             })
     }
@@ -846,7 +837,7 @@ impl<'de> Read<'de> for StrRead<'de> {
         _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
         self.delegate
-            .parse_multiline_str_bytes(|bytes| Ok(unsafe { str::from_utf8_unchecked(bytes) }))
+            .parse_multiline_str_bytes(|_, bytes| Ok(unsafe { str::from_utf8_unchecked(bytes) }))
     }
 
     fn parse_unquoted_str<'s>(
@@ -854,9 +845,10 @@ impl<'de> Read<'de> for StrRead<'de> {
         _scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>> {
-        self.delegate.parse_unquoted_str_bytes(allow_dot, |bytes| {
-            Ok(unsafe { str::from_utf8_unchecked(bytes) })
-        })
+        self.delegate
+            .parse_unquoted_str_bytes(allow_dot, |_, bytes| {
+                Ok(unsafe { str::from_utf8_unchecked(bytes) })
+            })
     }
 
     fn parse_to_line_ending<'s>(
@@ -864,7 +856,7 @@ impl<'de> Read<'de> for StrRead<'de> {
         _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
         self.delegate
-            .parse_to_line_ending_bytes(|bytes| Ok(unsafe { str::from_utf8_unchecked(bytes) }))
+            .parse_to_line_ending_bytes(|_, bytes| Ok(unsafe { str::from_utf8_unchecked(bytes) }))
     }
 }
 

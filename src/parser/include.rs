@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::config_options::ConfigOptions;
-use crate::error::Error;
+use crate::error::{Error, Parse};
 use crate::parser::loader::{self, load_from_classpath, load_from_path};
 use crate::parser::read::Read;
 use crate::parser::{Context, HoconParser};
@@ -22,7 +22,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             Self::drop_horizontal_whitespace(&mut self.reader)?;
             let ch = self.reader.peek()?;
             if ch != b')' {
-                return Err(self.reader.peek_error(")"));
+                return Err(self.reader.peek_error(Parse::Expected(")")));
             } else {
                 self.reader.discard(1)?;
             }
@@ -34,7 +34,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     fn parse_include_token(&mut self) -> Result<()> {
         let bytes = self.reader.peek_n(INCLUDE.len())?;
         if bytes != INCLUDE {
-            return Err(self.reader.peek_error("include"));
+            return Err(self.reader.peek_error(Parse::Expected("include")));
         }
         self.reader.discard(INCLUDE.len())?;
         Ok(())
@@ -48,7 +48,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             match self.reader.peek_n(REQUIRED.len()) {
                 Ok(bytes) if bytes == REQUIRED => (),
                 _ => {
-                    return Err(self.reader.peek_error("required("));
+                    return Err(self.reader.peek_error(Parse::Expected("required(")));
                 }
             }
             self.reader.discard(REQUIRED.len())?;
@@ -68,7 +68,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 match self.reader.peek_n(FILE.len()) {
                     Ok(bytes) if bytes == FILE => (),
                     _ => {
-                        return Err(self.reader.peek_error("file("));
+                        return Err(self.reader.peek_error(Parse::Expected("file(")));
                     }
                 }
                 self.reader.discard(FILE.len())?;
@@ -80,7 +80,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 match self.reader.peek_n(URL.len()) {
                     Ok(bytes) if bytes == URL => (),
                     _ => {
-                        return Err(self.reader.peek_error("url("));
+                        return Err(self.reader.peek_error(Parse::Expected("url(")));
                     }
                 }
                 self.reader.discard(URL.len())?;
@@ -95,7 +95,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 match self.reader.peek_n(CLASSPATH.len()) {
                     Ok(bytes) if bytes == CLASSPATH => (),
                     _ => {
-                        return Err(self.reader.peek_error("classpath("));
+                        return Err(self.reader.peek_error(Parse::Expected("classpath(")));
                     }
                 }
                 self.reader.discard(CLASSPATH.len())?;
@@ -103,7 +103,9 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
             b'"' => None,
             _ => {
-                return Err(self.reader.peek_error("file( or classpath( or url( or \""));
+                return Err(self
+                    .reader
+                    .peek_error(Parse::Expected("file( or classpath( or url( or \"")));
             }
         };
         if location.is_some() {
@@ -255,7 +257,7 @@ mod tests {
         let mut parser = HoconParser::new(read);
         let inclusion = parser.parse_include()?;
         assert_eq!(inclusion.to_string(), expected);
-        assert_eq!(parser.reader.rest()?, rest);
+        assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }
 

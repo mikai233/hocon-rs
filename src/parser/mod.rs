@@ -16,7 +16,7 @@ const DEFAULT_ARRAY_CAPACITY: usize = 16;
 const DEFAULT_OBJECT_CAPACITY: usize = 16;
 
 use crate::config_options::ConfigOptions;
-use crate::error::Error;
+use crate::error::{Error, Parse};
 use crate::parser::frame::{Entry, Frame, Separator, Value};
 use crate::parser::include::INCLUDE;
 use crate::parser::read::Read;
@@ -139,7 +139,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Self::drop_whitespace_and_comments(&mut self.reader)?;
         match self.reader.peek() {
             Ok(_) => {
-                return Err(self.reader.peek_error("end of file"));
+                return Err(self.reader.peek_error(Parse::Expected("end of file")));
             }
             Err(Error::Eof) => {}
             Err(err) => {
@@ -321,7 +321,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     match self.reader.peek2() {
                         Ok((_, b'=')) => {}
                         _ => {
-                            return Err(self.reader.peek_error("+="));
+                            return Err(self.reader.peek_error(Parse::Expected("+=")));
                         }
                     }
                     self.reader.discard(2)?;

@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::error::Parse;
 use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::substitution::Substitution;
@@ -8,7 +9,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         match self.reader.peek_n(2) {
             Ok(bytes) if bytes == b"${" => {}
             _ => {
-                return Err(self.reader.peek_error("${"));
+                return Err(self.reader.peek_error(Parse::Expected("${")));
             }
         }
         self.reader.discard(2)?;
@@ -24,7 +25,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         match self.reader.peek() {
             Ok(b'}') => {}
             _ => {
-                return Err(self.reader.peek_error("}"));
+                return Err(self.reader.peek_error(Parse::Expected("}")));
             }
         }
         self.reader.discard(1)?;

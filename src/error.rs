@@ -8,25 +8,18 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Serde(#[from] serde_json::Error),
-    #[error("Invalid escape")]
-    InvalidEscape,
-    #[error("Invalid UTF-8")]
-    InvalidUtf8,
-    #[error("Unexpected token, expected: {} at line: {}, column: {}", expected, position.line, position.column)]
-    UnexpectedToken {
-        expected: &'static str,
-        position: Position,
-    },
-    #[error("End of file")]
+    #[error("error: {parse} at {position}")]
+    Parse { parse: Parse, position: Position },
+    #[error("end of file")]
     Eof,
-    #[error("Cannot convert `{from}` to `{to}`")]
+    #[error("cannot convert `{from}` to `{to}`")]
     InvalidConversion {
         from: &'static str,
         to: &'static str,
     },
-    #[error("Invalid path expression: {0}")]
+    #[error("invalid path expression: {0}")]
     InvalidPathExpression(&'static str),
-    #[error("Cannot concatenate different type {left_type} and {right_type} at {path}")]
+    #[error("cannot concatenate different type {left_type} and {right_type} at {path}")]
     ConcatenateDifferentType {
         path: String,
         left_type: &'static str,
@@ -34,32 +27,32 @@ pub enum Error {
     },
     #[error("{val} is not allowed in {ty}")]
     InvalidValue { val: &'static str, ty: &'static str },
-    #[error("Invalid concat, values_len:{0} == spaces_len:{1} + 1")]
+    #[error("invalid concat, values_len:{0} == spaces_len:{1} + 1")]
     InvalidConcat(usize, usize),
-    #[error("Substitution {0} not found")]
+    #[error("substitution {0} not found")]
     SubstitutionNotFound(String),
     #[error(
-        "Resolve incomplete. This should never happen outside this library. If you see this, it's a bug."
+        "resolve incomplete. This should never happen outside this library. If you see this, it's a bug."
     )]
     ResolveIncomplete,
-    #[error("Circular include detected")]
+    #[error("circular include detected")]
     InclusionCycle,
-    #[error("Object nesting depth exceeded the limit of {max_depth} levels")]
+    #[error("object nesting depth exceeded the limit of {max_depth} levels")]
     RecursionDepthExceeded { max_depth: usize },
-    #[error("Inclusion: {inclusion} error: {error}")]
+    #[error("inclusion: {inclusion} error: {error}")]
     Include {
         inclusion: String,
         error: Box<Error>,
     },
     #[error(
-    "Substitution cycle: {} -> {current} (cycle closed)",
+    "substitution cycle: {} -> {current} (cycle closed)",
     backtrace.join(" -> ")
     )]
     SubstitutionCycle {
         current: String,
         backtrace: Vec<String>,
     },
-    #[error("Substitution depth exceeded the limit of {max_depth} levels")]
+    #[error("substitution depth exceeded the limit of {max_depth} levels")]
     SubstitutionDepthExceeded { max_depth: usize },
     #[error("{0}")]
     Deserialize(String),
@@ -69,7 +62,7 @@ pub enum Error {
     UrlParse(#[from] url::ParseError),
     #[cfg(not(feature = "urls_includes"))]
     #[error(
-        "Cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"
+        "cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"
     )]
     UrlsIncludesDisabled,
 }
@@ -110,4 +103,14 @@ impl serde::de::Error for Error {
     {
         Self::Deserialize(msg.to_string())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Parse {
+    #[error("invalid escape")]
+    InvalidEscape,
+    #[error("invalid UTF-8")]
+    InvalidUtf8,
+    #[error("expected: {0}")]
+    Expected(&'static str),
 }

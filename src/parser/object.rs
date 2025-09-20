@@ -7,7 +7,7 @@ use crate::raw::{
 };
 use std::str::FromStr;
 
-#[macro_export]
+#[macro_export(local_inner_macros)]
 macro_rules! try_peek {
     ($reader:expr) => {
         match $reader.peek() {
@@ -25,14 +25,17 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     }
 
     pub(crate) fn resolve_unquoted_string(string: RawString) -> RawValue {
-        if let RawString::UnquotedString(unquoted) = string {
-            match &*unquoted {
+        if let RawString::UnquotedString(unquoted) = &string {
+            match &**unquoted {
                 "true" => RawValue::Boolean(true),
                 "false" => RawValue::Boolean(false),
                 "null" => RawValue::Null,
-                other => match serde_json::Number::from_str(other) {
-                    Ok(number) => RawValue::Number(number),
-                    Err(_) => RawValue::unquoted_string(unquoted),
+                other => match other.as_bytes().first() {
+                    Some(b'-' | b'0'..=b'9') => match serde_json::Number::from_str(other) {
+                        Ok(number) => RawValue::Number(number),
+                        Err(_) => RawValue::unquoted_string(unquoted),
+                    },
+                    Some(_) | None => RawValue::String(string),
                 },
             }
         } else {
@@ -49,7 +52,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     let comment = Comment::new(content, ty);
                     fields.push(ObjectField::newline_comment(comment));
                 }
-                Err(Error::Eof | Error::UnexpectedToken { .. }) => {
+                Err(Error::Eof | Error::Parse { .. }) => {
                     break Ok(fields);
                 }
                 Err(err) => {

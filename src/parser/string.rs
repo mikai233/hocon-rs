@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::error::Error;
+use crate::error::{Error, Parse};
 use crate::parser::HoconParser;
 use crate::parser::read::{Read, Reference};
 use crate::raw::raw_string::RawString;
@@ -56,7 +56,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             match reader.peek() {
                 Ok(b'"') => {}
                 _ => {
-                    return Err(reader.peek_error("\""));
+                    return Err(reader.peek_error(Parse::Expected("\"")));
                 }
             }
         }
@@ -77,7 +77,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     fn parse_unquoted(reader: &mut R, scratch: &mut Vec<u8>, allow_dot: bool) -> Result<String> {
         let s = reader.parse_unquoted_str(scratch, allow_dot)?;
         if s.is_empty() {
-            Err(reader.peek_error("a valid unquoted string"))
+            Err(reader.peek_error(Parse::Expected("a valid unquoted string")))
         } else {
             Ok(ref_to_string!(s, scratch))
         }
@@ -102,7 +102,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             match reader.peek_n(3) {
                 Ok(bytes) if bytes == TRIPLE_DOUBLE_QUOTE => {}
                 _ => {
-                    return Err(reader.peek_error("\"\"\""));
+                    return Err(reader.peek_error(Parse::Expected("\"\"\"")));
                 }
             }
         }
@@ -118,7 +118,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     ) -> Result<RawString> {
         let mut paths = vec![];
         if reader.starts_with_horizontal_whitespace()? {
-            return Err(reader.peek_error("a valid path expression"));
+            return Err(reader.peek_error(Parse::Expected("a valid path expression")));
         }
         loop {
             scratch.clear();
@@ -127,7 +127,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 Ok(ch) => ch,
                 Err(Error::Eof) => {
                     if paths.is_empty() {
-                        return Err(reader.peek_error("a valid path expression"));
+                        return Err(reader.peek_error(Parse::Expected("a valid path expression")));
                     } else {
                         break;
                     }
@@ -175,7 +175,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     reader.discard(1)?;
                 }
                 _ => {
-                    return Err(reader.peek_error("a valid path expression"));
+                    return Err(reader.peek_error(Parse::Expected("a valid path expression")));
                 }
             }
         }
@@ -218,7 +218,7 @@ mod tests {
         parser.scratch.clear();
         let s = HoconParser::parse_quoted_string(&mut parser.reader, &mut parser.scratch, true)?;
         assert_eq!(s, expected);
-        assert_eq!(parser.reader.rest()?, rest);
+        assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }
 
@@ -259,7 +259,7 @@ mod tests {
         parser.scratch.clear();
         let s = HoconParser::parse_unquoted_string(&mut parser.reader, &mut parser.scratch)?;
         assert_eq!(s, expected);
-        assert_eq!(parser.reader.rest()?, rest);
+        assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }
 
@@ -278,7 +278,7 @@ mod tests {
         let mut parser = HoconParser::new(read);
         let s = HoconParser::parse_multiline_string(&mut parser.reader, &mut parser.scratch, true)?;
         assert_eq!(s, expected);
-        assert_eq!(parser.reader.rest()?, rest);
+        assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }
 
@@ -313,7 +313,7 @@ mod tests {
         parser.scratch.clear();
         let s = HoconParser::parse_path_expression(&mut parser.reader, &mut parser.scratch)?;
         assert_eq!(s.to_string(), expected);
-        assert_eq!(parser.reader.rest()?, rest);
+        assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }
 }

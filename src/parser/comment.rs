@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::{Error, Parse};
 use crate::parser::HoconParser;
 use crate::parser::read::{Read, Reference};
 use crate::raw::comment::CommentType;
@@ -23,18 +23,19 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     }
 
     fn parse_comment_token(reader: &mut R) -> Result<CommentType> {
-        let ch = reader.peek().map_err(|_| reader.peek_error("# or //"))?;
-        let ty = if ch == b'#' {
+        let byte = reader
+            .peek()
+            .map_err(|_| reader.peek_error(Parse::Expected("# or //")))?;
+        let ty = if byte == b'#' {
             reader.discard(1)?;
             CommentType::Hash
-        } else if let Ok((ch1, ch2)) = reader.peek2()
-            && ch1 == b'/'
-            && ch2 == b'/'
+        } else if let Ok(bytes) = reader.peek_n(2)
+            && bytes == b"//"
         {
             reader.discard(2)?;
             CommentType::DoubleSlash
         } else {
-            return Err(reader.peek_error("# or //"));
+            return Err(reader.peek_error(Parse::Expected("# or //")));
         };
         Ok(ty)
     }
@@ -45,7 +46,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             Self::drop_whitespace(reader)?;
             match Self::parse_comment_inner(reader, &mut scratch) {
                 Ok(_) => {}
-                Err(Error::Eof) | Err(Error::UnexpectedToken { .. }) => {
+                Err(Error::Eof) | Err(Error::Parse { .. }) => {
                     break Ok(());
                 }
                 Err(err) => {
@@ -83,7 +84,7 @@ mod tests {
         let (t, c) = HoconParser::parse_comment(&mut parser.reader)?;
         assert_eq!(t, expected.0);
         assert_eq!(c, expected.1);
-        assert_eq!(parser.reader.rest()?, rest);
+        assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }
 }
