@@ -513,19 +513,19 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case("resources/base.conf")]
-    #[case("resources/concat.conf")]
-    #[case("resources/concat2.conf")]
-    #[case("resources/concat3.conf")]
-    #[case("resources/demo.conf")]
-    #[case("resources/deserialize.conf")]
-    #[case("resources/empty.conf")]
-    #[cfg_attr(feature = "urls_includes", case("resources/included.conf"))]
-    #[cfg_attr(feature = "urls_includes", case("resources/main.conf"))]
+    #[case("test_conf/base.conf")]
+    #[case("test_conf/concat.conf")]
+    #[case("test_conf/concat2.conf")]
+    #[case("test_conf/concat3.conf")]
+    #[case("test_conf/demo.conf")]
+    #[case("test_conf/deserialize.conf")]
+    #[case("test_conf/empty.conf")]
+    #[cfg_attr(feature = "urls_includes", case("test_conf/included.conf"))]
+    #[cfg_attr(feature = "urls_includes", case("test_conf/main.conf"))]
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
         let file = std::fs::File::open(&path)?;
         let read = StreamRead::new(BufReader::new(file));
-        let options = ConfigOptions::new(false, vec!["resources".to_string()]);
+        let options = ConfigOptions::new(false, vec!["test_conf".to_string()]);
         let mut parser = HoconParser::with_options(read, options);
         parser.parse()?;
         Ok(())

@@ -231,8 +231,8 @@ mod tests {
     }
     #[test]
     fn test_de() -> crate::Result<()> {
-        let config_hocon: Config = crate::config::Config::load("resources/deserialize.conf", None)?;
-        let file = std::fs::File::open("resources/deserialize.json").unwrap();
+        let config_hocon: Config = crate::config::Config::load("test_conf/deserialize.conf", None)?;
+        let file = std::fs::File::open("test_conf/deserialize.json")?;
         let config_json: Config = serde_json::from_reader(file)?;
         assert_eq!(config_hocon, config_json);
         Ok(())
