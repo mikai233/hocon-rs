@@ -331,8 +331,8 @@ impl<R: std::io::Read> StreamRead<R> {
             head: 0,
             tail: 0,
             eof: false,
-            line: 0,
-            column: 0,
+            line: 1,
+            column: 1,
         }
     }
 
@@ -540,8 +540,8 @@ impl<'de> SliceRead<'de> {
         SliceRead {
             slice,
             index: 0,
-            line: 0,
-            column: 0,
+            line: 1,
+            column: 1,
         }
     }
 

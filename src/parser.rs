@@ -173,8 +173,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok(value)
     }
 
-    pub(crate) fn end_value(stack: &mut [Frame]) -> Result<()> {
-        match stack.last_mut().unwrap() {
+    pub(crate) fn end_value(&mut self) -> Result<()> {
+        match Self::last_frame(&mut self.stack) {
             Frame::Object {
                 entries,
                 next_entry,
@@ -185,12 +185,26 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     value,
                 }) = next_entry.take()
                 {
-                    assert!(key.is_some());
-                    assert!(separator.is_some());
-                    assert!(value.as_ref().is_some_and(|v| !v.values.is_empty()));
-                    let key = key.unwrap();
-                    let mut value = Self::resolve_value(value.unwrap())?;
-                    if separator.unwrap() == Separator::AddAssign {
+                    let key = match key {
+                        Some(key) => key,
+                        None => {
+                            return Err(self.reader.error(Parse::Expected("key")));
+                        }
+                    };
+                    let separator = match separator {
+                        Some(separator) => separator,
+                        None => {
+                            return Err(self.reader.error(Parse::Expected("= or : or +=")));
+                        }
+                    };
+                    let value = match value {
+                        Some(value) if !value.values.is_empty() => value,
+                        _ => {
+                            return Err(self.reader.error(Parse::Expected("value")));
+                        }
+                    };
+                    let mut value = Self::resolve_value(value)?;
+                    if separator == Separator::AddAssign {
                         value = RawValue::AddAssign(AddAssign::new(value.into()));
                     }
                     let field = ObjectField::key_value(key, value);
@@ -218,15 +232,15 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         stack.push(array);
     }
 
-    pub(crate) fn end_array(stack: &mut Vec<Frame>) -> Result<()> {
-        Self::end_value(stack)?;
-        if stack.len() == 1 {
+    pub(crate) fn end_array(&mut self) -> Result<()> {
+        self.end_value()?;
+        if self.stack.len() == 1 {
             return Ok(());
         }
-        match stack.pop().unwrap() {
+        match self.stack.pop().expect("frame is empty") {
             Frame::Array { elements, .. } => {
                 let array = RawValue::Array(RawArray::new(elements));
-                let parent = stack.last_mut().expect("frame is empty");
+                let parent = Self::last_frame(&mut self.stack);
                 Self::append_to_frame(parent, array)?;
             }
             other => panic!("Unexpected frame type: {}", other.ty()),
@@ -242,18 +256,18 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         stack.push(object);
     }
 
-    pub(crate) fn end_object(stack: &mut Vec<Frame>) -> Result<()> {
-        Self::end_value(stack)?;
-        if stack.len() == 1 {
+    pub(crate) fn end_object(&mut self) -> Result<()> {
+        self.end_value()?;
+        if self.stack.len() == 1 {
             return Ok(());
         }
-        match stack.pop().unwrap() {
+        match self.stack.pop().expect("stack is empty") {
             Frame::Object { entries, .. } => {
                 let object = RawValue::Object(RawObject(entries));
-                let parent = stack.last_mut().expect("frame is empty");
+                let parent = Self::last_frame(&mut self.stack);
                 Self::append_to_frame(parent, object)?;
             }
-            _ => panic!("Unexpected frame type"),
+            _ => panic!("unexpected frame type"),
         }
         Ok(())
     }
@@ -307,14 +321,22 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             let ch = try_peek!(self.reader);
             match ch {
                 b':' | b'=' => {
-                    self.reader.discard(1)?;
                     match Self::last_frame(&mut self.stack) {
                         Frame::Object { next_entry, .. } => {
-                            let entry = next_entry.as_mut().unwrap();
+                            let entry = match next_entry {
+                                Some(entry) => entry,
+                                None => {
+                                    return Err(self.reader.error(Parse::Expected("key")));
+                                }
+                            };
+                            if entry.separator.is_some() {
+                                return Err(self.reader.error(Parse::Expected("value")));
+                            }
                             entry.separator = Some(Separator::Assign);
                         }
                         other => unreachable!("unexpected frame: {}", other.ty()),
                     }
+                    self.reader.discard(1)?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
                 b'+' => {
@@ -380,14 +402,14 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
                 b']' => {
                     self.reader.discard(1)?;
-                    Self::end_array(&mut self.stack)?;
+                    self.end_array()?;
                 }
                 b'}' => {
                     self.reader.discard(1)?;
-                    Self::end_object(&mut self.stack)?;
+                    self.end_object()?;
                 }
                 b',' | b'#' | b'\n' => {
-                    Self::end_value(&mut self.stack)?;
+                    self.end_value()?;
                     if ch == b',' {
                         self.reader.discard(1)?;
                     }
@@ -395,14 +417,14 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
                 b'/' if self.reader.peek2().is_ok_and(|(_, ch2)| ch2 == b'/') => {
                     // TODO parse comment
-                    Self::end_value(&mut self.stack)?;
+                    self.end_value()?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
                 b'\r' => {
                     if let Ok((_, ch2)) = self.reader.peek2()
                         && ch2 == b'\n'
                     {
-                        Self::end_value(&mut self.stack)?;
+                        self.end_value()?;
                     }
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
@@ -418,7 +440,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             let field = ObjectField::inclusion(inclusion);
                             entries.push(field);
                         }
-                        _ => panic!("Unexpected frame type"),
+                        _ => panic!("unexpected frame type"),
                     }
                 }
                 _ => match Self::last_frame(&mut self.stack) {
@@ -487,7 +509,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 },
             };
         }
-        Self::end_value(&mut self.stack)?;
+        self.end_value()?;
         Ok(())
     }
 
@@ -508,6 +530,7 @@ mod tests {
 
     use crate::Result;
     use crate::config_options::ConfigOptions;
+    use crate::error::Error;
     use crate::parser::HoconParser;
     use crate::parser::read::StreamRead;
     use rstest::rstest;
@@ -528,6 +551,24 @@ mod tests {
         let options = ConfigOptions::new(false, vec!["test_conf".to_string()]);
         let mut parser = HoconParser::with_options(read, options);
         parser.parse()?;
+        Ok(())
+    }
+
+    #[rstest]
+    #[case("test_conf/error/missing_key.conf")]
+    #[case("test_conf/error/missing_value.conf")]
+    #[case("test_conf/error/error_separator.conf")]
+    #[case("test_conf/error/error_separator2.conf")]
+    #[case("test_conf/error/error_separator3.conf")]
+    fn test_error_conf(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
+        let file = std::fs::File::open(&path)?;
+        let read = StreamRead::new(BufReader::new(file));
+        let options = ConfigOptions::new(false, vec!["test_conf".to_string()]);
+        let mut parser = HoconParser::with_options(read, options);
+        match parser.parse() {
+            Err(Error::Parse { .. }) => {}
+            _ => panic!("should be a parse error"),
+        }
         Ok(())
     }
 }
