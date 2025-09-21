@@ -3,7 +3,6 @@ pub mod comment;
 pub mod concat;
 pub mod field;
 pub mod include;
-pub mod macros;
 pub mod raw_array;
 pub mod raw_object;
 pub mod raw_string;

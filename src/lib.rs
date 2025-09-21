@@ -3,6 +3,7 @@ use ::serde::{Serialize, de::DeserializeOwned};
 pub mod config;
 mod config_options;
 pub mod error;
+mod merge;
 pub mod object;
 pub mod parser;
 pub(crate) mod path;
@@ -11,16 +12,6 @@ pub mod serde;
 pub mod syntax;
 pub mod transform;
 pub mod value;
-mod merge {
-    pub(crate) mod add_assign;
-    pub(crate) mod array;
-    pub(crate) mod concat;
-    pub(crate) mod delay_replacement;
-    pub(crate) mod object;
-    pub(crate) mod path;
-    pub(crate) mod substitution;
-    pub(crate) mod value;
-}
 pub use config::Config;
 pub use config_options::ConfigOptions;
 pub use value::Value;
