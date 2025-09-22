@@ -1,6 +1,8 @@
 use std::fmt::Display;
 use std::str;
 
+use derive_more::Constructor;
+
 use crate::Result;
 use crate::error::{Error, Parse};
 use crate::parser::string::FORBIDDEN_TABLE;
@@ -173,7 +175,7 @@ macro_rules! peek_position {
     }};
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, Constructor)]
 pub struct Position {
     pub line: usize,
     pub column: usize,
@@ -248,7 +250,7 @@ pub trait Read<'de> {
     ) -> Result<Reference<'de, 's, str>>;
 
     fn parse_unquoted_str<'s>(
-        &'s mut self,
+        &mut self,
         scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>>;
@@ -467,7 +469,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
     }
 
     fn parse_unquoted_str<'s>(
-        &'s mut self,
+        &mut self,
         scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>> {
@@ -555,7 +557,7 @@ impl<'de> SliceRead<'de> {
     }
 
     fn parse_quoted_str_bytes<'s, F, T>(
-        &'s mut self,
+        &mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
         result: F,
@@ -595,7 +597,7 @@ impl<'de> SliceRead<'de> {
         result
     }
 
-    fn parse_multiline_str_bytes<'s, F, T>(&'s mut self, result: F) -> Result<Reference<'de, 's, T>>
+    fn parse_multiline_str_bytes<'s, F, T>(&mut self, result: F) -> Result<Reference<'de, 's, T>>
     where
         T: ?Sized + 's,
         F: for<'a> FnOnce(&Self, &'a [u8]) -> Result<&'a T>,
@@ -632,7 +634,7 @@ impl<'de> SliceRead<'de> {
     }
 
     fn parse_unquoted_str_bytes<'s, F, T>(
-        &'s mut self,
+        &mut self,
         allow_dot: bool,
         result: F,
     ) -> Result<Reference<'de, 's, T>>
@@ -769,7 +771,7 @@ impl<'de> Read<'de> for SliceRead<'de> {
     }
 
     fn parse_unquoted_str<'s>(
-        &'s mut self,
+        &mut self,
         _scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>> {
@@ -822,7 +824,7 @@ impl<'de> Read<'de> for StrRead<'de> {
     }
 
     fn parse_quoted_str<'s>(
-        &'s mut self,
+        &mut self,
         escape: bool,
         scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
@@ -833,7 +835,7 @@ impl<'de> Read<'de> for StrRead<'de> {
     }
 
     fn parse_multiline_str<'s>(
-        &'s mut self,
+        &mut self,
         _scratch: &'s mut Vec<u8>,
     ) -> Result<Reference<'de, 's, str>> {
         self.delegate
@@ -841,7 +843,7 @@ impl<'de> Read<'de> for StrRead<'de> {
     }
 
     fn parse_unquoted_str<'s>(
-        &'s mut self,
+        &mut self,
         _scratch: &'s mut Vec<u8>,
         allow_dot: bool,
     ) -> Result<Reference<'de, 's, str>> {

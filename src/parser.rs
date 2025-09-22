@@ -29,6 +29,27 @@ use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use crate::{Result, try_peek};
 
+macro_rules! resolve_unquoted_string {
+    ($s:expr, $scratch:expr) => {{
+        use crate::parser::read::Reference;
+        use crate::ref_to_string;
+        use std::ops::Deref;
+        use std::str::FromStr;
+        match $s.deref() {
+            "true" => RawValue::Boolean(true),
+            "false" => RawValue::Boolean(false),
+            "null" => RawValue::Null,
+            other => match other.as_bytes().first() {
+                Some(b'-' | b'0'..=b'9') => match serde_json::Number::from_str(other) {
+                    Ok(number) => RawValue::Number(number),
+                    Err(_) => RawValue::unquoted_string(ref_to_string!($s, $scratch)),
+                },
+                Some(_) | None => RawValue::unquoted_string(ref_to_string!($s, $scratch)),
+            },
+        }
+    }};
+}
+
 #[derive(Constructor, Default, Debug, Clone)]
 pub(crate) struct Context {
     pub(crate) include_chain: Vec<Rc<String>>,
@@ -147,10 +168,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
         }
         debug_assert!(self.stack.len() == 1);
-        let frame = self.stack.pop().unwrap();
+        let frame = self.stack.pop().expect("stack is empty");
         let raw_obj = match frame {
             Frame::Object { entries, .. } => RawObject::new(entries),
-            _ => unreachable!("Unexpected frame type, expect Object"),
+            _ => unreachable!("unexpected frame type, expect Object"),
         };
         Ok(raw_obj)
     }
@@ -160,12 +181,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         }: Value,
     ) -> Result<RawValue> {
         let value = if values.len() == 1 {
-            let v = values.remove(0);
-            if let RawValue::String(s) = v {
-                Self::resolve_unquoted_string(s)
-            } else {
-                v
-            }
+            values.remove(0)
         } else {
             debug_assert_eq!(values.len(), spaces.len() + 1);
             RawValue::concat(values, spaces)?
@@ -234,6 +250,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 
     pub(crate) fn end_array(&mut self) -> Result<()> {
         self.end_value()?;
+        // TODO
         if self.stack.len() == 1 {
             return Ok(());
         }
@@ -334,7 +351,9 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             }
                             entry.separator = Some(Separator::Assign);
                         }
-                        other => unreachable!("unexpected frame: {}", other.ty()),
+                        Frame::Array { .. } => {
+                            return Err(self.reader.error(Parse::Expected(",")));
+                        }
                     }
                     self.reader.discard(1)?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
@@ -348,16 +367,29 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     }
                     self.reader.discard(2)?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
-                    match self.stack.last_mut().unwrap() {
+                    match Self::last_frame(&mut self.stack) {
                         Frame::Object { next_entry, .. } => {
                             let entry = next_entry.as_mut().unwrap();
                             entry.separator = Some(Separator::AddAssign);
                         }
-                        _ => panic!("Unexpected frame type"),
+                        Frame::Array { .. } => {
+                            return Err(self.reader.error(Parse::Expected(",")));
+                        }
                     }
                 }
                 b'[' => {
                     // Parse array
+                    if let Frame::Object { next_entry, .. } = Self::last_frame(&mut self.stack) {
+                        if next_entry.as_ref().is_none_or(|entry| entry.key.is_none()) {
+                            return Err(self.reader.error(Parse::Expected("key")));
+                        }
+                        if next_entry
+                            .as_ref()
+                            .is_none_or(|entry| entry.separator.is_none())
+                        {
+                            return Err(self.reader.error(Parse::Expected(": or =")));
+                        }
+                    }
                     self.reader.discard(1)?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                     Self::start_array(&mut self.stack);
@@ -393,12 +425,12 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             Self::parse_quoted_string(&mut self.reader, &mut self.scratch, false)?;
                         RawValue::String(RawString::QuotedString(quoted))
                     };
-                    Self::push_value(self.stack.last_mut().unwrap(), v)?;
+                    Self::push_value(Self::last_frame(&mut self.stack), v)?;
                 }
                 b'$' if Self::last_frame(&mut self.stack).expect_value() => {
                     let substitution = self.parse_substitution()?;
                     let v = RawValue::Substitution(substitution);
-                    Self::push_value(self.stack.last_mut().unwrap(), v)?;
+                    Self::push_value(Self::last_frame(&mut self.stack), v)?;
                 }
                 b']' => {
                     self.reader.discard(1)?;
@@ -460,12 +492,11 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                                     entry_value.pre_space = Some(space.to_string());
                                 }
                             } else {
-                                let unquoted = Self::parse_unquoted_string(
+                                let s = Self::parse_unquoted_string(
                                     &mut self.reader,
                                     &mut self.scratch,
                                 )?;
-                                let raw_value =
-                                    RawValue::String(RawString::UnquotedString(unquoted));
+                                let raw_value = resolve_unquoted_string!(s, &mut self.scratch);
                                 entry_value.push_value(raw_value);
                             }
                         }
@@ -497,11 +528,11 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             Self::drop_whitespace_and_comments(&mut self.reader)?;
                             let ch = self.reader.peek()?;
                             if ch != b']' {
-                                let unquoted = Self::parse_unquoted_string(
+                                let s = Self::parse_unquoted_string(
                                     &mut self.reader,
                                     &mut self.scratch,
                                 )?;
-                                let v = RawValue::String(RawString::UnquotedString(unquoted));
+                                let v = resolve_unquoted_string!(s, &mut self.scratch);
                                 element.push_value(v);
                             }
                         }
@@ -510,6 +541,16 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             };
         }
         self.end_value()?;
+        if self.stack.len() > 1 {
+            match Self::last_frame(&mut self.stack) {
+                Frame::Object { .. } => {
+                    return Err(self.reader.error(Parse::Expected("}")));
+                }
+                Frame::Array { .. } => {
+                    return Err(self.reader.error(Parse::Expected("]")));
+                }
+            }
+        }
         Ok(())
     }
 
@@ -532,7 +573,7 @@ mod tests {
     use crate::config_options::ConfigOptions;
     use crate::error::Error;
     use crate::parser::HoconParser;
-    use crate::parser::read::StreamRead;
+    use crate::parser::read::{Position, StreamRead};
     use rstest::rstest;
 
     #[rstest]
@@ -555,18 +596,36 @@ mod tests {
     }
 
     #[rstest]
-    #[case("test_conf/error/missing_key.conf")]
-    #[case("test_conf/error/missing_value.conf")]
-    #[case("test_conf/error/error_separator.conf")]
-    #[case("test_conf/error/error_separator2.conf")]
-    #[case("test_conf/error/error_separator3.conf")]
-    fn test_error_conf(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
+    #[case("test_conf/error/missing_key.conf", Position::new(1, 2))]
+    #[case("test_conf/error/missing_value.conf", Position::new(1, 8))]
+    #[case("test_conf/error/missing_value2.conf", Position::new(1, 9))]
+    #[case("test_conf/error/missing_value3.conf", Position::new(1, 9))]
+    #[case("test_conf/error/invalid_separator.conf", Position::new(1, 9))]
+    #[case("test_conf/error/invalid_separator2.conf", Position::new(1, 8))]
+    #[case("test_conf/error/invalid_separator3.conf", Position::new(1, 8))]
+    #[case("test_conf/error/missing_square_brackets.conf", Position::new(1, 10))]
+    #[case("test_conf/error/missing_square_brackets2.conf", Position::new(2, 8))]
+    #[case("test_conf/error/missing_curly_braces.conf", Position::new(1, 10))]
+    #[case("test_conf/error/missing_curly_braces2.conf", Position::new(3, 14))]
+    #[case("test_conf/error/invalid_substitution.conf", Position::new(1, 7))]
+    #[case("test_conf/error/invalid_substitution2.conf", Position::new(1, 7))]
+    #[case("test_conf/error/invalid_array_value.conf", Position::new(1, 12))]
+    #[case("test_conf/error/invalid_array_value2.conf", Position::new(1, 12))]
+    #[case("test_conf/error/invalid_array_value3.conf", Position::new(1, 12))]
+    #[case("test_conf/error/invalid_object_entry.conf", Position::new(1, 9))]
+    #[case("test_conf/error/invalid_object_entry2.conf", Position::new(1, 7))]
+    fn test_error_conf(
+        #[case] path: impl AsRef<std::path::Path>,
+        #[case] expected_position: Position,
+    ) -> Result<()> {
         let file = std::fs::File::open(&path)?;
         let read = StreamRead::new(BufReader::new(file));
         let options = ConfigOptions::new(false, vec!["test_conf".to_string()]);
         let mut parser = HoconParser::with_options(read, options);
         match parser.parse() {
-            Err(Error::Parse { .. }) => {}
+            Err(Error::Parse { position, .. }) => {
+                assert_eq!(position, expected_position);
+            }
             _ => panic!("should be a parse error"),
         }
         Ok(())

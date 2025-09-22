@@ -66,20 +66,35 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok(s)
     }
 
-    pub(crate) fn parse_unquoted_string(reader: &mut R, scratch: &mut Vec<u8>) -> Result<String> {
+    pub(crate) fn parse_unquoted_string<'s>(
+        reader: &'s mut R,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<Reference<'de, 's, str>> {
         Self::parse_unquoted(reader, scratch, true)
     }
 
-    pub(crate) fn parse_unquoted_path(reader: &mut R, scratch: &mut Vec<u8>) -> Result<String> {
-        Self::parse_unquoted(reader, scratch, false)
+    pub(crate) fn parse_unquoted_path<'s>(
+        reader: &'s mut R,
+        scratch: &'s mut Vec<u8>,
+    ) -> Result<String> {
+        let s = Self::parse_unquoted(reader, scratch, false)?;
+        Ok(ref_to_string!(s, scratch))
     }
 
-    fn parse_unquoted(reader: &mut R, scratch: &mut Vec<u8>, allow_dot: bool) -> Result<String> {
+    fn parse_unquoted<'s>(
+        reader: &'s mut R,
+        scratch: &'s mut Vec<u8>,
+        allow_dot: bool,
+    ) -> Result<Reference<'de, 's, str>> {
         let s = reader.parse_unquoted_str(scratch, allow_dot)?;
         if s.is_empty() {
-            Err(reader.peek_error(Parse::Expected("a valid unquoted string")))
+            if allow_dot {
+                Err(reader.error(Parse::Expected("unquoted string")))
+            } else {
+                Err(reader.error(Parse::Expected("path expression")))
+            }
         } else {
-            Ok(ref_to_string!(s, scratch))
+            Ok(s)
         }
     }
 
@@ -192,6 +207,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+
     use crate::Result;
     use crate::parser::HoconParser;
     use crate::parser::read::StrRead;
@@ -258,7 +275,7 @@ mod tests {
         let mut parser = HoconParser::new(read);
         parser.scratch.clear();
         let s = HoconParser::parse_unquoted_string(&mut parser.reader, &mut parser.scratch)?;
-        assert_eq!(s, expected);
+        assert_eq!(s.deref(), expected);
         assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }

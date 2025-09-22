@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::error::Parse;
+use crate::error::{Error, Parse};
 use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::substitution::Substitution;
@@ -13,22 +13,29 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
         }
         self.reader.discard(2)?;
-        let ch = self.reader.peek()?;
-        let optional = if ch == b'?' {
-            self.reader.discard(1)?;
-            true
-        } else {
-            false
+        let optional = match self.reader.peek() {
+            Ok(b'?') => {
+                self.reader.discard(1)?;
+                true
+            }
+            Ok(_) => false,
+            Err(Error::Eof) => {
+                return Err(self.reader.peek_error(Parse::Expected("path expression")));
+            }
+            Err(err) => {
+                return Err(err);
+            }
         };
         Self::drop_horizontal_whitespace(&mut self.reader)?;
         let path_expression = Self::parse_path_expression(&mut self.reader, &mut self.scratch)?;
         match self.reader.peek() {
-            Ok(b'}') => {}
+            Ok(b'}') => {
+                self.reader.discard(1)?;
+            }
             _ => {
                 return Err(self.reader.peek_error(Parse::Expected("}")));
             }
         }
-        self.reader.discard(1)?;
         let substitution = Substitution::new(path_expression, optional);
         Ok(substitution)
     }
