@@ -261,41 +261,37 @@ pub trait Read<'de> {
     ) -> Result<Reference<'de, 's, str>>;
 
     #[inline(always)]
-    fn peek_whitespace(&mut self) -> Result<Option<usize>> {
-        let n = match self.peek_n(3) {
-            Ok(bytes) => leading_whitespace_bytes(bytes),
-            Err(Error::Eof) => match self.peek_n(2) {
+    fn peek_whitespace(&mut self) -> Result<usize> {
+        for n in (1..=3).rev() {
+            let n = match self.peek_n(n) {
                 Ok(bytes) => leading_whitespace_bytes(bytes),
-                Err(Error::Eof) => match self.peek_n(1) {
-                    Ok(bytes) => leading_whitespace_bytes(bytes),
-                    Err(err) => {
-                        return Err(err);
-                    }
-                },
+                Err(Error::Eof) => {
+                    continue;
+                }
                 Err(err) => return Err(err),
-            },
-            Err(err) => return Err(err),
-        };
-        if n > 0 { Ok(Some(n)) } else { Ok(None) }
+            };
+            return Ok(n);
+        }
+        Ok(0)
     }
 
     #[inline(always)]
     fn starts_with_whitespace(&mut self) -> Result<bool> {
-        self.peek_whitespace().map(|n| n.is_some())
+        self.peek_whitespace().map(|n| n > 0)
     }
 
     #[inline(always)]
-    fn peek_horizontal_whitespace(&mut self) -> Result<Option<usize>> {
+    fn peek_horizontal_whitespace(&mut self) -> Result<usize> {
         if self.peek()? != b'\n' {
             self.peek_whitespace()
         } else {
-            Ok(None)
+            Ok(0)
         }
     }
 
     #[inline(always)]
     fn starts_with_horizontal_whitespace(&mut self) -> Result<bool> {
-        self.peek_horizontal_whitespace().map(|n| n.is_some())
+        self.peek_horizontal_whitespace().map(|n| n > 0)
     }
 
     #[inline(always)]

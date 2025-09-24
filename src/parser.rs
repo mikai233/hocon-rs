@@ -98,13 +98,13 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_horizontal_whitespace(reader: &mut R, scratch: &mut Vec<u8>) -> Result<()> {
         loop {
             match reader.peek_horizontal_whitespace() {
-                Ok(Some(n)) => {
+                Ok(n) if n > 0 => {
                     for _ in 0..n {
                         let byte = reader.next()?;
                         scratch.push(byte);
                     }
                 }
-                Ok(None) | Err(Error::Eof) => break,
+                Ok(_) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
             }
         }
@@ -114,10 +114,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn drop_horizontal_whitespace(reader: &mut R) -> Result<()> {
         loop {
             match reader.peek_horizontal_whitespace() {
-                Ok(Some(n)) => {
+                Ok(n) if n > 0 => {
                     reader.discard(n)?;
                 }
-                Ok(None) | Err(Error::Eof) => break,
+                Ok(_) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
             }
         }
@@ -127,10 +127,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn drop_whitespace(reader: &mut R) -> Result<()> {
         loop {
             match reader.peek_whitespace() {
-                Ok(Some(n)) => {
+                Ok(n) if n > 0 => {
                     reader.discard(n)?;
                 }
-                Ok(None) | Err(Error::Eof) => break,
+                Ok(_) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
             }
         }
