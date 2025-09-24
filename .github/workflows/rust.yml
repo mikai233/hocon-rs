@@ -55,6 +55,7 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Generate coverage report
+        if: matrix.rust == 'stable'
         run: |
           if [ -z "${{ matrix.features }}" ]; then
             cargo llvm-cov --lcov --output-path lcov.info
@@ -64,10 +65,11 @@ jobs:
         shell: bash
 
       - name: Upload coverage to Codecov
-        if: matrix.rust == 'stable' && matrix.features == ''
+        if: matrix.rust == 'stable'
         uses: codecov/codecov-action@v3
         with:
           files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
           flags: ${{ matrix.rust }}-${{ matrix.features }}
           name: codecov-${{ matrix.rust }}-${{ matrix.features }}
 

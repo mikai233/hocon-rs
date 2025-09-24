@@ -4,7 +4,7 @@ A **Rust implementation of [HOCON](https://github.com/lightbend/config/blob/main
 (Human-Optimized Config Object Notation), with full spec compliance, `serde` integration, and support for advanced
 features like substitutions and includes.
 
-[![codecov](https://codecov.io/github/mikai233/hocon-rs/graph/badge.svg?token=KJ3YM1FNXX)](https://codecov.io/github/mikai233/hocon-rs)
+[![codecov](https://codecov.io/gh/mikai233/hocon-rs/branch/master/graph/badge.svg?token=KJ3YM1FNXX)](https://codecov.io/gh/mikai233/hocon-rs)
 [![Build Status](https://github.com/mikai233/hocon-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/mikai233/hocon-rs/actions)
 [![crates.io](https://img.shields.io/crates/v/hocon-rs.svg)](https://crates.io/crates/hocon-rs)
 [![Docs](https://docs.rs/hocon-rs/badge.svg)](https://docs.rs/hocon-rs)
