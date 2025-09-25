@@ -14,9 +14,10 @@ pub mod transform;
 pub mod value;
 pub use config::Config;
 pub use config_options::ConfigOptions;
+pub use error::Error;
 pub use value::Value;
 
-pub type Result<T> = std::result::Result<T, error::Error>;
+pub type Result<T> = std::result::Result<T, Error>;
 
 pub fn to_value<T>(value: T) -> crate::Result<Value>
 where

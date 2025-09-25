@@ -4,6 +4,11 @@ A **Rust implementation of [HOCON](https://github.com/lightbend/config/blob/main
 (Human-Optimized Config Object Notation), with full spec compliance, `serde` integration, and support for advanced
 features like substitutions and includes.
 
+[![codecov](https://codecov.io/gh/mikai233/hocon-rs/branch/master/graph/badge.svg?token=KJ3YM1FNXX)](https://codecov.io/gh/mikai233/hocon-rs)
+[![Build Status](https://github.com/mikai233/hocon-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/mikai233/hocon-rs/actions)
+[![crates.io](https://img.shields.io/crates/v/hocon-rs.svg)](https://crates.io/crates/hocon-rs)
+[![Docs](https://docs.rs/hocon-rs/badge.svg)](https://docs.rs/hocon-rs)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ---
 
 ## Installation
@@ -45,7 +50,7 @@ features {
 ```
 
 ```rust
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), hocon_rs::Error> {
   let value: hocon_rs::Value = hocon_rs::Config::load("application.conf", None)?;
   let host = value.get_by_path(["database", "host"]).unwrap();
   println!("{}", host);
@@ -56,7 +61,7 @@ fn main() -> Result<(), Error> {
 ## Load configuration from a string
 
 ```rust
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), hocon_rs::Error> {
   let value: hocon_rs::Value = hocon_rs::Config::parse_str("{name = mikai233}", None)?;
   println!("{value}");
   Ok(())
@@ -73,7 +78,7 @@ struct Person {
   scores: Vec<i32>,
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), hocon_rs::Error> {
   let person: Person = hocon_rs::Config::parse_str("{name = mikai233, age = 18, scores = [99, 100]}", None)?;
   println!("{person:?}");
   Ok(())
