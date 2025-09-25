@@ -1,0 +1,17 @@
+{
+  "backslash": "C:\\Windows\\Path",
+  "backspace": "a\bcd",
+  "combo": "\n\t\r\b\f",
+  "cr": "line1\rline2",
+  "empty": "",
+  "formfeed": "a\fb",
+  "literal_backslash_n": "\\n",
+  "literal_u": "\\u263A",
+  "newline": "line1\nline2",
+  "only_backslash": "\\",
+  "quote": "He said: \"hello\"",
+  "quote_and_backslash": "\"\\\"",
+  "raw": "\r\nLine1\\nLine2\\u263A\r\n",
+  "slash": "http://example.com/path",
+  "tab": "col1\tcol2"
+}

@@ -1,0 +1,18 @@
+{
+  "n1": { "n2": { "n3": "world" } },
+  "n4": {
+    "n5": {
+      "n6": ["hello", "world"],
+      "n7": "world",
+      "n8": [
+        ["hello", "world"],
+        { "a1": [] },
+        { "a": { "b": { "c": [1, 2] } } }
+      ]
+    }
+  },
+  "n6": "miku true false 1.0",
+  "n7": "1.0miku true false 1.0",
+  "n8": [11, 12, 1.0, {}, {}, "miku"],
+  "n9": { "a": [11, 12, 1.0, {}, {}, "miku"], "b": "1.0miku true false 1.0" }
+}

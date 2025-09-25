@@ -251,6 +251,31 @@ mod tests {
     }
 
     #[rstest]
+    #[case("test_conf/base/empty.conf", "test_conf/base/empty.json")]
+    #[case("test_conf/base/empty2.conf", "test_conf/base/empty2.json")]
+    #[case("test_conf/base/base.conf", "test_conf/base/base.json")]
+    #[case("test_conf/base/base2.conf", "test_conf/base/base2.json")]
+    #[case("test_conf/base/escape.conf", "test_conf/base/escape.json")]
+    #[case("test_conf/base/unicode.conf", "test_conf/base/unicode.json")]
+    fn test_base(
+        #[case] hocon: impl AsRef<std::path::Path>,
+        #[case] json: impl AsRef<std::path::Path>,
+    ) -> Result<()> {
+        let hocon_str = std::fs::read_to_string(&hocon)?;
+        let mut options = ConfigOptions::default();
+        options.classpath = vec!["test_conf/base".to_string()].into();
+        let value = Config::load::<Value>(hocon, Some(options.clone()))?;
+        let f = std::fs::File::open(json)?;
+        let expected_value: serde_json::Value = serde_json::from_reader(f)?;
+        let expected_value: Value = expected_value.into();
+        value.assert_deep_eq(&expected_value, "$");
+        // Since StreamRead and StrRead have different implementations, we need a StrRead test.
+        let value: Value = Config::parse_str(&hocon_str, Some(options))?;
+        value.assert_deep_eq(&expected_value, "$");
+        Ok(())
+    }
+
+    #[rstest]
     #[case("test_conf/empty.conf", "test_conf/empty.json")]
     #[case("test_conf/base.conf", "test_conf/base.json")]
     #[case("test_conf/add_assign.conf", "test_conf/add_assign_expected.json")]

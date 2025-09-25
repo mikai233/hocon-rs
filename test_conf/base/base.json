@@ -1,0 +1,33 @@
+{
+  "array": [1, 2, 3],
+  "array2": [1, "var2", 3, "test", -0.1],
+  "array3": [1, 2, {}, [1, 2, 3]],
+  "bb": "1 hello",
+  "cc": "true 2",
+  "false": false,
+  "hello": "world",
+  "hello2": "world2",
+  "hello3": "world3",
+  "hello4: world4": "\r\naabb cc \\u000\r\n",
+  "i": {
+    "a": 1,
+    "b": 2,
+    "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii": "world",
+    "include": "path/to/file.conf"
+  },
+  "null": null,
+  "number1": 1,
+  "number2": 2.0,
+  "number3": 3.0,
+  "number4": 12345.6,
+  "number5": -1.1,
+  "number6": -1.1e-4,
+  "object": {
+    "a": { "b": { "c": "value2" } },
+    "key1": "value1",
+    "key3": "value3"
+  },
+  "true": true,
+  "var1": "",
+  "var2": "var2"
+}
