@@ -50,7 +50,7 @@ features {
 ```
 
 ```rust
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), hocon_rs::Error> {
   let value: hocon_rs::Value = hocon_rs::Config::load("application.conf", None)?;
   let host = value.get_by_path(["database", "host"]).unwrap();
   println!("{}", host);
@@ -61,7 +61,7 @@ fn main() -> Result<(), Error> {
 ## Load configuration from a string
 
 ```rust
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), hocon_rs::Error> {
   let value: hocon_rs::Value = hocon_rs::Config::parse_str("{name = mikai233}", None)?;
   println!("{value}");
   Ok(())
@@ -78,7 +78,7 @@ struct Person {
   scores: Vec<i32>,
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), hocon_rs::Error> {
   let person: Person = hocon_rs::Config::parse_str("{name = mikai233, age = 18, scores = [99, 100]}", None)?;
   println!("{person:?}");
   Ok(())

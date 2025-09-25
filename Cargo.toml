@@ -1,11 +1,12 @@
 [package]
 name = "hocon-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["mikai233 <dreamfever2017@yahoo.com>"]
 description = "Rust implementation of HOCON"
 repository = "https://github.com/mikai233/hocon-rs"
 homepage = "https://github.com/mikai233/hocon-rs"
+documentation = "https://docs.rs/hocon-rs"
 keywords = ["hocon", "configuration"]
 license = "MIT"
 readme = "README.md"
