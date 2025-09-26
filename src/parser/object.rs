@@ -114,17 +114,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         });
                     }
                 }
-                b'\r' => {
-                    if let Ok((_, ch2)) = self.reader.peek2() {
-                        if ch2 == b'\n' && !values.is_empty() {
-                            break;
-                        } else {
-                            return Err(Error::UnexpectedToken {
-                                expected: "a valid value",
-                                found_beginning: ch,
-                            });
-                        }
-                    }
+                b'\r' if self.reader.peek2().is_ok_and(|(_, ch2)| ch2 == b'\n') => {
+                    break;
                 }
                 _ => {
                     // Parse unquoted string or space
