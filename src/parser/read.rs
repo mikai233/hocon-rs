@@ -7,7 +7,7 @@ use crate::Result;
 use crate::error::{Error, Parse};
 use crate::parser::string::FORBIDDEN_TABLE;
 
-// We should peek at least 9 bytes because the `classpath(` token has a length of 11 bytes.
+// We should peek at least 11 bytes because the `classpath(` token has a length of 11 bytes.
 pub(crate) const MAX_PEEK_N: usize = 11;
 
 pub(crate) const DEFAULT_BUFFER_SIZE: usize = 512;
@@ -220,12 +220,6 @@ pub trait Read<'de> {
     fn peek(&mut self) -> Result<u8> {
         let chars = self.peek_n(1)?;
         Ok(chars[0])
-    }
-
-    #[inline(always)]
-    fn peek2(&mut self) -> Result<(u8, u8)> {
-        let chars = self.peek_n(2)?;
-        Ok((chars[0], chars[1]))
     }
 
     fn next(&mut self) -> Result<u8>;
@@ -867,21 +861,19 @@ mod tests {
     fn test_stream_peek() -> Result<()> {
         let input = "hello world";
         let mut read = StreamRead::new(input.as_bytes());
-        let ch = read.peek()?;
-        assert_eq!(ch, b'h');
-        let (ch1, ch2) = read.peek2()?;
-        assert_eq!(ch1, b'h');
-        assert_eq!(ch2, b'e');
-        let chars = read.peek_n(3)?;
-        assert_eq!(chars, b"hel");
+        let byte = read.peek()?;
+        assert_eq!(byte, b'h');
+        let bytes = read.peek_n(2)?;
+        assert_eq!(bytes, b"he");
+        let bytes = read.peek_n(3)?;
+        assert_eq!(bytes, b"hel");
         read.discard(3)?;
-        let ch = read.peek()?;
-        assert_eq!(ch, b'l');
-        let (ch1, ch2) = read.peek2()?;
-        assert_eq!(ch1, b'l');
-        assert_eq!(ch2, b'o');
-        let chars = read.peek_n(3)?;
-        assert_eq!(chars, b"lo ");
+        let byte = read.peek()?;
+        assert_eq!(byte, b'l');
+        let bytes = read.peek_n(2)?;
+        assert_eq!(bytes, b"lo");
+        let bytes = read.peek_n(3)?;
+        assert_eq!(bytes, b"lo ");
         Ok(())
     }
 }

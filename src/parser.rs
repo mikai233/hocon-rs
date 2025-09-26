@@ -355,8 +355,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
                 b'+' => {
-                    match self.reader.peek2() {
-                        Ok((_, b'=')) => {}
+                    match self.reader.peek_n(2) {
+                        Ok(b"+=") => {}
                         _ => {
                             return Err(self.reader.peek_error(Parse::Expected("+=")));
                         }
@@ -449,7 +449,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     }
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
-                b'/' if self.reader.peek2().is_ok_and(|(_, ch2)| ch2 == b'/') => {
+                b'/' if self.reader.peek_n(2).is_ok_and(|bytes| bytes == b"//") => {
                     // TODO parse comment
                     self.end_value()?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
