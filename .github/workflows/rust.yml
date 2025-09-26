@@ -26,20 +26,49 @@ jobs:
           - "urls_includes"
           - "json_arbitrary_precision"
     steps:
+      # Checkout repo
       - uses: actions/checkout@v4
 
+      # -------------------------
+      # Cache cargo registry & git
+      # -------------------------
+      - name: Cache cargo registry/git
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-
+
+      # -------------------------
+      # Cache target directory
+      # -------------------------
+      - name: Cache cargo target
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: cargo-target-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-target-${{ matrix.rust }}-
+
+      # Setup Rust
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy, llvm-tools-preview
 
+      # Install coverage tool
       - name: Install cargo-llvm-cov
         run: cargo install cargo-llvm-cov
 
+      # Build
       - name: Build
         run: cargo build --verbose
 
+      # Run tests
       - name: Run tests
         run: |
           if [ -z "${{ matrix.features }}" ]; then
@@ -48,12 +77,15 @@ jobs:
             cargo test --verbose --features ${{ matrix.features }}
           fi
 
+      # Format check
       - name: Format
         run: cargo fmt --all -- --check
 
+      # Clippy
       - name: Clippy
         run: cargo clippy -- -D warnings
 
+      # Coverage report (stable only)
       - name: Generate coverage report
         if: matrix.rust == 'stable'
         run: |
@@ -64,6 +96,7 @@ jobs:
           fi
         shell: bash
 
+      # Upload coverage to Codecov
       - name: Upload coverage to Codecov
         if: matrix.rust == 'stable'
         uses: codecov/codecov-action@v3
