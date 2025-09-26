@@ -6,12 +6,12 @@ pub(crate) const MAX_DEPTH: usize = 64;
 
 pub(crate) const MAX_INCLUDE_DEPTH: usize = 64;
 
-pub type CompareFn = Box<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>;
+pub type CompareFn = Rc<dyn Fn(&Syntax, &Syntax) -> std::cmp::Ordering>;
 
 #[derive(Clone)]
 pub struct ConfigOptions {
     pub use_system_environment: bool,
-    pub compare: Rc<CompareFn>,
+    pub compare: CompareFn,
     pub classpath: Rc<Vec<String>>,
     pub max_depth: usize,
     pub max_include_depth: usize,
@@ -21,7 +21,7 @@ impl ConfigOptions {
     pub fn new(use_system_env: bool, classpath: Vec<String>) -> Self {
         Self {
             use_system_environment: use_system_env,
-            compare: Rc::new(Box::new(Syntax::cmp)),
+            compare: Rc::new(Syntax::cmp),
             classpath: Rc::new(classpath),
             ..Default::default()
         }
@@ -33,7 +33,7 @@ impl ConfigOptions {
     {
         Self {
             use_system_environment: use_system_env,
-            compare: Rc::new(Box::new(compare)),
+            compare: Rc::new(compare),
             classpath: Rc::new(classpath),
             ..Default::default()
         }
@@ -44,7 +44,7 @@ impl Default for ConfigOptions {
     fn default() -> Self {
         Self {
             use_system_environment: false,
-            compare: Rc::new(Box::new(Syntax::cmp)),
+            compare: Rc::new(Syntax::cmp),
             classpath: Default::default(),
             max_depth: MAX_DEPTH,
             max_include_depth: MAX_INCLUDE_DEPTH,
