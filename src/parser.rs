@@ -250,10 +250,6 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 
     pub(crate) fn end_array(&mut self) -> Result<()> {
         self.end_value()?;
-        // TODO
-        if self.stack.len() == 1 {
-            return Ok(());
-        }
         match self.stack.pop().expect("frame is empty") {
             Frame::Array { elements, .. } => {
                 let array = RawValue::Array(RawArray::new(elements));
@@ -378,18 +374,23 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     }
                 }
                 b'[' => {
-                    // Parse array
+                    // If the key value is like `a []`, the separator will not be set, it's need to be set here manually.
+                    // The stack cannot be empty since root configuration cannot start with `[]`
                     if let Frame::Object { next_entry, .. } = Self::last_frame(&mut self.stack) {
-                        if next_entry.as_ref().is_none_or(|entry| entry.key.is_none()) {
-                            return Err(self.reader.error(Parse::Expected("key")));
-                        }
-                        if next_entry
-                            .as_ref()
-                            .is_none_or(|entry| entry.separator.is_none())
-                        {
-                            return Err(self.reader.error(Parse::Expected(": or =")));
+                        match next_entry {
+                            Some(entry) if entry.key.is_none() => {
+                                return Err(self.reader.error(Parse::Expected("key")));
+                            }
+                            Some(entry) if entry.separator.is_none() => {
+                                entry.separator = Some(Separator::Assign);
+                            }
+                            Some(_) => {}
+                            None => {
+                                return Err(self.reader.error(Parse::Expected("key")));
+                            }
                         }
                     }
+                    // Parse array
                     self.reader.discard(1)?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                     Self::start_array(&mut self.stack);
@@ -399,6 +400,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     self.reader.discard(1)?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                     // If the key value is like `a {}`, the separator will not be set, it's need to be set here manually.
+                    // The stack maybe empty when the configuration starts with `{}`
                     if let Some(frame) = self.stack.last_mut()
                         && let Frame::Object { next_entry, .. } = frame
                         && let Some(entry) = next_entry
@@ -617,6 +619,9 @@ mod tests {
     #[case("test_conf/error/invalid_array_value3.conf", Position::new(1, 12))]
     #[case("test_conf/error/invalid_object_entry.conf", Position::new(1, 9))]
     #[case("test_conf/error/invalid_object_entry2.conf", Position::new(1, 7))]
+    #[case("test_conf/error/invalid_root.conf", Position::new(1, 1))]
+    #[case("test_conf/error/invalid_root2.conf", Position::new(1, 7))] // TODO
+    #[case("test_conf/error/invalid_root3.conf", Position::new(1, 2))]
     fn test_error_conf(
         #[case] path: impl AsRef<std::path::Path>,
         #[case] expected_position: Position,

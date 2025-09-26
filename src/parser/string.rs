@@ -180,7 +180,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
             };
             match ch {
-                b':' | b'{' | b'=' | b'}' | b'+' => {
+                b':' | b'{' | b'=' | b'}' | b'+' | b'[' | b']' => {
                     paths.push(path);
                     break;
                 }
