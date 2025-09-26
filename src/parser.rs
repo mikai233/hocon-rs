@@ -540,14 +540,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         }
         self.end_value()?;
         if self.stack.len() > 1 {
-            match Self::last_frame(&mut self.stack) {
-                Frame::Object { .. } => {
-                    return Err(self.reader.error(Parse::Expected("}")));
-                }
-                Frame::Array { .. } => {
-                    return Err(self.reader.error(Parse::Expected("]")));
-                }
-            }
+            return match Self::last_frame(&mut self.stack) {
+                Frame::Object { .. } => Err(self.reader.error(Parse::Expected("}"))),
+                Frame::Array { .. } => Err(self.reader.error(Parse::Expected("]"))),
+            };
         }
         Ok(())
     }
@@ -567,11 +563,11 @@ impl<'de, R: Read<'de>> HoconParser<R> {
 mod tests {
     use std::io::BufReader;
 
-    use crate::Result;
     use crate::config_options::ConfigOptions;
     use crate::error::Error;
     use crate::parser::HoconParser;
     use crate::parser::read::{Position, StreamRead};
+    use crate::{Config, Result, Value};
     use rstest::rstest;
 
     #[rstest]
@@ -624,7 +620,10 @@ mod tests {
     ) -> Result<()> {
         let file = std::fs::File::open(&path)?;
         let read = StreamRead::new(BufReader::new(file));
-        let options = ConfigOptions::new(false, vec!["test_conf".to_string()]);
+        let options = ConfigOptions::new(
+            false,
+            vec!["test_conf".to_string(), "test_conf/error".to_string()],
+        );
         let mut parser = HoconParser::with_options(read, options);
         match parser.parse() {
             Err(Error::Parse { position, .. }) => {
@@ -633,5 +632,25 @@ mod tests {
             _ => panic!("should be a parse error"),
         }
         Ok(())
+    }
+
+    #[rstest]
+    #[case("test_conf/error/invalid_concatenation.conf")]
+    #[case("test_conf/error/invalid_concatenation2.conf")]
+    #[case("test_conf/error/invalid_concatenation3.conf")]
+    #[case("test_conf/error/invalid_concatenation4.conf")]
+    #[case("test_conf/error/invalid_concatenation5.conf")]
+    #[case("test_conf/error/invalid_concatenation6.conf")]
+    #[case("test_conf/error/invalid_concatenation7.conf")]
+    #[case("test_conf/error/invalid_concatenation8.conf")]
+    #[case("test_conf/error/invalid_concatenation9.conf")]
+    #[case("test_conf/error/invalid_concatenation10.conf")]
+    fn test_error_conf2(#[case] path: impl AsRef<std::path::Path>) {
+        let options = ConfigOptions::new(
+            false,
+            vec!["test_conf".to_string(), "test_conf/error".to_string()],
+        );
+        let result: Result<Value> = Config::parse_file(path, Some(options));
+        assert!(result.is_err());
     }
 }
