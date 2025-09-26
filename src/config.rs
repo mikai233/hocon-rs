@@ -257,8 +257,14 @@ mod tests {
     #[case("test_conf/base/base2.conf", "test_conf/base/base2.json")]
     #[case("test_conf/base/escape.conf", "test_conf/base/escape.json")]
     #[case("test_conf/base/unicode.conf", "test_conf/base/unicode.json")]
-    #[case("test_conf/base/concatenation.conf", "test_conf/base/concatenation.json")]
-    #[case("test_conf/base/paths_as_keys.conf", "test_conf/base/paths_as_keys.json")]
+    #[case(
+        "test_conf/base/concatenation.conf",
+        "test_conf/base/concatenation.json"
+    )]
+    #[case(
+        "test_conf/base/paths_as_keys.conf",
+        "test_conf/base/paths_as_keys.json"
+    )]
     fn test_base(
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,

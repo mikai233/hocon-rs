@@ -454,12 +454,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     self.end_value()?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
-                b'\r' => {
-                    if let Ok((_, ch2)) = self.reader.peek2()
-                        && ch2 == b'\n'
-                    {
-                        self.end_value()?;
-                    }
+                b'\r' if self.reader.peek_n(2).is_ok_and(|bytes| bytes == b"\r\n") => {
+                    self.end_value()?;
                     Self::drop_whitespace_and_comments(&mut self.reader)?;
                 }
                 b'i' if self.reader.peek_n(7).is_ok_and(|chars| chars == INCLUDE) => {
