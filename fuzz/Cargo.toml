@@ -1,0 +1,21 @@
+[package]
+name = "hocon-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.hocon-rs]
+path = ".."
+
+[[bin]]
+name = "parse_str"
+path = "fuzz_targets/parse_str.rs"
+test = false
+doc = false
+bench = false
