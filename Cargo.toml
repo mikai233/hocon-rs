@@ -11,6 +11,9 @@ keywords = ["hocon", "configuration"]
 license = "MIT"
 readme = "README.md"
 
+[workspace]
+members = ["fuzz"]
+
 [dependencies]
 memchr = "2.7.6"
 thiserror = "2.0.12"

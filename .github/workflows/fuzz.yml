@@ -1,0 +1,47 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5   # 避免 CI 卡死，单次 fuzz 最大 5 分钟
+    steps:
+      # -------------------------
+      # Checkout repository
+      # -------------------------
+      - uses: actions/checkout@v4
+
+      # -------------------------
+      # Cache fuzz corpus & artifacts
+      # -------------------------
+      - name: Cache fuzz corpus
+        uses: actions/cache@v3
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ hashFiles('fuzz/fuzz_targets/*.rs') }}
+          restore-keys: fuzz-corpus
+
+      # -------------------------
+      # Setup Rust nightly
+      # -------------------------
+      - name: Setup Rust nightly
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+
+      # -------------------------
+      # Install cargo-fuzz
+      # -------------------------
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      # -------------------------
+      # Run fuzz target for 1 minute
+      # -------------------------
+      - name: Run fuzzing
+        run: cargo fuzz run parse_str -- -max_total_time=60
