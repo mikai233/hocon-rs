@@ -170,7 +170,7 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
         scratch.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
         Ok(())
     } else {
-        Err(reader.error(Parse::InvalidEscape));
+        Err(reader.error(Parse::InvalidEscape))
     }
 }
 
