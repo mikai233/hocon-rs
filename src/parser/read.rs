@@ -12,6 +12,9 @@ pub(crate) const MAX_PEEK_N: usize = 11;
 
 pub(crate) const DEFAULT_BUFFER_SIZE: usize = 512;
 
+pub(crate) const DISCARD_ERROR: &str =
+    "parser state error: attempted to discard data after successful peek operation";
+
 /// Returns the number of bytes of the first character in `bytes`
 /// if it is a whitespace character, otherwise returns 0.
 ///
@@ -157,7 +160,7 @@ macro_rules! next_position {
     ($self:expr, $byte:expr) => {{
         if $byte == b'\n' {
             $self.line += 1;
-            $self.column = 0;
+            $self.column = 1;
         } else {
             $self.column += 1;
         }
@@ -168,7 +171,7 @@ macro_rules! peek_position {
     ($line:expr, $column:expr, $byte:expr) => {{
         if $byte == b'\n' {
             $line += 1;
-            $column = 0;
+            $column = 1;
         } else {
             $column += 1;
         }
@@ -225,11 +228,10 @@ pub trait Read<'de> {
     fn next(&mut self) -> Result<u8>;
 
     #[inline(always)]
-    fn discard(&mut self, n: usize) -> Result<()> {
+    fn discard(&mut self, n: usize) {
         for _ in 0..n {
-            self.next()?;
+            self.next().expect(DISCARD_ERROR);
         }
-        Ok(())
     }
 
     fn parse_quoted_str<'s>(
@@ -394,8 +396,11 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
 
     #[inline(always)]
     fn next(&mut self) -> Result<u8> {
-        if self.available_data_len() == 0 && !self.eof {
+        let data_len = self.available_data_len();
+        if data_len == 0 && !self.eof {
             self.fill_buf()?;
+        } else if data_len == 0 && self.eof {
+            return Err(Error::Eof);
         }
         let byte = self.buffer[self.head];
         next_position!(self, byte);
@@ -437,7 +442,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
             match self.next() {
                 Ok(b'"') => match self.peek_n(2) {
                     Ok(bytes) if bytes == b"\"\"" => {
-                        self.discard(2)?;
+                        self.discard(2);
                         break;
                     }
                     Ok(_) => {
@@ -468,7 +473,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                 Ok(b'/') => match self.peek_n(2) {
                     Ok(bytes) if bytes == b"//" => break,
                     Ok(_) | Err(Error::Eof) => {
-                        self.discard(1)?;
+                        self.discard(1);
                         scratch.push(b'/');
                     }
                     Err(err) => return Err(err),
@@ -478,7 +483,7 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                     if FORBIDDEN_TABLE[byte as usize] || self.starts_with_whitespace()? {
                         break;
                     } else {
-                        self.discard(1)?;
+                        self.discard(1);
                         scratch.push(byte);
                     }
                 }
@@ -503,13 +508,13 @@ impl<'de, R: std::io::Read> Read<'de> for StreamRead<R> {
                         break;
                     }
                     Ok(_) | Err(Error::Eof) => {
-                        self.discard(1)?;
+                        self.discard(1);
                         scratch.push(b'\r');
                     }
                     Err(err) => return Err(err),
                 },
                 Ok(byte) => {
-                    self.discard(1)?;
+                    self.discard(1);
                     scratch.push(byte);
                 }
                 Err(Error::Eof) => break,
@@ -733,15 +738,14 @@ impl<'de> Read<'de> for SliceRead<'de> {
     }
 
     #[inline(always)]
-    fn discard(&mut self, n: usize) -> Result<()> {
+    fn discard(&mut self, n: usize) {
         if self.available_data_len() < n {
-            Err(Error::Eof)
+            panic!("{}", DISCARD_ERROR)
         } else {
             for byte in &self.slice[self.index..] {
                 next_position!(self, *byte);
             }
             self.index += n;
-            Ok(())
         }
     }
 
@@ -867,7 +871,7 @@ mod tests {
         assert_eq!(bytes, b"he");
         let bytes = read.peek_n(3)?;
         assert_eq!(bytes, b"hel");
-        read.discard(3)?;
+        read.discard(3);
         let byte = read.peek()?;
         assert_eq!(byte, b'l');
         let bytes = read.peek_n(2)?;

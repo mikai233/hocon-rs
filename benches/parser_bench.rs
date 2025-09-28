@@ -8,7 +8,8 @@ use std::io::BufReader;
 
 fn criterion_benchmark(c: &mut Criterion) {
     // 1. 在 benchmark 外部读取文件 (不计时)
-    let path = "F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf";
+    // let path = "F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf";
+    let path = "/Users/mikai/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf";
     let data = fs::read_to_string(path).expect("failed to read file");
     // 2. 在迭代j中只做函数调用 (计时)
     c.bench_function("pure_parser", |b| {

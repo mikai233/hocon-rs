@@ -1,7 +1,8 @@
 use crate::Result;
 use crate::error::{Error, Parse};
 use crate::parser::HoconParser;
-use crate::parser::read::Read;
+use crate::parser::read::{Read, leading_whitespace_bytes};
+use crate::parser::string::FORBIDDEN_TABLE;
 use crate::raw::substitution::Substitution;
 
 impl<'de, R: Read<'de>> HoconParser<R> {
@@ -12,13 +13,19 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 return Err(self.reader.peek_error(Parse::Expected("${")));
             }
         }
-        self.reader.discard(2)?;
+        self.reader.discard(2);
         let optional = match self.reader.peek() {
             Ok(b'?') => {
-                self.reader.discard(1)?;
+                self.reader.discard(1);
                 true
             }
-            Ok(_) => false,
+            Ok(byte) => {
+                if FORBIDDEN_TABLE[byte as usize] || leading_whitespace_bytes(&[byte]) > 0 {
+                    return Err(self.reader.error(Parse::Expected("?")));
+                } else {
+                    false
+                }
+            }
             Err(Error::Eof) => {
                 return Err(self.reader.peek_error(Parse::Expected("path expression")));
             }
@@ -30,7 +37,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         let path_expression = Self::parse_path_expression(&mut self.reader, &mut self.scratch)?;
         match self.reader.peek() {
             Ok(b'}') => {
-                self.reader.discard(1)?;
+                self.reader.discard(1);
             }
             _ => {
                 return Err(self.reader.peek_error(Parse::Expected("}")));

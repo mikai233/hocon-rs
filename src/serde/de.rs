@@ -3,9 +3,9 @@ use std::cell::RefCell;
 use crate::merge::value::Value as MValue;
 use crate::value::Value;
 use serde::{
-    Deserializer,
     de::{DeserializeSeed, IntoDeserializer, MapAccess, SeqAccess, Visitor},
     forward_to_deserialize_any,
+    Deserializer,
 };
 
 impl<'de> Deserializer<'de> for Value {
@@ -231,8 +231,9 @@ mod tests {
     }
     #[test]
     fn test_de() -> crate::Result<()> {
-        let config_hocon: Config = crate::config::Config::load("test_conf/deserialize.conf", None)?;
-        let file = std::fs::File::open("test_conf/deserialize.json")?;
+        let config_hocon: Config =
+            crate::config::Config::load("test_conf/comprehensive/deserialize.conf", None)?;
+        let file = std::fs::File::open("test_conf/comprehensive/deserialize.json")?;
         let config_json: Config = serde_json::from_reader(file)?;
         assert_eq!(config_hocon, config_json);
         Ok(())

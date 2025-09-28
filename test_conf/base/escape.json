@@ -11,7 +11,7 @@
   "only_backslash": "\\",
   "quote": "He said: \"hello\"",
   "quote_and_backslash": "\"\\\"",
-  "raw": "\r\nLine1\\nLine2\\u263A\r\n",
+  "raw": "\nLine1\\nLine2\\u263A\n",
   "slash": "http://example.com/path",
   "tab": "col1\tcol2"
 }

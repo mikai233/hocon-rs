@@ -1,8 +1,8 @@
-use crate::Result;
 use crate::error::Error;
 use crate::parser::HoconParser;
 use crate::parser::read::Read;
 use crate::raw::{comment::Comment, field::ObjectField, raw_string::RawString};
+use crate::{Result, ref_to_string};
 
 #[macro_export(local_inner_macros)]
 macro_rules! try_peek {
@@ -25,8 +25,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     pub(crate) fn parse_newline_comments(&mut self) -> Result<Vec<ObjectField>> {
         let mut fields = vec![];
         loop {
-            match Self::parse_comment(&mut self.reader) {
+            self.scratch.clear();
+            match Self::parse_comment(&mut self.reader, &mut self.scratch) {
                 Ok((ty, content)) => {
+                    let content = ref_to_string!(content, &mut self.scratch);
                     let comment = Comment::new(content, ty);
                     fields.push(ObjectField::newline_comment(comment));
                 }

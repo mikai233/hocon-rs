@@ -35,11 +35,11 @@ pub(crate) const TRIPLE_DOUBLE_QUOTE: &[u8] = b"\"\"\"";
 macro_rules! ref_to_string {
     ($s:expr, $scratch:expr) => {
         match $s {
-            Reference::Borrowed(b) => {
+            crate::parser::read::Reference::Borrowed(b) => {
                 $scratch.extend_from_slice(b.as_bytes());
                 unsafe { String::from_utf8_unchecked(std::mem::take($scratch)) }
             }
-            Reference::Copied(_) => unsafe {
+            crate::parser::read::Reference::Copied(_) => unsafe {
                 String::from_utf8_unchecked(std::mem::take($scratch))
             },
         }
@@ -60,7 +60,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
             }
         }
-        reader.discard(1)?;
+        reader.discard(1);
         let s = reader.parse_quoted_str(true, scratch)?;
         let s = ref_to_string!(s, scratch);
         Ok(s)
@@ -121,7 +121,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
             }
         }
-        reader.discard(3)?;
+        reader.discard(3);
         let s = reader.parse_multiline_str(scratch)?;
         let s = ref_to_string!(s, scratch);
         Ok(s)
@@ -187,10 +187,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 b'.' => {
                     path.push_str(ending_space);
                     paths.push(path);
-                    reader.discard(1)?;
+                    reader.discard(1);
                 }
                 _ => {
-                    return Err(reader.peek_error(Parse::Expected("a valid path expression")));
+                    return Err(reader.peek_error(Parse::Expected("path expression")));
                 }
             }
         }

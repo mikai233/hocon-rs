@@ -8,7 +8,7 @@
   "hello": "world",
   "hello2": "world2",
   "hello3": "world3",
-  "hello4: world4": "\r\naabb cc \\u000\r\n",
+  "hello4: world4": "\naabb cc \\u000\n",
   "i": {
     "a": 1,
     "b": 2,

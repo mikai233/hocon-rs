@@ -24,7 +24,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             if ch != b')' {
                 return Err(self.reader.peek_error(Parse::Expected(")")));
             } else {
-                self.reader.discard(1)?;
+                self.reader.discard(1);
             }
         }
         let inclusion = Inclusion::new(include_path.into(), required, location, None);
@@ -36,7 +36,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         if bytes != INCLUDE {
             return Err(self.reader.peek_error(Parse::Expected("include")));
         }
-        self.reader.discard(INCLUDE.len())?;
+        self.reader.discard(INCLUDE.len());
         Ok(())
     }
 
@@ -51,7 +51,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     return Err(self.reader.peek_error(Parse::Expected("required(")));
                 }
             }
-            self.reader.discard(REQUIRED.len())?;
+            self.reader.discard(REQUIRED.len());
             required = true
         }
         if required {
@@ -71,7 +71,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         return Err(self.reader.peek_error(Parse::Expected("file(")));
                     }
                 }
-                self.reader.discard(FILE.len())?;
+                self.reader.discard(FILE.len());
                 Some(Location::File)
             }
             #[cfg(feature = "urls_includes")]
@@ -83,7 +83,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         return Err(self.reader.peek_error(Parse::Expected("url(")));
                     }
                 }
-                self.reader.discard(URL.len())?;
+                self.reader.discard(URL.len());
                 Some(Location::Url)
             }
             #[cfg(not(feature = "urls_includes"))]
@@ -98,7 +98,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         return Err(self.reader.peek_error(Parse::Expected("classpath(")));
                     }
                 }
-                self.reader.discard(CLASSPATH.len())?;
+                self.reader.discard(CLASSPATH.len());
                 Some(Location::Classpath)
             }
             b'"' => None,

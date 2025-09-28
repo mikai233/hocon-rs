@@ -2,10 +2,12 @@ use crate::error::{Error, Parse};
 use crate::parser::HoconParser;
 use crate::parser::read::{Read, Reference};
 use crate::raw::comment::CommentType;
-use crate::{Result, ref_to_string};
+use crate::{Result, try_peek};
+
+const EXPECTED_COMMENT_TOKEN: &str = "# or // ";
 
 impl<'de, R: Read<'de>> HoconParser<R> {
-    fn parse_comment_inner<'s>(
+    pub(crate) fn parse_comment<'s>(
         reader: &'s mut R,
         scratch: &'s mut Vec<u8>,
     ) -> Result<(CommentType, Reference<'de, 's, str>)> {
@@ -15,38 +17,38 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok((ty, s))
     }
 
-    pub(crate) fn parse_comment(reader: &mut R) -> Result<(CommentType, String)> {
-        let mut scratch = vec![];
-        let (ty, s) = Self::parse_comment_inner(reader, &mut scratch)?;
-        let s = ref_to_string!(s, &mut scratch);
-        Ok((ty, s))
-    }
-
     fn parse_comment_token(reader: &mut R) -> Result<CommentType> {
         let byte = reader
             .peek()
-            .map_err(|_| reader.peek_error(Parse::Expected("# or //")))?;
+            .map_err(|_| reader.peek_error(Parse::Expected(EXPECTED_COMMENT_TOKEN)))?;
         let ty = if byte == b'#' {
-            reader.discard(1)?;
+            reader.discard(1);
             CommentType::Hash
         } else if let Ok(bytes) = reader.peek_n(2)
             && bytes == b"//"
         {
-            reader.discard(2)?;
+            reader.discard(2);
             CommentType::DoubleSlash
         } else {
-            return Err(reader.peek_error(Parse::Expected("# or //")));
+            return Err(reader.peek_error(Parse::Expected(EXPECTED_COMMENT_TOKEN)));
         };
         Ok(ty)
     }
 
-    pub(crate) fn drop_whitespace_and_comments(reader: &mut R) -> Result<()> {
-        let mut scratch = vec![];
+    pub(crate) fn drop_whitespace_and_comments(
+        reader: &mut R,
+        scratch: &mut Vec<u8>,
+    ) -> Result<()> {
         loop {
+            scratch.clear();
             Self::drop_whitespace(reader)?;
-            match Self::parse_comment_inner(reader, &mut scratch) {
+            match Self::parse_comment(reader, scratch) {
                 Ok(_) => {}
-                Err(Error::Eof) | Err(Error::Parse { .. }) => {
+                Err(Error::Eof)
+                | Err(Error::Parse {
+                    parse: Parse::Expected(EXPECTED_COMMENT_TOKEN),
+                    ..
+                }) => {
                     break Ok(());
                 }
                 Err(err) => {
@@ -54,6 +56,35 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
             }
         }
+    }
+
+    pub(crate) fn dorp_comment(reader: &mut R) -> Result<()> {
+        match Self::parse_comment_token(reader) {
+            Ok(_) => loop {
+                match try_peek!(reader) {
+                    b'\n' => {
+                        reader.discard(1);
+                        break;
+                    }
+                    b'\r' if reader.peek_n(2).is_ok_and(|bytes| bytes == b"\r\n") => {
+                        reader.discard(2);
+                        break;
+                    }
+                    _ => {
+                        reader.discard(1);
+                    }
+                }
+            },
+            Err(Error::Eof)
+            | Err(Error::Parse {
+                parse: Parse::Expected(EXPECTED_COMMENT_TOKEN),
+                ..
+            }) => {}
+            Err(err) => {
+                return Err(err);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -81,9 +112,9 @@ mod tests {
     ) -> Result<()> {
         let read = StrRead::new(input);
         let mut parser = HoconParser::new(read);
-        let (t, c) = HoconParser::parse_comment(&mut parser.reader)?;
+        let (t, c) = HoconParser::parse_comment(&mut parser.reader, &mut parser.scratch)?;
         assert_eq!(t, expected.0);
-        assert_eq!(c, expected.1);
+        assert_eq!(&*c, expected.1);
         assert_eq!(parser.reader.rest(), rest);
         Ok(())
     }

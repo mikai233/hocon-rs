@@ -31,7 +31,6 @@ use crate::{Result, try_peek};
 
 macro_rules! resolve_unquoted_string {
     ($s:expr, $scratch:expr) => {{
-        use crate::parser::read::Reference;
         use crate::ref_to_string;
         use std::ops::Deref;
         use std::str::FromStr;
@@ -115,7 +114,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         loop {
             match reader.peek_horizontal_whitespace() {
                 Ok(n) if n > 0 => {
-                    reader.discard(n)?;
+                    reader.discard(n);
                 }
                 Ok(_) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
@@ -128,7 +127,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         loop {
             match reader.peek_whitespace() {
                 Ok(n) if n > 0 => {
-                    reader.discard(n)?;
+                    reader.discard(n);
                 }
                 Ok(_) | Err(Error::Eof) => break,
                 Err(err) => return Err(err),
@@ -138,7 +137,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     }
 
     pub fn parse(&mut self) -> Result<RawObject> {
-        Self::drop_whitespace_and_comments(&mut self.reader)?;
+        Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
         match self.reader.peek() {
             Ok(ch) => {
                 if ch != b'{' {
@@ -157,10 +156,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 return Err(err);
             }
         };
-        Self::drop_whitespace_and_comments(&mut self.reader)?;
+        Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
         match self.reader.peek() {
             Ok(_) => {
-                return Err(self.reader.peek_error(Parse::Expected("end of file")));
+                return Err(self.reader.error(Parse::Expected("end of file")));
             }
             Err(Error::Eof) => {}
             Err(err) => {
@@ -175,6 +174,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         };
         Ok(raw_obj)
     }
+
     fn resolve_value(
         Value {
             mut values, spaces, ..
@@ -269,10 +269,10 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         stack.push(object);
     }
 
-    pub(crate) fn end_object(&mut self) -> Result<()> {
+    pub(crate) fn end_object(&mut self) -> Result<bool> {
         self.end_value()?;
         if self.stack.len() == 1 {
-            return Ok(());
+            return Ok(true);
         }
         match self.stack.pop().expect("stack is empty") {
             Frame::Object { entries, .. } => {
@@ -282,7 +282,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             }
             _ => panic!("unexpected frame type"),
         }
-        Ok(())
+        Ok(false)
     }
 
     pub(crate) fn append_to_frame(frame: &mut Frame, raw: RawValue) -> Result<()> {
@@ -331,8 +331,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Self::drop_horizontal_whitespace(&mut self.reader)?;
         loop {
             self.check_depth_limit()?;
-            let ch = try_peek!(self.reader);
-            match ch {
+            match try_peek!(self.reader) {
                 b':' | b'=' => {
                     match Self::last_frame(&mut self.stack) {
                         Frame::Object { next_entry, .. } => {
@@ -351,8 +350,8 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             return Err(self.reader.error(Parse::Expected(",")));
                         }
                     }
-                    self.reader.discard(1)?;
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
+                    self.reader.discard(1);
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                 }
                 b'+' => {
                     match self.reader.peek_n(2) {
@@ -361,17 +360,25 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             return Err(self.reader.peek_error(Parse::Expected("+=")));
                         }
                     }
-                    self.reader.discard(2)?;
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
                     match Self::last_frame(&mut self.stack) {
                         Frame::Object { next_entry, .. } => {
-                            let entry = next_entry.as_mut().unwrap();
+                            let entry = match next_entry {
+                                Some(entry) => entry,
+                                None => {
+                                    return Err(self.reader.error(Parse::Expected("key")));
+                                }
+                            };
+                            if entry.separator.is_some() {
+                                return Err(self.reader.error(Parse::Expected("value")));
+                            }
                             entry.separator = Some(Separator::AddAssign);
                         }
                         Frame::Array { .. } => {
                             return Err(self.reader.error(Parse::Expected(",")));
                         }
                     }
+                    self.reader.discard(2);
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                 }
                 b'[' => {
                     // If the key value is like `a []`, the separator will not be set, it's need to be set here manually.
@@ -391,14 +398,14 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                         }
                     }
                     // Parse array
-                    self.reader.discard(1)?;
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
+                    self.reader.discard(1);
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                     Self::start_array(&mut self.stack);
                 }
                 b'{' => {
                     // Parse object
-                    self.reader.discard(1)?;
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
+                    self.reader.discard(1);
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                     // If the key value is like `a {}`, the separator will not be set, it's need to be set here manually.
                     // The stack maybe empty when the configuration starts with `{}`
                     if let Some(frame) = self.stack.last_mut()
@@ -435,28 +442,30 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     Self::push_value(Self::last_frame(&mut self.stack), v)?;
                 }
                 b']' => {
-                    self.reader.discard(1)?;
                     self.end_array()?;
+                    self.reader.discard(1);
                 }
                 b'}' => {
-                    self.reader.discard(1)?;
-                    self.end_object()?;
-                }
-                b',' | b'#' | b'\n' => {
-                    self.end_value()?;
-                    if ch == b',' {
-                        self.reader.discard(1)?;
+                    let end_root = self.end_object()?;
+                    self.reader.discard(1);
+                    if end_root {
+                        break;
                     }
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
+                }
+                byte @ b',' | byte @ b'#' | byte @ b'\n' => {
+                    self.end_value()?;
+                    if byte == b',' {
+                        self.reader.discard(1);
+                    }
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                 }
                 b'/' if self.reader.peek_n(2).is_ok_and(|bytes| bytes == b"//") => {
-                    // TODO parse comment
                     self.end_value()?;
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                 }
                 b'\r' if self.reader.peek_n(2).is_ok_and(|bytes| bytes == b"\r\n") => {
                     self.end_value()?;
-                    Self::drop_whitespace_and_comments(&mut self.reader)?;
+                    Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                 }
                 b'i' if self.reader.peek_n(7).is_ok_and(|chars| chars == INCLUDE) => {
                     let mut inclusion = self.parse_include()?;
@@ -499,9 +508,12 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             }
                         }
                         None => {
-                            Self::drop_whitespace_and_comments(&mut self.reader)?;
-                            let ch = self.reader.peek()?;
-                            if ch != b'}' {
+                            Self::drop_whitespace_and_comments(
+                                &mut self.reader,
+                                &mut self.scratch,
+                            )?;
+                            let byte = self.reader.peek()?;
+                            if byte != b'}' {
                                 let key = Self::parse_key(&mut self.reader, &mut self.scratch)?;
                                 *next_entry = Some(Entry {
                                     key: Some(key),
@@ -523,9 +535,12 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                                 element.pre_space = Some(space.to_string());
                             }
                         } else {
-                            Self::drop_whitespace_and_comments(&mut self.reader)?;
-                            let ch = self.reader.peek()?;
-                            if ch != b']' {
+                            Self::drop_whitespace_and_comments(
+                                &mut self.reader,
+                                &mut self.scratch,
+                            )?;
+                            let byte = self.reader.peek()?;
+                            if byte != b']' {
                                 let s = Self::parse_unquoted_string(
                                     &mut self.reader,
                                     &mut self.scratch,
@@ -571,15 +586,18 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case("test_conf/base.conf")]
-    #[case("test_conf/concat.conf")]
-    #[case("test_conf/concat2.conf")]
-    #[case("test_conf/concat3.conf")]
-    #[case("test_conf/demo.conf")]
-    #[case("test_conf/deserialize.conf")]
-    #[case("test_conf/empty.conf")]
-    #[cfg_attr(feature = "urls_includes", case("test_conf/included.conf"))]
-    #[cfg_attr(feature = "urls_includes", case("test_conf/main.conf"))]
+    #[case("test_conf/comprehensive/base.conf")]
+    #[case("test_conf/comprehensive/concat.conf")]
+    #[case("test_conf/comprehensive/concat2.conf")]
+    #[case("test_conf/comprehensive/concat3.conf")]
+    #[case("test_conf/comprehensive/demo.conf")]
+    #[case("test_conf/comprehensive/deserialize.conf")]
+    #[case("test_conf/comprehensive/empty.conf")]
+    #[cfg_attr(
+        feature = "urls_includes",
+        case("test_conf/comprehensive/included.conf")
+    )]
+    #[cfg_attr(feature = "urls_includes", case("test_conf/comprehensive/main.conf"))]
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
         let file = std::fs::File::open(&path)?;
         let read = StreamRead::new(BufReader::new(file));
@@ -593,7 +611,7 @@ mod tests {
     #[case("test_conf/error/missing_key.conf", Position::new(1, 2))]
     #[case("test_conf/error/missing_value.conf", Position::new(1, 8))]
     #[case("test_conf/error/missing_value2.conf", Position::new(1, 9))]
-    #[case("test_conf/error/missing_value3.conf", Position::new(1, 9))]
+    #[case("test_conf/error/missing_value3.conf", Position::new(1, 11))]
     #[case("test_conf/error/invalid_separator.conf", Position::new(1, 9))]
     #[case("test_conf/error/invalid_separator2.conf", Position::new(1, 8))]
     #[case("test_conf/error/invalid_separator3.conf", Position::new(1, 8))]
@@ -612,8 +630,10 @@ mod tests {
     #[case("test_conf/error/invalid_object_entry.conf", Position::new(1, 9))]
     #[case("test_conf/error/invalid_object_entry2.conf", Position::new(1, 7))]
     #[case("test_conf/error/invalid_root.conf", Position::new(1, 1))]
-    #[case("test_conf/error/invalid_root2.conf", Position::new(1, 7))] // TODO
+    #[case("test_conf/error/invalid_root2.conf", Position::new(1, 4))]
     #[case("test_conf/error/invalid_root3.conf", Position::new(1, 2))]
+    #[case("test_conf/error/invalid_add_assign.conf", Position::new(1, 1))]
+    #[case("test_conf/error/invalid_add_assign2.conf", Position::new(1, 7))]
     fn test_error_conf(
         #[case] path: impl AsRef<std::path::Path>,
         #[case] expected_position: Position,
