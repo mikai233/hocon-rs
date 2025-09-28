@@ -89,7 +89,41 @@ fn parse_escaped_char<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8>) 
     }
     Ok(())
 }
+
+/// Parses a Unicode escape sequence of the form `\uXXXX` (and possibly a surrogate pair).
+///
+/// This function reads exactly 4 hexadecimal digits after `\u` and converts them into
+/// a Unicode code point. If the code point is in the high-surrogate range (`0xD800..=0xDBFF`),
+/// it expects another `\uXXXX` low surrogate (`0xDC00..=0xDFFF`) to follow and combines
+/// them into a single supplementary character.
+///
+/// The resulting Unicode scalar value is then encoded as UTF-8 and appended to `scratch`.
+///
+/// # Arguments
+/// * `reader`  - The input reader providing bytes (typically HOCON/JSON parser input).
+/// * `scratch` - A temporary buffer to which the decoded UTF-8 bytes are appended.
+///
+/// # Errors
+/// Returns `Error::InvalidEscape` if:
+/// - the escape sequence is malformed,
+/// - contains invalid hex digits,
+/// - contains an unpaired surrogate,
+/// - or produces an invalid Unicode code point.
+///
+/// # Safety
+/// This implementation uses `char::from_u32` + `encode_utf8` to guarantee that only valid
+/// Unicode scalar values are emitted, avoiding panics or undefined behavior.
+///
+/// # Example
+/// ```ignore
+/// // parsing "\u0041" should append 'A'
+/// let mut buf = Vec::new();
+/// let mut input = SliceReader::new(br"0041"); // hypothetical reader
+/// parse_escaped_unicode(&mut input, &mut buf).unwrap();
+/// assert_eq!(buf, b"A");
+/// ```
 fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8>) -> Result<()> {
+    /// Reads 4 hexadecimal digits (`\uXXXX`) and returns a `u16`.
     fn parse_hex16<'de, R: Read<'de>>(reader: &mut R) -> Result<u16> {
         let mut n: u16 = 0;
         for _ in 0..4 {
@@ -103,11 +137,13 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
         }
         Ok(n)
     }
+
+    // Parse first 4 hex digits
     let mut n = parse_hex16(reader)? as u32;
 
-    // Handle surrogate pair
+    // Handle surrogate pair (UTF-16 encoding for supplementary characters)
     if (0xD800..=0xDBFF).contains(&n) {
-        // Expect \u for low surrogate
+        // Expect `\u` for the low surrogate
         if reader.next()? != b'\\' || reader.next()? != b'u' {
             return Err(Error::InvalidEscape);
         }
@@ -115,28 +151,18 @@ fn parse_escaped_unicode<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8
         if !(0xDC00..=0xDFFF).contains(&n2) {
             return Err(Error::InvalidEscape);
         }
+        // Combine surrogate pair into a single code point
         n = 0x10000 + (((n - 0xD800) << 10) | (n2 - 0xDC00));
     }
 
-    // Encode as UTF-8 manually
-    if n <= 0x7F {
-        scratch.push(n as u8);
-    } else if n <= 0x7FF {
-        scratch.push((n >> 6 & 0x1F) as u8 | 0xC0);
-        scratch.push((n & 0x3F) as u8 | 0x80);
-    } else if n <= 0xFFFF {
-        scratch.push((n >> 12 & 0x0F) as u8 | 0xE0);
-        scratch.push((n >> 6 & 0x3F) as u8 | 0x80);
-        scratch.push((n & 0x3F) as u8 | 0x80);
-    } else if n <= 0x10FFFF {
-        scratch.push((n >> 18 & 0x07) as u8 | 0xF0);
-        scratch.push((n >> 12 & 0x3F) as u8 | 0x80);
-        scratch.push((n >> 6 & 0x3F) as u8 | 0x80);
-        scratch.push((n & 0x3F) as u8 | 0x80);
+    // Convert to `char` and encode as UTF-8
+    if let Some(ch) = char::from_u32(n) {
+        let mut buf = [0u8; 4];
+        scratch.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+        Ok(())
     } else {
-        return Err(Error::InvalidEscape);
+        Err(Error::InvalidEscape)
     }
-    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
