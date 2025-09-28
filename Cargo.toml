@@ -11,10 +11,13 @@ keywords = ["hocon", "configuration"]
 license = "MIT"
 readme = "README.md"
 
+[workspace]
+members = ["fuzz"]
+
 [dependencies]
-memchr = "2.7.5"
+memchr = "2.7.6"
 thiserror = "2.0.12"
-serde = { version = "1.0.226" }
+serde = { version = "1.0.227" }
 serde_json = { version = "1.0.145" }
 reqwest = { version = "0.12.22", optional = true, default-features = false, features = [
     "blocking",
@@ -35,7 +38,7 @@ bigdecimal = "0.4.8"
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.19", features = ["local-time"] }
 ctor = "0.5.0"
-serde = { version = "1.0.226", features = ["derive"] }
+serde = { version = "1.0.227", features = ["derive"] }
 rstest = "0.26.1"
 criterion = "0.7.0"
 
