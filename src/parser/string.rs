@@ -35,7 +35,7 @@ pub(crate) const TRIPLE_DOUBLE_QUOTE: &[u8] = b"\"\"\"";
 macro_rules! ref_to_string {
     ($s:expr, $scratch:expr) => {
         match $s {
-            crate::parser::read::Reference::Borrowed(b) => {
+            $crate::parser::read::Reference::Borrowed(b) => {
                 $scratch.extend_from_slice(b.as_bytes());
                 unsafe { String::from_utf8_unchecked(std::mem::take($scratch)) }
             }

@@ -1,8 +1,8 @@
+use crate::Result;
 use crate::error::{Error, Parse};
 use crate::parser::HoconParser;
 use crate::parser::read::{Read, Reference};
 use crate::raw::comment::CommentType;
-use crate::{Result, try_peek};
 
 const EXPECTED_COMMENT_TOKEN: &str = "# or // ";
 
@@ -56,35 +56,6 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
             }
         }
-    }
-
-    pub(crate) fn dorp_comment(reader: &mut R) -> Result<()> {
-        match Self::parse_comment_token(reader) {
-            Ok(_) => loop {
-                match try_peek!(reader) {
-                    b'\n' => {
-                        reader.discard(1);
-                        break;
-                    }
-                    b'\r' if reader.peek_n(2).is_ok_and(|bytes| bytes == b"\r\n") => {
-                        reader.discard(2);
-                        break;
-                    }
-                    _ => {
-                        reader.discard(1);
-                    }
-                }
-            },
-            Err(Error::Eof)
-            | Err(Error::Parse {
-                parse: Parse::Expected(EXPECTED_COMMENT_TOKEN),
-                ..
-            }) => {}
-            Err(err) => {
-                return Err(err);
-            }
-        }
-        Ok(())
     }
 }
 
