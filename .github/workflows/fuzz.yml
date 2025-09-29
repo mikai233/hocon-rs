@@ -2,14 +2,20 @@ name: Fuzz
 
 on:
   push:
-    branches: [ "**" ]
+    branches: ["**"]
   pull_request:
-    branches: [ "**" ]
+    branches: ["**"]
 
 jobs:
   fuzz:
     runs-on: ubuntu-latest
-    timeout-minutes: 5   # 避免 CI 卡死，单次 fuzz 最大 5 分钟
+    timeout-minutes: 5
+
+    # Run each fuzz target in parallel using a matrix
+    strategy:
+      matrix:
+        target: [from_str, from_slice]
+
     steps:
       # -------------------------
       # Checkout repository
@@ -17,14 +23,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # -------------------------
-      # Cache fuzz corpus & artifacts
+      # Cache fuzz corpus & artifacts for each target
       # -------------------------
       - name: Cache fuzz corpus
         uses: actions/cache@v3
         with:
-          path: fuzz/corpus
-          key: fuzz-corpus-${{ hashFiles('fuzz/fuzz_targets/*.rs') }}
-          restore-keys: fuzz-corpus
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ hashFiles('fuzz/fuzz_targets/*.rs') }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}
 
       # -------------------------
       # Setup Rust nightly
@@ -41,7 +47,7 @@ jobs:
         run: cargo install cargo-fuzz
 
       # -------------------------
-      # Run fuzz target for 1 minute
+      # Run fuzzing for each target (1 min max)
       # -------------------------
       - name: Run fuzzing
-        run: cargo fuzz run parse_str -- -max_total_time=60
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60

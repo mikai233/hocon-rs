@@ -175,7 +175,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         Ok(raw_obj)
     }
 
-    fn resolve_value(
+    fn maybe_concat(
         Value {
             mut values, spaces, ..
         }: Value,
@@ -195,47 +195,61 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 entries,
                 next_entry,
             } => {
-                if let Some(Entry {
-                    key,
-                    separator,
-                    value,
-                }) = next_entry.take()
-                {
-                    let key = match key {
-                        Some(key) => key,
-                        None => {
-                            return Err(self.reader.error(Parse::Expected("key")));
-                        }
-                    };
-                    let separator = match separator {
-                        Some(separator) => separator,
-                        None => {
-                            return Err(self.reader.error(Parse::Expected("= or : or +=")));
-                        }
-                    };
-                    let value = match value {
-                        Some(value) if !value.values.is_empty() => value,
-                        _ => {
-                            return Err(self.reader.error(Parse::Expected("value")));
-                        }
-                    };
-                    let mut value = Self::resolve_value(value)?;
-                    if separator == Separator::AddAssign {
-                        value = RawValue::AddAssign(AddAssign::new(value.into()));
-                    }
-                    let field = ObjectField::key_value(key, value);
-                    entries.push(field);
-                }
+                Self::end_entry(&mut self.reader, entries, next_entry.take())?;
             }
             Frame::Array {
                 elements,
                 next_element,
             } => {
-                if let Some(element) = next_element.take() {
-                    let value = Self::resolve_value(element)?;
-                    elements.push(value);
-                }
+                Self::end_element(elements, next_element.take())?;
             }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn end_element(elements: &mut Vec<RawValue>, element: Option<Value>) -> Result<()> {
+        if let Some(element) = element {
+            let value = Self::maybe_concat(element)?;
+            elements.push(value);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn end_entry(
+        reader: &mut R,
+        entries: &mut Vec<ObjectField>,
+        entry: Option<Entry>,
+    ) -> Result<()> {
+        if let Some(Entry {
+            key,
+            separator,
+            value,
+        }) = entry
+        {
+            let key = match key {
+                Some(key) => key,
+                None => {
+                    return Err(reader.error(Parse::Expected("key")));
+                }
+            };
+            let separator = match separator {
+                Some(separator) => separator,
+                None => {
+                    return Err(reader.error(Parse::Expected("separator")));
+                }
+            };
+            let value = match value {
+                Some(value) if !value.values.is_empty() => value,
+                _ => {
+                    return Err(reader.error(Parse::Expected("value")));
+                }
+            };
+            let mut value = Self::maybe_concat(value)?;
+            if separator == Separator::AddAssign {
+                value = RawValue::AddAssign(AddAssign::new(value.into()));
+            }
+            let field = ObjectField::key_value(key, value);
+            entries.push(field);
         }
         Ok(())
     }
@@ -249,14 +263,19 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     }
 
     pub(crate) fn end_array(&mut self) -> Result<()> {
-        self.end_value()?;
-        match self.stack.pop().expect("frame is empty") {
-            Frame::Array { elements, .. } => {
+        match self.stack.pop().expect("stack is empty") {
+            Frame::Array {
+                mut elements,
+                next_element,
+            } => {
+                Self::end_element(&mut elements, next_element)?;
                 let array = RawValue::Array(RawArray::new(elements));
                 let parent = Self::last_frame(&mut self.stack);
-                Self::append_to_frame(parent, array)?;
+                Self::append_to_frame(&mut self.reader, parent, array)?;
             }
-            other => panic!("Unexpected frame type: {}", other.ty()),
+            Frame::Object { .. } => {
+                return Err(self.reader.error(Parse::Expected("}")));
+            }
         }
         Ok(())
     }
@@ -270,39 +289,50 @@ impl<'de, R: Read<'de>> HoconParser<R> {
     }
 
     pub(crate) fn end_object(&mut self) -> Result<bool> {
-        self.end_value()?;
         if self.stack.len() == 1 {
             return Ok(true);
         }
         match self.stack.pop().expect("stack is empty") {
-            Frame::Object { entries, .. } => {
+            Frame::Object {
+                mut entries,
+                next_entry,
+            } => {
+                Self::end_entry(&mut self.reader, &mut entries, next_entry)?;
                 let object = RawValue::Object(RawObject(entries));
                 let parent = Self::last_frame(&mut self.stack);
-                Self::append_to_frame(parent, object)?;
+                Self::append_to_frame(&mut self.reader, parent, object)?;
             }
-            _ => panic!("unexpected frame type"),
+            Frame::Array { .. } => {
+                return Err(self.reader.error(Parse::Expected("]")));
+            }
         }
         Ok(false)
     }
 
-    pub(crate) fn append_to_frame(frame: &mut Frame, raw: RawValue) -> Result<()> {
+    pub(crate) fn append_to_frame(reader: &mut R, frame: &mut Frame, raw: RawValue) -> Result<()> {
         match frame {
             Frame::Array { next_element, .. } => {
                 let element = next_element.get_or_insert_default();
                 element.push_value(raw);
             }
-            Frame::Object { next_entry, .. } => {
-                assert!(next_entry.is_some());
-                let Entry {
+            Frame::Object { next_entry, .. } => match next_entry {
+                Some(Entry {
                     key,
                     separator,
                     value,
-                } = next_entry.as_mut().unwrap();
-                assert!(key.is_some());
-                assert!(separator.is_some());
-                let value = value.get_or_insert_default();
-                value.push_value(raw);
-            }
+                }) => {
+                    if key.is_none() {
+                        return Err(reader.error(Parse::Expected("key")));
+                    } else if separator.is_none() {
+                        return Err(reader.error(Parse::Expected("separator")));
+                    }
+                    let value = value.get_or_insert_default();
+                    value.push_value(raw);
+                }
+                None => {
+                    return Err(reader.error(Parse::Expected("key")));
+                }
+            },
         }
         Ok(())
     }
@@ -319,7 +349,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 element.push_value(raw_value);
             }
             Frame::Object { next_entry, .. } => {
-                let entry = next_entry.as_mut().unwrap();
+                let entry = next_entry.as_mut().expect("entry is empty");
                 let value = entry.value.get_or_insert_default();
                 value.push_value(raw_value);
             }
@@ -385,13 +415,13 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     // The stack cannot be empty since root configuration cannot start with `[]`
                     if let Frame::Object { next_entry, .. } = Self::last_frame(&mut self.stack) {
                         match next_entry {
-                            Some(entry) if entry.key.is_none() => {
-                                return Err(self.reader.error(Parse::Expected("key")));
+                            Some(Entry { key, separator, .. }) => {
+                                if key.is_none() {
+                                    return Err(self.reader.error(Parse::Expected("key")));
+                                } else if separator.is_none() {
+                                    *separator = Some(Separator::Assign);
+                                }
                             }
-                            Some(entry) if entry.separator.is_none() => {
-                                entry.separator = Some(Separator::Assign);
-                            }
-                            Some(_) => {}
                             None => {
                                 return Err(self.reader.error(Parse::Expected("key")));
                             }
@@ -403,18 +433,25 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     Self::start_array(&mut self.stack);
                 }
                 b'{' => {
+                    // If the key value is like `a {}`, the separator will not be set, it's need to be set here manually.
+                    // The stack maybe empty when the configuration starts with `{}`
+                    if let Some(Frame::Object { next_entry, .. }) = self.stack.last_mut() {
+                        match next_entry {
+                            Some(Entry { key, separator, .. }) => {
+                                if key.is_none() {
+                                    return Err(self.reader.error(Parse::Expected("key")));
+                                } else if separator.is_none() {
+                                    *separator = Some(Separator::Assign);
+                                }
+                            }
+                            None => {
+                                return Err(self.reader.error(Parse::Expected("key")));
+                            }
+                        }
+                    }
                     // Parse object
                     self.reader.discard(1);
                     Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
-                    // If the key value is like `a {}`, the separator will not be set, it's need to be set here manually.
-                    // The stack maybe empty when the configuration starts with `{}`
-                    if let Some(frame) = self.stack.last_mut()
-                        && let Frame::Object { next_entry, .. } = frame
-                        && let Some(entry) = next_entry
-                        && entry.separator.is_none()
-                    {
-                        entry.separator = Some(Separator::Assign);
-                    }
                     Self::start_object(&mut self.stack);
                 }
                 b'"' if Self::last_frame(&mut self.stack).expect_value() => {
@@ -442,6 +479,23 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     Self::push_value(Self::last_frame(&mut self.stack), v)?;
                 }
                 b']' => {
+                    // match Self::last_frame(&mut self.stack) {
+                    //     Frame::Object { next_entry, .. } => match next_entry {
+                    //         Some(entry) => {
+                    //             if entry.key.is_none() {
+                    //                 return Err(self.reader.error(Parse::Expected("key")));
+                    //             } else if entry.separator.is_none() {
+                    //                 return Err(self.reader.error(Parse::Expected("= or :")));
+                    //             }
+                    //         }
+                    //         None => {
+                    //             return Err(self.reader.error(Parse::Expected("key")));
+                    //         }
+                    //     },
+                    //     Frame::Array { next_element, .. } => {
+                    //         assert!(next_element.is_none());
+                    //     }
+                    // }
                     self.end_array()?;
                     self.reader.discard(1);
                 }
@@ -632,6 +686,10 @@ mod tests {
     #[case("test_conf/error/invalid_root.conf", Position::new(1, 1))]
     #[case("test_conf/error/invalid_root2.conf", Position::new(1, 4))]
     #[case("test_conf/error/invalid_root3.conf", Position::new(1, 2))]
+    #[case("test_conf/error/invalid_root4.conf", Position::new(1, 1))]
+    #[case("test_conf/error/invalid_root5.conf", Position::new(1, 4))]
+    #[case("test_conf/error/invalid_root6.conf", Position::new(1, 6))]
+    #[case("test_conf/error/invalid_root7.conf", Position::new(1, 2))]
     #[case("test_conf/error/invalid_add_assign.conf", Position::new(1, 1))]
     #[case("test_conf/error/invalid_add_assign2.conf", Position::new(1, 7))]
     fn test_error_conf(
@@ -670,7 +728,7 @@ mod tests {
             false,
             vec!["test_conf".to_string(), "test_conf/error".to_string()],
         );
-        let result: Result<Value> = Config::parse_file(path, Some(options));
+        let result: Result<Value> = Config::from_file(path, Some(options));
         assert!(result.is_err());
     }
 }

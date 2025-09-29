@@ -4,7 +4,7 @@ use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
 use crate::parser::loader::{self, load_from_path, parse_hocon};
-use crate::parser::read::{StrRead, StreamRead};
+use crate::parser::read::{SliceRead, StrRead, StreamRead};
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
@@ -81,7 +81,7 @@ impl Config {
         Self::resolve_object(self.object)
     }
 
-    pub fn parse_file<T>(
+    pub fn from_file<T>(
         path: impl AsRef<std::path::Path>,
         opts: Option<ConfigOptions>,
     ) -> crate::Result<T>
@@ -93,7 +93,7 @@ impl Config {
     }
 
     #[cfg(feature = "urls_includes")]
-    pub fn parse_url<T>(url: impl AsRef<str>, opts: Option<ConfigOptions>) -> crate::Result<T>
+    pub fn from_url<T>(url: impl AsRef<str>, opts: Option<ConfigOptions>) -> crate::Result<T>
     where
         T: DeserializeOwned,
     {
@@ -103,7 +103,7 @@ impl Config {
         Self::resolve_object::<T>(raw)
     }
 
-    pub fn parse_map<T>(values: std::collections::HashMap<String, Value>) -> crate::Result<T>
+    pub fn from_map<T>(values: std::collections::HashMap<String, Value>) -> crate::Result<T>
     where
         T: DeserializeOwned,
     {
@@ -141,7 +141,7 @@ impl Config {
         }
     }
 
-    pub fn parse_str<T>(s: &str, options: Option<ConfigOptions>) -> crate::Result<T>
+    pub fn from_str<T>(s: &str, options: Option<ConfigOptions>) -> crate::Result<T>
     where
         T: DeserializeOwned,
     {
@@ -150,7 +150,16 @@ impl Config {
         Self::resolve_object::<T>(raw)
     }
 
-    pub fn parse_reader<R, T>(rdr: R, options: Option<ConfigOptions>) -> crate::Result<T>
+    pub fn from_slice<T>(s: &[u8], options: Option<ConfigOptions>) -> crate::Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        let read = SliceRead::new(s);
+        let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
+        Self::resolve_object::<T>(raw)
+    }
+
+    pub fn from_reader<R, T>(rdr: R, options: Option<ConfigOptions>) -> crate::Result<T>
     where
         R: std::io::Read,
         T: DeserializeOwned,
@@ -279,7 +288,7 @@ mod tests {
         let expected_value: Value = expected_value.into();
         value.assert_deep_eq(&expected_value, "$");
         // Since StreamRead and StrRead have different implementations, we need a StrRead test.
-        let value: Value = Config::parse_str(&hocon_str, Some(options))?;
+        let value: Value = Config::from_str(&hocon_str, Some(options))?;
         value.assert_deep_eq(&expected_value, "$");
         Ok(())
     }

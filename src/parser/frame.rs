@@ -42,13 +42,6 @@ pub(crate) enum Frame {
 }
 
 impl Frame {
-    pub(crate) fn ty(&self) -> &str {
-        match &self {
-            Frame::Object { .. } => "Frame::Object",
-            Frame::Array { .. } => "Frame::Array",
-        }
-    }
-
     pub(crate) fn expect_value(&self) -> bool {
         match self {
             Frame::Object { next_entry, .. } => next_entry

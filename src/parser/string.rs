@@ -39,7 +39,7 @@ macro_rules! ref_to_string {
                 $scratch.extend_from_slice(b.as_bytes());
                 unsafe { String::from_utf8_unchecked(std::mem::take($scratch)) }
             }
-            crate::parser::read::Reference::Copied(_) => unsafe {
+            $crate::parser::read::Reference::Copied(_) => unsafe {
                 String::from_utf8_unchecked(std::mem::take($scratch))
             },
         }

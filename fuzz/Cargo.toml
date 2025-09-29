@@ -12,10 +12,18 @@ libfuzzer-sys = "0.4"
 
 [dependencies.hocon-rs]
 path = ".."
+features = ["urls_includes"]
 
 [[bin]]
-name = "parse_str"
-path = "fuzz_targets/parse_str.rs"
+name = "from_str"
+path = "fuzz_targets/from_str.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "from_slice"
+path = "fuzz_targets/from_slice.rs"
 test = false
 doc = false
 bench = false
