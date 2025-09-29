@@ -479,23 +479,6 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     Self::push_value(Self::last_frame(&mut self.stack), v)?;
                 }
                 b']' => {
-                    // match Self::last_frame(&mut self.stack) {
-                    //     Frame::Object { next_entry, .. } => match next_entry {
-                    //         Some(entry) => {
-                    //             if entry.key.is_none() {
-                    //                 return Err(self.reader.error(Parse::Expected("key")));
-                    //             } else if entry.separator.is_none() {
-                    //                 return Err(self.reader.error(Parse::Expected("= or :")));
-                    //             }
-                    //         }
-                    //         None => {
-                    //             return Err(self.reader.error(Parse::Expected("key")));
-                    //         }
-                    //     },
-                    //     Frame::Array { next_element, .. } => {
-                    //         assert!(next_element.is_none());
-                    //     }
-                    // }
                     self.end_array()?;
                     self.reader.discard(1);
                 }
@@ -521,10 +504,12 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     self.end_value()?;
                     Self::drop_whitespace_and_comments(&mut self.reader, &mut self.scratch)?;
                 }
-                b'i' if self.reader.peek_n(7).is_ok_and(|chars| chars == INCLUDE) => {
+                b'i' if self.reader.peek_n(7).is_ok_and(|chars| chars == INCLUDE)
+                    && !Self::last_frame(&mut self.stack).expect_value() =>
+                {
                     let mut inclusion = self.parse_include()?;
                     self.parse_inclusion(&mut inclusion)?;
-                    match self.stack.last_mut().unwrap() {
+                    match Self::last_frame(&mut self.stack) {
                         Frame::Object {
                             entries,
                             next_entry,
@@ -533,7 +518,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                             let field = ObjectField::inclusion(inclusion);
                             entries.push(field);
                         }
-                        _ => panic!("unexpected frame type"),
+                        Frame::Array { .. } => unreachable!(),
                     }
                 }
                 _ => match Self::last_frame(&mut self.stack) {
@@ -655,7 +640,7 @@ mod tests {
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
         let file = std::fs::File::open(&path)?;
         let read = StreamRead::new(BufReader::new(file));
-        let options = ConfigOptions::new(false, vec!["test_conf".to_string()]);
+        let options = ConfigOptions::new(false, vec!["test_conf/comprehensive".to_string()]);
         let mut parser = HoconParser::with_options(read, options);
         parser.parse()?;
         Ok(())

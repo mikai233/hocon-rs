@@ -262,7 +262,10 @@ mod tests {
     #[rstest]
     #[case("test_conf/base/empty.conf", "test_conf/base/empty.json")]
     #[case("test_conf/base/empty2.conf", "test_conf/base/empty2.json")]
-    #[case("test_conf/base/base.conf", "test_conf/base/base.json")]
+    #[cfg_attr(
+        not(feature = "json_arbitrary_precision"),
+        case("test_conf/base/base.conf", "test_conf/base/base.json")
+    )]
     #[case("test_conf/base/base2.conf", "test_conf/base/base2.json")]
     #[case("test_conf/base/escape.conf", "test_conf/base/escape.json")]
     #[case("test_conf/base/unicode.conf", "test_conf/base/unicode.json")]
