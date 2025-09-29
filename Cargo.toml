@@ -16,7 +16,7 @@ members = ["fuzz"]
 
 [dependencies]
 memchr = "2.7.6"
-thiserror = "2.0.12"
+thiserror = "2.0.17"
 serde = { version = "1.0.227" }
 serde_json = { version = "1.0.145" }
 reqwest = { version = "0.12.22", optional = true, default-features = false, features = [
