@@ -262,6 +262,7 @@ mod tests {
     #[case("resources/include.conf", "resources/include.json")]
     #[case("resources/comment.conf", "resources/comment.json")]
     #[case("resources/substitution.conf", "resources/substitution.json")]
+    #[case("resources/substitution3.conf", "resources/substitution3.json")]
     #[case("resources/self_referential.conf", "resources/self_referential.json")]
     fn test_hocon(
         #[case] hocon: impl AsRef<std::path::Path>,
