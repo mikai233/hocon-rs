@@ -108,6 +108,10 @@ impl Concat {
         debug_assert_eq!(self.values.len(), self.spaces.len() + 1);
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.values.len()
+    }
+
     pub(crate) fn get_values(&self) -> &VecDeque<RefCell<Value>> {
         &self.values
     }

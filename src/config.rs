@@ -341,6 +341,7 @@ mod tests {
     //     "test_conf/comprehensive/substitution.conf",
     //     "test_conf/comprehensive/substitution.json"
     // )]
+    #[case("test_conf/comprehensive/substitution3.conf", "test_conf/comprehensive/substitution3.json")]
     // #[case(
     //     "test_conf/comprehensive/self_referential.conf",
     //     "test_conf/comprehensive/self_referential.json"

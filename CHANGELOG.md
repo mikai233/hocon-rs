@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2] - 2025-09-28
+
+### Fixed
+
+- Fixed a panic in HOCON parser caused by invalid Unicode escape sequences.
+- Improved error handling for malformed surrogate pairs in `\uXXXX` escapes.
+
 ## [0.1.1] - 2025-09-25
 
 ### Changed
