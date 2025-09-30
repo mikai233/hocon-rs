@@ -1,6 +1,6 @@
 [package]
 name = "hocon-rs"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["mikai233 <dreamfever2017@yahoo.com>"]
 description = "Rust implementation of HOCON"
@@ -16,8 +16,8 @@ members = ["fuzz"]
 
 [dependencies]
 memchr = "2.7.6"
-thiserror = "2.0.12"
-serde = { version = "1.0.227" }
+thiserror = "2.0.17"
+serde = { version = "1.0.228" }
 serde_json = { version = "1.0.145" }
 reqwest = { version = "0.12.22", optional = true, default-features = false, features = [
     "blocking",
@@ -38,7 +38,7 @@ bigdecimal = "0.4.8"
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.19", features = ["local-time"] }
 ctor = "0.5.0"
-serde = { version = "1.0.227", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 rstest = "0.26.1"
 criterion = "0.7.0"
 
