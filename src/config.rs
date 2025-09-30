@@ -297,55 +297,58 @@ mod tests {
     }
 
     #[rstest]
-    // #[case(
-    //     "test_conf/comprehensive/empty.conf",
-    //     "test_conf/comprehensive/empty.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/base.conf",
-    //     "test_conf/comprehensive/base.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/add_assign.conf",
-    //     "test_conf/comprehensive/add_assign_expected.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/concat.conf",
-    //     "test_conf/comprehensive/concat.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/concat2.conf",
-    //     "test_conf/comprehensive/concat2.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/concat3.conf",
-    //     "test_conf/comprehensive/concat3.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/concat4.conf",
-    //     "test_conf/comprehensive/concat4.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/concat5.conf",
-    //     "test_conf/comprehensive/concat5.json"
-    // )]
-    // #[case(
-    //     "test_conf/comprehensive/include.conf",
-    //     "test_conf/comprehensive/include.json"
-    // )]
+    #[case(
+        "test_conf/comprehensive/empty.conf",
+        "test_conf/comprehensive/empty.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/base.conf",
+        "test_conf/comprehensive/base.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/add_assign.conf",
+        "test_conf/comprehensive/add_assign_expected.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/concat.conf",
+        "test_conf/comprehensive/concat.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/concat2.conf",
+        "test_conf/comprehensive/concat2.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/concat3.conf",
+        "test_conf/comprehensive/concat3.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/concat4.conf",
+        "test_conf/comprehensive/concat4.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/concat5.conf",
+        "test_conf/comprehensive/concat5.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/include.conf",
+        "test_conf/comprehensive/include.json"
+    )]
     #[case(
         "test_conf/comprehensive/comment.conf",
         "test_conf/comprehensive/comment.json"
     )]
-    // #[case(
-    //     "test_conf/comprehensive/substitution.conf",
-    //     "test_conf/comprehensive/substitution.json"
-    // )]
-    #[case("test_conf/comprehensive/substitution3.conf", "test_conf/comprehensive/substitution3.json")]
-    // #[case(
-    //     "test_conf/comprehensive/self_referential.conf",
-    //     "test_conf/comprehensive/self_referential.json"
-    // )]
+    #[case(
+        "test_conf/comprehensive/substitution.conf",
+        "test_conf/comprehensive/substitution.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/substitution3.conf",
+        "test_conf/comprehensive/substitution3.json"
+    )]
+    #[case(
+        "test_conf/comprehensive/self_referential.conf",
+        "test_conf/comprehensive/self_referential.json"
+    )]
     fn test_hocon(
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,
