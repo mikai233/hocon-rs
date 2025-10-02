@@ -321,38 +321,4 @@ mod tests {
         assert!(matches!(error, Error::SubstitutionNotFound { .. }));
         Ok(())
     }
-
-    const A: &str = r#"
-a = hello
-
-a = ${a}
-
-a = ${b}
-
-b = [1, 2]
-
-b += ${a}
-
-a = {}
-    "#;
-
-    const B: &str = r#"
-    b = hello
-
-b = ${b}
-
-b = ${a}
-
-a = [1, 2]
-
-a += ${b}
-
-b = {}
-    "#;
-
-    #[test]
-    fn test_aab() {
-        // let _: Value = Config::parse_str(A, None).unwrap();
-        let _: Value = Config::parse_str(B, None).unwrap();
-    }
 }

@@ -7,6 +7,7 @@ use crate::merge::path::RefKey;
 use crate::merge::substitution::Substitution;
 use crate::path::Key;
 use crate::{
+    expect_variant,
     merge::{add_assign::AddAssign, path::RefPath, value::Value},
     path::Path,
     raw::{field::ObjectField, raw_object::RawObject, raw_string::RawString, raw_value::RawValue},
@@ -20,7 +21,7 @@ use std::{
 
 type V = RefCell<Value>;
 
-const MAX_SUBSTITUTION_DEPTH: usize = 128;
+const MAX_SUBSTITUTION_DEPTH: usize = 32;
 
 /// Represents an intermediate state for a HOCON object during parsing and merging.
 ///
@@ -107,15 +108,14 @@ impl Object {
                         let left = std::mem::take(l);
                         // Even if the value ends up merged after replacement,
                         // we still treat it as unmerged, to avoid complicating the merge-check logic.
-                        *l = Value::replacement(&sub_path, left, r)?;
+                        *l = Value::replace(&sub_path, left, r)?;
                         if let Value::Object(obj) = l {
                             obj.resolve_add_assign();
                         }
                     }
                 },
                 None => {
-                    let mut v_right =
-                        Value::replacement(&sub_path, Value::None, v_right.into_inner())?;
+                    let mut v_right = Value::replace(&sub_path, Value::None, v_right.into_inner())?;
                     if let Value::Object(obj) = &mut v_right {
                         obj.resolve_add_assign();
                     }
@@ -432,13 +432,15 @@ impl Object {
         value: &RefCell<Value>,
         memo: &mut Memo,
     ) -> crate::Result<()> {
-        if memo.tracker.len() > MAX_SUBSTITUTION_DEPTH {
+        memo.substitution_counter += 1;
+        if memo.substitution_counter > MAX_SUBSTITUTION_DEPTH {
             return Err(Error::SubstitutionDepthExceeded {
                 max_depth: MAX_SUBSTITUTION_DEPTH,
             });
         }
         let value_ref = value.borrow();
         if value_ref.is_merged() {
+            memo.substitution_counter -= 1;
             return Ok(());
         }
         match &*value_ref {
@@ -480,6 +482,7 @@ impl Object {
                 self.handle_delay_replacement(path, value, memo)?;
             }
         }
+        memo.substitution_counter -= 1;
         Ok(())
     }
 
@@ -491,11 +494,10 @@ impl Object {
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "AddAssign");
         let _enter = span.enter();
-        let add_assign = if let Value::AddAssign(add_assign) = value.borrow_mut().deref_mut() {
-            std::mem::take(add_assign)
-        } else {
-            panic!("value should be an AddAssign, got {}", value.borrow().ty());
-        };
+        let mut value_mut = value.borrow_mut();
+        let add_assign = expect_variant!(value_mut, Value::AddAssign, mut);
+        let add_assign = std::mem::take(add_assign);
+        drop(value_mut);
         let v: RefCell<Value> = RefCell::new(add_assign.into());
         self.substitute_value(path, &v, memo)?;
         let mut v = v.into_inner();
@@ -508,17 +510,9 @@ impl Object {
     fn handle_array(&self, path: &RefPath, array: &Array, memo: &mut Memo) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Array");
         let _enter = span.enter();
-        for (index, ele) in array.iter().rev().enumerate() {
+        for (index, ele) in array.iter().enumerate() {
             let sub_path = path.join(RefPath::new(RefKey::Index(index), None));
-            let indcies = memo.array.entry(sub_path.clone().into()).or_default();
-            indcies.push(index);
             self.substitute_value(&sub_path, ele, memo)?;
-            // TODO clone
-            memo.array
-                .get_mut(&sub_path.clone().into())
-                .expect("array memo not found")
-                .pop()
-                .expect("index should not be empty");
         }
         Ok(())
     }
@@ -537,9 +531,8 @@ impl Object {
                 memo.tracker.push(path.clone().into());
             }
             Some(i) => {
-                // TODO current?
                 return Err(Error::SubstitutionCycle {
-                    current: "TODO".to_string(),
+                    current: path.to_string(),
                     backtrace: memo.tracker[i..].iter().map(|p| p.to_string()).collect(),
                 });
             }
@@ -599,12 +592,8 @@ impl Object {
     fn pop_value_from_concat(
         value: &RefCell<Value>,
     ) -> Option<(Option<String>, RefCell<Value>, usize)> {
-        let mut borrowed = value.borrow_mut();
-        let concat = if let Value::Concat(concat) = &mut *borrowed {
-            concat
-        } else {
-            panic!("value should be a Concat, got: {}", borrowed.ty());
-        };
+        let mut value_mut = value.borrow_mut();
+        let concat = expect_variant!(value_mut, Value::Concat, mut);
         let len = concat.len();
         let popped = concat.pop_back();
         match &popped {
@@ -613,7 +602,7 @@ impl Object {
                     trace!("popped {} from {}", v.borrow(), concat);
                 }
                 if concat.get_values().is_empty() {
-                    drop(borrowed);
+                    drop(value_mut);
                     *value.borrow_mut().deref_mut() = Value::None;
                     if enabled!(Level::TRACE) {
                         trace!("concat is empty, set to none");
@@ -654,8 +643,8 @@ impl Object {
                                 last,
                             )?;
                             let mut new_val = RefCell::new(new_val);
-                            // TODO which path should I choose?
-                            let sub_path = path.join(RefPath::new(RefKey::Str("temp"), None));
+                            let sub_path =
+                                path.join(RefPath::new(RefKey::Str("concatenation"), None));
                             self.substitute_value(&sub_path, &new_val, memo)?;
                             new_val.get_mut().try_become_merged();
                             if enabled!(Level::TRACE) {
@@ -708,12 +697,8 @@ impl Object {
     }
 
     fn pop_value_from_delay_replacement(value: &RefCell<Value>) -> Option<(RefCell<Value>, usize)> {
-        let mut borrowed = value.borrow_mut();
-        let replacement = if let Value::DelayReplacement(replacement) = &mut *borrowed {
-            replacement
-        } else {
-            panic!("value should be a DelayReplacement, got {}", borrowed.ty());
-        };
+        let mut value_mut = value.borrow_mut();
+        let replacement = expect_variant!(value_mut, Value::DelayReplacement, mut);
         let len = replacement.len();
         let popped = replacement.pop_back();
         match &popped {
@@ -722,7 +707,7 @@ impl Object {
                     trace!("popped {} from {}", v.borrow(), replacement);
                 }
                 if replacement.is_empty() {
-                    drop(borrowed);
+                    drop(value_mut);
                     *value.borrow_mut().deref_mut() = Value::None;
                     if enabled!(Level::TRACE) {
                         trace!("delay replacement is empty, set to none");
@@ -755,14 +740,11 @@ impl Object {
                             let sub_path =
                                 path.join(RefPath::new(RefKey::Index(second_last_index), None));
                             self.substitute_value(&sub_path, &second_last, memo)?;
-                            let new_val = Value::replacement(
-                                path,
-                                second_last.into_inner(),
-                                last.into_inner(),
-                            )?;
+                            let new_val =
+                                Value::replace(path, second_last.into_inner(), last.into_inner())?;
                             let mut new_val = RefCell::new(new_val);
-                            // TODO
-                            let sub_path = path.join(RefPath::new(RefKey::Str("temp"), None));
+                            let sub_path =
+                                path.join(RefPath::new(RefKey::Str("replacement"), None));
                             self.substitute_value(&sub_path, &new_val, memo)?;
                             new_val.get_mut().try_become_merged();
                             if enabled!(Level::TRACE) {
@@ -777,7 +759,7 @@ impl Object {
                                 }
                                 v => {
                                     let left = std::mem::take(v);
-                                    *v = Value::replacement(path, left, new_val.into_inner())?;
+                                    *v = Value::replace(path, left, new_val.into_inner())?;
                                 }
                             }
                             self.substitute_value(path, value, memo)?;
@@ -793,7 +775,7 @@ impl Object {
                     }
                 } else {
                     let second_last = std::mem::take(&mut *value.borrow_mut());
-                    let mut new_val = Value::replacement(path, second_last, last.into_inner())?;
+                    let mut new_val = Value::replace(path, second_last, last.into_inner())?;
                     new_val.try_become_merged();
                     if enabled!(Level::TRACE) {
                         trace!("set {} to {}", value.borrow(), new_val);
