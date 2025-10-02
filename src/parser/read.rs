@@ -15,32 +15,20 @@ pub(crate) const DEFAULT_BUFFER_SIZE: usize = 512;
 pub(crate) const DISCARD_ERROR: &str =
     "parser state error: attempted to discard data after successful peek operation";
 
-/// Returns the number of bytes of the first character in `bytes`
-/// if it is a whitespace character, otherwise returns 0.
+/// Return the length in bytes of the leading whitespace character, if any,
+/// according to the HOCON specification.
 ///
-/// This function recognizes:
-/// - ASCII whitespace and control characters: `\t` (0x09), `\n` (0x0A),
-///   vertical tab 0x0B, form feed 0x0C, carriage return `\r` (0x0D), space ` ` (0x20),
-///   and the additional control characters U+001C..=U+001F (0x1C..0x1F)
-/// - Multi-byte Unicode whitespace:
-///     - U+0085 (NEL) → 0xC2 0x85
-///     - U+00A0 (NO-BREAK SPACE) → 0xC2 0xA0
-///     - U+1680 (OGHAM SPACE MARK) → 0xE1 0x9A 0x80
-///     - U+2000..U+200A (EN QUAD..HAIR SPACE) → 0xE2 0x80 0x80..0x8A
-///     - U+2028, U+2029 (LINE SEPARATOR, PARAGRAPH SEPARATOR) → 0xE2 0x80 0xA8..0xA9
-///     - U+202F (NARROW NO-BREAK SPACE) → 0xE2 0x80 0xAF
-///     - U+205F (MEDIUM MATHEMATICAL SPACE) → 0xE2 0x81 0x9F
-///     - U+3000 (IDEOGRAPHIC SPACE) → 0xE3 0x80 0x80
-///
-/// # Returns
-///
-/// - The number of bytes of the first character if it is a recognized whitespace
-/// - 0 if the first character is not whitespace or the slice is empty
-///
-/// # Note
-///
-/// This function only examines the first character and does **not** count
-/// consecutive whitespace.
+/// Whitespace includes:
+/// - ASCII whitespace + control separators (U+0009–000D, U+001C–001F, space)
+/// - U+0085 (NEL)
+/// - U+00A0 (NO-BREAK SPACE)
+/// - U+1680 (OGHAM SPACE MARK)
+/// - U+2000..=U+200A (EN QUAD..HAIR SPACE, includes U+2007 FIGURE SPACE)
+/// - U+2028, U+2029 (line/paragraph separators)
+/// - U+202F (NARROW NO-BREAK SPACE)
+/// - U+205F (MEDIUM MATHEMATICAL SPACE)
+/// - U+3000 (IDEOGRAPHIC SPACE)
+/// - U+FEFF (BOM, must be treated as whitespace)
 #[inline(always)]
 pub fn leading_whitespace_bytes(bytes: &[u8]) -> usize {
     if bytes.is_empty() {
@@ -59,22 +47,25 @@ pub fn leading_whitespace_bytes(bytes: &[u8]) -> usize {
         // U+1680 (OGHAM SPACE MARK)
         [0xE1, 0x9A, 0x80, ..] => 3,
 
-        // U+2000..U+200A
+        // U+2000..=U+200A (general spaces, includes U+2007 FIGURE SPACE)
         [0xE2, 0x80, 0x80..=0x8A, ..] => 3,
 
-        // U+2028, U+2029
+        // U+2028, U+2029 (line/paragraph separator)
         [0xE2, 0x80, 0xA8..=0xA9, ..] => 3,
 
-        // U+202F
+        // U+202F (NARROW NO-BREAK SPACE)
         [0xE2, 0x80, 0xAF, ..] => 3,
 
-        // U+205F
+        // U+205F (MEDIUM MATHEMATICAL SPACE)
         [0xE2, 0x81, 0x9F, ..] => 3,
 
-        // U+3000
+        // U+3000 (IDEOGRAPHIC SPACE)
         [0xE3, 0x80, 0x80, ..] => 3,
 
-        _ => 0, // first character is not whitespace
+        // U+FEFF (BOM)
+        [0xEF, 0xBB, 0xBF, ..] => 3,
+
+        _ => 0, // not whitespace
     }
 }
 
@@ -885,7 +876,9 @@ impl<'de> Read<'de> for StrRead<'de> {
 #[cfg(test)]
 mod tests {
     use crate::Result;
+    use crate::parser::read::leading_whitespace_bytes;
     use crate::parser::read::{Read, StreamRead};
+    use rstest::rstest;
 
     #[test]
     fn test_stream_peek() -> Result<()> {
@@ -905,5 +898,35 @@ mod tests {
         let bytes = read.peek_n(3)?;
         assert_eq!(bytes, b"lo ");
         Ok(())
+    }
+
+    #[rstest]
+    #[case(&[] as &[u8], 0)]
+    #[case(b"\txyz", 1)]
+    #[case(b"\nabc", 1)]
+    #[case(&[0x0B, b'a', b'b'], 1)]
+    #[case(&[0x0C, b'a', b'b'], 1)]
+    #[case(b"\rHELLO", 1)]
+    #[case(b" world", 1)]
+    #[case(&[0x1C, b'X', b'Y'], 1)]
+    #[case(&[0x1F, b'Z'], 1)]
+    #[case(&[0xC2, 0x85, b'a', b'b'], 2)]
+    #[case(&[0xC2, 0xA0, b'X'], 2)]
+    #[case(&[0xE1, 0x9A, 0x80, b'!'], 3)]
+    #[case(&[0xE2, 0x80, 0x80, b'a'], 3)]
+    #[case(&[0xE2, 0x80, 0x87, b'b'], 3)]
+    #[case(&[0xE2, 0x80, 0x8A, b'c'], 3)]
+    #[case(&[0xE2, 0x80, 0xA8, b'x'], 3)]
+    #[case(&[0xE2, 0x80, 0xA9, b'y'], 3)]
+    #[case(&[0xE2, 0x80, 0xAF, b'Z'], 3)]
+    #[case(&[0xE2, 0x81, 0x9F, b'M'], 3)]
+    #[case(&[0xE3, 0x80, 0x80, b'A'], 3)]
+    #[case(&[0xEF, 0xBB, 0xBF, b'h'], 3)]
+    #[case(b"Hello", 0)]
+    #[case(&[0xE6, 0x97, 0xA5, b'X'], 0)]
+    #[case(&[0xC2], 0)]
+    #[case(&[0xE2, 0x80], 0)]
+    fn test_leading_whitespace_bytes(#[case] bytes: &[u8], #[case] expected: usize) {
+        assert_eq!(leading_whitespace_bytes(bytes), expected);
     }
 }
