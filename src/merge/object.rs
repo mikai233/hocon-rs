@@ -2,7 +2,10 @@ use tracing::{Level, enabled, instrument, span, trace};
 
 use crate::error::Error;
 use crate::merge::array::Array;
+use crate::merge::memo::Memo;
+use crate::merge::path::RefKey;
 use crate::merge::substitution::Substitution;
+use crate::path::Key;
 use crate::{
     merge::{add_assign::AddAssign, path::RefPath, value::Value},
     path::Path,
@@ -16,8 +19,6 @@ use std::{
 };
 
 type V = RefCell<Value>;
-
-type Tracker = (Substitution, usize);
 
 const MAX_SUBSTITUTION_DEPTH: usize = 128;
 
@@ -94,8 +95,8 @@ impl Object {
         let other: BTreeMap<String, V> = other.into();
         for (k, v_right) in other {
             let sub_path = match parent {
-                None => RefPath::new(&k, None),
-                Some(parent_path) => parent_path.join(RefPath::new(&k, None)),
+                None => RefPath::new(RefKey::Str(&k), None),
+                Some(parent_path) => parent_path.join(RefPath::new(RefKey::Str(&k), None)),
             };
             match self.get_mut(&k) {
                 Some(v_left) => match (v_left.get_mut(), v_right.into_inner()) {
@@ -215,7 +216,7 @@ impl Object {
                     | Value::Number(_) => {}
                     Value::Substitution(substitution) => {
                         let mut parent: Path = parent.clone().into();
-                        let mut sub = Path::new("".to_string(), None);
+                        let mut sub = Path::new(Key::String("".to_string()), None);
                         let mut path = (*substitution.path).clone();
                         std::mem::swap(&mut sub, &mut path);
                         parent.push_back(sub);
@@ -279,18 +280,33 @@ impl Object {
         {
             match path {
                 // Case 1: The path has more segments to traverse.
-                Some(path) => match &*root.borrow() {
-                    Value::Object(object) => {
-                        if let Some(next_value) = object.get(&path.first) {
-                            // Recursively call `get` on the next value in the path.
-                            get(next_value, path.next(), callback)
-                        } else {
-                            // The next path segment does not exist.
-                            Ok(false)
+                Some(path) => match (&path.first, &*root.borrow()) {
+                    (Key::String(key), Value::Object(object)) => {
+                        match object.get(key) {
+                            Some(next_value) => {
+                                // Recursively call `get` on the next value in the path.
+                                get(next_value, path.next(), callback)
+                            }
+                            None => {
+                                // The next path segment does not exist.
+                                Ok(false)
+                            }
                         }
                     }
-                    // The current value is not an Object, so we can't continue traversing.
-                    _ => Ok(false),
+                    (Key::Index(index), Value::Array(array)) => {
+                        match array.get(*index) {
+                            Some(next_value) => {
+                                // Recursively call `get` on the next value in the path.
+                                get(next_value, path.next(), callback)
+                            }
+                            None => {
+                                // The next path segment does not exist.
+                                Ok(false)
+                            }
+                        }
+                    }
+                    // The current value is not an Object or Array, so we can't continue traversing.
+                    (_, _) => Ok(false),
                 },
 
                 // Case 2: The end of the path has been reached.
@@ -307,7 +323,9 @@ impl Object {
         }
 
         // Start the recursive traversal from the top-level object.
-        if let Some(value) = self.get(&path.first) {
+        if let Key::String(key) = &path.first
+            && let Some(value) = self.get(key)
+        {
             get(value, path.next(), callback)
         } else {
             Ok(false)
@@ -349,7 +367,9 @@ impl Object {
     /// - `None` if the path is invalid, a key is missing, or an intermediate value is not a `Value::Object`.
     pub(crate) unsafe fn unsafe_get_by_path(&self, path: &Path) -> Option<&RefCell<Value>> {
         // Attempt to get the first value from the HashMap using the path's first key.
-        if let Some(value) = self.get(&path.first) {
+        if let Key::String(key) = &path.first
+            && let Some(value) = self.get(key)
+        {
             // Initialize the next path segment to traverse.
             let mut next = path.next();
             // Store the current `RefCell<Value>` as a raw pointer to avoid lifetime issues with temporary references.
@@ -364,9 +384,18 @@ impl Object {
 
                 match next {
                     // If there are more path segments, try to navigate deeper.
-                    Some(n) => match &*value.borrow() {
+                    Some(n) => match (&n.first, &*value.borrow()) {
                         // Check if the current value is a `Value::Object` (i.e., a nested HashMap).
-                        Value::Object(object) => match object.get(&n.first) {
+                        (Key::String(key), Value::Object(object)) => match object.get(key) {
+                            // If the next key exists, update the raw pointer and continue to the next path segment.
+                            Some(value) => {
+                                raw = value as *const RefCell<Value>;
+                                next = n.next();
+                            }
+                            // If the key is missing, the path is invalid, so return None.
+                            None => break None,
+                        },
+                        (Key::Index(index), Value::Array(array)) => match array.get(*index) {
                             // If the next key exists, update the raw pointer and continue to the next path segment.
                             Some(value) => {
                                 raw = value as *const RefCell<Value>;
@@ -401,27 +430,26 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        index: usize,
-        tracker: &mut Vec<Tracker>,
+        memo: &mut Memo,
     ) -> crate::Result<()> {
-        if tracker.len() > MAX_SUBSTITUTION_DEPTH {
+        if memo.tracker.len() > MAX_SUBSTITUTION_DEPTH {
             return Err(Error::SubstitutionDepthExceeded {
                 max_depth: MAX_SUBSTITUTION_DEPTH,
             });
         }
-        let borrowed = value.borrow();
-        if borrowed.is_merged() {
+        let value_ref = value.borrow();
+        if value_ref.is_merged() {
             return Ok(());
         }
-        match &*borrowed {
+        match &*value_ref {
             Value::Object(object) => {
                 let span = span!(Level::TRACE, "Object");
                 let _enter = span.enter();
-                for (index, (key, val)) in object.iter().enumerate() {
-                    let sub_path = path.join(RefPath::new(key, None));
-                    self.substitute_value(&sub_path, val, index, tracker)?;
+                for (key, val) in object.iter() {
+                    let sub_path = path.join(RefPath::new(RefKey::Str(key), None));
+                    self.substitute_value(&sub_path, val, memo)?;
                 }
-                drop(borrowed);
+                drop(value_ref);
                 // TODO
                 if let Ok(mut value) = value.try_borrow_mut() {
                     value.try_become_merged();
@@ -429,27 +457,27 @@ impl Object {
                 // value.borrow_mut().try_become_merged();
             }
             Value::Array(array) => {
-                self.handle_array(path, tracker, array)?;
-                drop(borrowed);
+                self.handle_array(path, array, memo)?;
+                drop(value_ref);
             }
             Value::Boolean(_) | Value::Null | Value::None | Value::String(_) | Value::Number(_) => {
             }
             Value::Substitution(substitution) => {
                 let substitution = substitution.clone();
-                drop(borrowed);
-                self.handle_substitution(path, value, index, tracker, substitution)?;
+                drop(value_ref);
+                self.handle_substitution(path, value, substitution, memo)?;
             }
             Value::Concat(_) => {
-                drop(borrowed);
-                self.handle_concat(path, value, index, tracker)?;
+                drop(value_ref);
+                self.handle_concat(path, value, memo)?;
             }
             Value::AddAssign(_) => {
-                drop(borrowed);
-                self.handle_add_assign(path, value, index, tracker)?;
+                drop(value_ref);
+                self.handle_add_assign(path, value, memo)?;
             }
             Value::DelayReplacement(_) => {
-                drop(borrowed);
-                self.handle_delay_replacement(path, value, index, tracker)?;
+                drop(value_ref);
+                self.handle_delay_replacement(path, value, memo)?;
             }
         }
         Ok(())
@@ -459,8 +487,7 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        index: usize,
-        tracker: &mut Vec<Tracker>,
+        memo: &mut Memo,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "AddAssign");
         let _enter = span.enter();
@@ -470,7 +497,7 @@ impl Object {
             panic!("value should be an AddAssign, got {}", value.borrow().ty());
         };
         let v: RefCell<Value> = RefCell::new(add_assign.into());
-        self.substitute_value(path, &v, index, tracker)?;
+        self.substitute_value(path, &v, memo)?;
         let mut v = v.into_inner();
         v.try_become_merged();
         let add_assign = AddAssign::new(Box::new(v));
@@ -478,18 +505,20 @@ impl Object {
         Ok(())
     }
 
-    fn handle_array(
-        &self,
-        path: &RefPath,
-        tracker: &mut Vec<Tracker>,
-        array: &Array,
-    ) -> crate::Result<()> {
+    fn handle_array(&self, path: &RefPath, array: &Array, memo: &mut Memo) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Array");
         let _enter = span.enter();
-        for (index, ele) in array.iter().enumerate() {
-            let str_index = index.to_string();
-            let sub_path = path.join(RefPath::new(&str_index, None));
-            self.substitute_value(&sub_path, ele, index, tracker)?;
+        for (index, ele) in array.iter().rev().enumerate() {
+            let sub_path = path.join(RefPath::new(RefKey::Index(index), None));
+            let indcies = memo.array.entry(sub_path.clone().into()).or_default();
+            indcies.push(index);
+            self.substitute_value(&sub_path, ele, memo)?;
+            // TODO clone
+            memo.array
+                .get_mut(&sub_path.clone().into())
+                .expect("array memo not found")
+                .pop()
+                .expect("index should not be empty");
         }
         Ok(())
     }
@@ -498,24 +527,20 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        index: usize,
-        tracker: &mut Vec<Tracker>,
         substitution: Substitution,
+        memo: &mut Memo,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Substitution");
         let _enter = span.enter();
-        match tracker
-            .iter()
-            .rposition(|(s, i)| s == &substitution && i == &index)
-        {
+        match memo.tracker.iter().rposition(|p| p == path) {
             None => {
-                tracker.push((substitution.clone(), index));
+                memo.tracker.push(path.clone().into());
             }
             Some(i) => {
-                let (substitution, _) = &tracker[i];
+                // TODO current?
                 return Err(Error::SubstitutionCycle {
-                    current: substitution.to_string(),
-                    backtrace: tracker[i..].iter().map(|(s, _)| s.to_string()).collect(),
+                    current: "TODO".to_string(),
+                    backtrace: memo.tracker[i..].iter().map(|p| p.to_string()).collect(),
                 });
             }
         }
@@ -544,7 +569,7 @@ impl Object {
                         })
                     };
                 }
-                self.substitute_value(&RefPath::from(&substitution.path), target, index, tracker)?;
+                self.substitute_value(&RefPath::from(&substitution.path), target, memo)?;
                 let target_clone = target.borrow().clone();
                 if enabled!(Level::TRACE) {
                     trace!("set {} to {}", value.borrow(), target_clone);
@@ -567,7 +592,7 @@ impl Object {
                 }
             },
         }
-        tracker.pop();
+        memo.tracker.pop();
         Ok(())
     }
 
@@ -606,19 +631,21 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        index: usize,
-        tracker: &mut Vec<Tracker>,
+        memo: &mut Memo,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Concat");
         let _enter = span.enter();
 
         match Self::pop_value_from_concat(value) {
             Some((space_last, last, last_index)) => {
-                self.substitute_value(path, &last, last_index, tracker)?;
+                let sub_path = path.join(RefPath::new(RefKey::Index(last_index), None));
+                self.substitute_value(&sub_path, &last, memo)?;
                 if matches!(&*value.borrow(), Value::Concat(_)) {
                     match Self::pop_value_from_concat(value) {
                         Some((space_second_last, second_last, second_last_index)) => {
-                            self.substitute_value(path, &second_last, second_last_index, tracker)?;
+                            let sub_path =
+                                path.join(RefPath::new(RefKey::Index(second_last_index), None));
+                            self.substitute_value(&sub_path, &second_last, memo)?;
                             let last = last.into_inner();
                             let new_val = Value::concatenate(
                                 path,
@@ -627,7 +654,9 @@ impl Object {
                                 last,
                             )?;
                             let mut new_val = RefCell::new(new_val);
-                            self.substitute_value(path, &new_val, 0, tracker)?;
+                            // TODO which path should I choose?
+                            let sub_path = path.join(RefPath::new(RefKey::Str("temp"), None));
+                            self.substitute_value(&sub_path, &new_val, memo)?;
                             new_val.get_mut().try_become_merged();
                             if enabled!(Level::TRACE) {
                                 trace!("push back {} to {}", new_val.get_mut(), value.borrow());
@@ -645,7 +674,7 @@ impl Object {
                                         Value::concatenate(path, left, None, new_val.into_inner())?;
                                 }
                             }
-                            self.substitute_value(path, value, index, tracker)?;
+                            self.substitute_value(path, value, memo)?;
                         }
                         None => {
                             let mut last = last.into_inner();
@@ -665,7 +694,7 @@ impl Object {
                         trace!("set {} to {}", value.borrow(), new_val);
                     }
                     *value.borrow_mut() = new_val;
-                    self.substitute_value(path, value, index, tracker)?;
+                    self.substitute_value(path, value, memo)?;
                 }
             }
             None => {
@@ -711,26 +740,30 @@ impl Object {
         &self,
         path: &RefPath,
         value: &RefCell<Value>,
-        index: usize,
-        tracker: &mut Vec<Tracker>,
+        memo: &mut Memo,
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "DelayReplacement");
         let _enter = span.enter();
 
         match Self::pop_value_from_delay_replacement(value) {
             Some((last, last_index)) => {
-                self.substitute_value(path, &last, last_index, tracker)?;
+                let sub_path = path.join(RefPath::new(RefKey::Index(last_index), None));
+                self.substitute_value(&sub_path, &last, memo)?;
                 if matches!(&*value.borrow(), Value::DelayReplacement(_)) {
                     match Self::pop_value_from_delay_replacement(value) {
                         Some((second_last, second_last_index)) => {
-                            self.substitute_value(path, &second_last, second_last_index, tracker)?;
+                            let sub_path =
+                                path.join(RefPath::new(RefKey::Index(second_last_index), None));
+                            self.substitute_value(&sub_path, &second_last, memo)?;
                             let new_val = Value::replacement(
                                 path,
                                 second_last.into_inner(),
                                 last.into_inner(),
                             )?;
                             let mut new_val = RefCell::new(new_val);
-                            self.substitute_value(path, &new_val, 0, tracker)?;
+                            // TODO
+                            let sub_path = path.join(RefPath::new(RefKey::Str("temp"), None));
+                            self.substitute_value(&sub_path, &new_val, memo)?;
                             new_val.get_mut().try_become_merged();
                             if enabled!(Level::TRACE) {
                                 trace!("push back {} to {}", new_val.get_mut(), value.borrow());
@@ -747,7 +780,7 @@ impl Object {
                                     *v = Value::replacement(path, left, new_val.into_inner())?;
                                 }
                             }
-                            self.substitute_value(path, value, index, tracker)?;
+                            self.substitute_value(path, value, memo)?;
                         }
                         None => {
                             let mut last = last.into_inner();
@@ -766,7 +799,7 @@ impl Object {
                         trace!("set {} to {}", value.borrow(), new_val);
                     }
                     *value.borrow_mut() = new_val;
-                    self.substitute_value(path, value, index, tracker)?;
+                    self.substitute_value(path, value, memo)?;
                 }
             }
             None => {
@@ -780,10 +813,10 @@ impl Object {
     }
 
     pub(crate) fn substitute(&self) -> crate::Result<()> {
-        let mut tracker = Vec::new();
-        for (index, (key, value)) in self.iter().enumerate() {
-            let path = RefPath::new(key, None);
-            self.substitute_value(&path, value, index, &mut tracker)?;
+        let mut memo = Memo::default();
+        for (key, value) in self.iter() {
+            let path = RefPath::new(RefKey::Str(key), None);
+            self.substitute_value(&path, value, &mut memo)?;
             value.borrow_mut().try_become_merged();
         }
         Ok(())
