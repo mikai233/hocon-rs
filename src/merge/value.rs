@@ -222,7 +222,10 @@ impl Value {
                     };
                     Value::Array(array)
                 }
-                right => right,
+                right => match right {
+                    Value::Concat(concat) => concat.try_resolve(path)?,
+                    right => right,
+                },
             },
             Value::Boolean(_) | Value::String(_) | Value::Number(_) => match right {
                 // The substitution expression and concat might refer to the previous value
