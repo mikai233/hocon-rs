@@ -5,7 +5,7 @@ use crate::join;
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Constructor)]
 pub struct Path {
-    pub first: String,
+    pub first: Key,
     pub remainder: Option<Box<Path>>,
 }
 
@@ -19,11 +19,11 @@ impl Path {
         I: Iterator<Item = V>,
         V: AsRef<str>,
     {
-        let mut dummy = Path::new("".to_string(), None);
+        let mut dummy = Path::new(Key::String("".to_string()), None);
         let mut curr = &mut dummy;
         for p in paths {
             let p = p.as_ref();
-            curr.remainder = Some(Path::new(p.to_string(), None).into());
+            curr.remainder = Some(Path::new(Key::String(p.to_string()), None).into());
             curr = curr.remainder.as_mut().unwrap();
         }
         match dummy.remainder {
@@ -105,14 +105,17 @@ impl Path {
         let mut left = Some(self);
         for &p in other {
             match left {
-                None => {
-                    return false;
-                }
-                Some(l) => {
-                    if p != l.first {
+                Some(Path {
+                    first: Key::String(s),
+                    remainder,
+                }) => {
+                    if p != s {
                         return false;
                     }
-                    left = l.remainder.as_deref();
+                    left = remainder.as_deref();
+                }
+                _ => {
+                    return false;
                 }
             }
         }
@@ -151,6 +154,21 @@ impl<'a> Iterator for Iter<'a> {
             Some(node)
         } else {
             None
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Key {
+    String(String),
+    Index(usize),
+}
+
+impl Display for Key {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Key::String(s) => write!(f, "{s}"),
+            Key::Index(i) => write!(f, "{i}"),
         }
     }
 }

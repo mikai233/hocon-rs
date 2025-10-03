@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 use crate::{
     join, join_debug,
-    path::Path,
+    path::{Key, Path},
     raw::raw_value::{
         RAW_CONCAT_STRING_TYPE, RAW_MULTILINE_STRING_TYPE, RAW_QUOTED_STRING_TYPE,
         RAW_UNQUOTED_STRING_TYPE,
@@ -90,9 +90,9 @@ impl RawString {
         match self {
             RawString::QuotedString(s)
             | RawString::UnquotedString(s)
-            | RawString::MultilineString(s) => Path::new(s, None),
+            | RawString::MultilineString(s) => Path::new(Key::String(s), None),
             RawString::PathExpression(c) => {
-                let mut dummy = Path::new("".to_string(), None);
+                let mut dummy = Path::new(Key::String("".to_string()), None);
                 let mut curr = &mut dummy;
                 for path in c.into_inner() {
                     curr.remainder = Some(Box::new(path.into_path()));

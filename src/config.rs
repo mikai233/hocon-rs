@@ -147,6 +147,7 @@ impl Config {
     {
         let read = StrRead::new(s);
         let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
+        tracing::debug!("raw obj: {}", raw);
         Self::resolve_object::<T>(raw)
     }
 
@@ -175,6 +176,7 @@ impl Config {
     {
         let object = MObject::from_raw(None, object)?;
         let mut value = MValue::Object(object);
+        tracing::debug!("merged value: {value}");
         value.resolve()?;
         if value.is_unmerged() {
             return Err(crate::error::Error::ResolveIncomplete);
