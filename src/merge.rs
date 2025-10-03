@@ -2,6 +2,7 @@ pub(crate) mod add_assign;
 pub(crate) mod array;
 pub(crate) mod concat;
 pub(crate) mod delay_replacement;
+pub(crate) mod memo;
 pub(crate) mod object;
 pub(crate) mod path;
 pub(crate) mod substitution;
