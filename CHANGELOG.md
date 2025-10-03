@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3] - 2025-10-03
+
+### Fixed
+
+- Fixed a potential substitution stack overflow.
+- Fixed handling of U+FEFF (Zero Width No-Break Space) characters.
+
 ## [0.1.2] - 2025-09-28
 
 ### Fixed
