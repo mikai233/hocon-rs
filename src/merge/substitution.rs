@@ -1,11 +1,11 @@
 use std::{
-    fmt::{Display, Formatter},
+    fmt::{Display, Formatter, Write},
     rc::Rc,
 };
 
 use derive_more::Constructor;
 
-use crate::path::Path;
+use crate::path::{Key, Path};
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Hash, Clone, Constructor)]
 pub(crate) struct Substitution {
@@ -16,7 +16,14 @@ pub(crate) struct Substitution {
 impl Substitution {
     pub(crate) fn full_path(&self) -> String {
         self.path.iter().fold(String::new(), |mut acc, next| {
-            acc.push_str(&next.first);
+            match &next.first {
+                Key::String(s) => {
+                    acc.push_str(s);
+                }
+                Key::Index(i) => {
+                    write!(&mut acc, "{i}").unwrap();
+                }
+            }
             if next.remainder.is_some() {
                 acc.push('.');
             }

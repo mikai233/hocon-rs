@@ -10,6 +10,30 @@ use crate::{
 use std::fmt::Write;
 use std::{cell::RefCell, fmt::Display};
 
+#[macro_export(local_inner_macros)]
+macro_rules! expect_variant {
+    ($expr:expr, $variant:path, mut) => {{
+        match &mut *$expr {
+            $variant(var) => var,
+            other => std::panic!(
+                "expected variant `{}`, got `{}`",
+                std::stringify!($variant),
+                other.ty()
+            ),
+        }
+    }};
+    ($expr:expr, $variant:path) => {{
+        match &*$expr {
+            $variant(var) => var,
+            other => std::panic!(
+                "expected variant `{}`, got `{}`",
+                std::stringify!($variant),
+                other.ty()
+            ),
+        }
+    }};
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) enum Value {
     Object(Object),
@@ -98,8 +122,8 @@ impl Value {
     /// value, for add assing(+=)， right value will add to the left value(array), for object vlaues, it will trigger
     /// a object merge operation. If there's any substitution exists in the value, it's impossible for now to determine the
     /// replace behavior, so we construct a new dely replacement value wraps them for future resolve.
-    pub(crate) fn replacement(path: &RefPath, left: Value, right: Value) -> crate::Result<Value> {
-        trace!("replacement: `{}`: `{}` <- `{}`", path, left, right);
+    pub(crate) fn replace(path: &RefPath, left: Value, right: Value) -> crate::Result<Value> {
+        trace!("replace: `{}`: `{}` <- `{}`", path, left, right);
         let new_val = match left {
             Value::Object(mut obj_left) => match right {
                 Value::Object(right) => {
@@ -241,7 +265,7 @@ impl Value {
                 Value::delay_replacement([left, right])
             }
         };
-        trace!("replacement result: `{path}`=`{new_val}`");
+        trace!("replace result: `{path}`=`{new_val}`");
         Ok(new_val)
     }
 
