@@ -180,7 +180,7 @@ impl Value {
         }
     }
 
-    pub fn as_f64(&mut self) -> Option<f64> {
+    pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::Number(number) => number.as_f64(),
             Value::String(number) => number.parse().ok(),
