@@ -195,13 +195,47 @@ impl Object {
         }
     }
 
+    /// Fixes up substitutions in the current configuration object to account for its inclusion context.
+    ///
+    /// According to the HOCON specification, substitutions (e.g., `${x}`) in included files must be resolved
+    /// relative to two paths:
+    /// 1. The original path as defined in the included file (relative to its own root).
+    /// 2. A "fixed up" path relative to the root of the including configuration.
+    ///
+    /// For example, if the root configuration is `{ a: { include "foo.conf" } }` and `foo.conf` contains
+    /// `{ x: 10, y: ${x} }`, the substitution `${x}` in `foo.conf` must be rewritten to `${a.x}` when included
+    /// under the key `a`. This ensures that `y` resolves to the value of `x` in the context of the including
+    /// configuration (e.g., `42` if `a.x` is overridden to `42`).
+    ///
+    /// This function modifies the configuration in-place by prepending the `parent` path to substitutions,
+    /// enabling correct resolution relative to the application's root configuration. It recursively processes
+    /// nested objects, arrays, concatenations, and delayed replacements, leaving primitive values (e.g., booleans,
+    /// strings, numbers) unchanged.
+    ///
+    /// # Parameters
+    /// - `parent`: An optional reference to the parent path (`RefPath`) under which this configuration is included.
+    ///   If `None`, no fixup is performed (e.g., for the root configuration itself).
+    ///
+    /// # Returns
+    /// - `Ok(())` if the fixup is successful.
+    /// - An error of type `crate::Result<()>` if any recursive fixup operation fails.
+    ///
+    /// # Notes
+    /// - Substitutions are only modified if a `parent` path is provided, as the root configuration does not need
+    ///   fixup.
+    /// - The function assumes that substitutions will later be resolved against both the fixed-up path (relative
+    ///   to the root) and the original path (for cases like system properties or reference configuration).
     fn fixup_substitution(&mut self, parent: Option<&RefPath>) -> crate::Result<()> {
+        // Only perform fixup if a parent path is provided (i.e., this is an included configuration).
         if let Some(parent) = parent {
+            // Iterate over all key-value pairs in the current object.
             for (_, val) in self.iter_mut() {
                 match val.get_mut() {
+                    // For nested objects, recursively fix up substitutions with the same parent path.
                     Value::Object(obj) => {
                         obj.fixup_substitution(Some(parent))?;
                     }
+                    // For arrays, iterate over elements and fix up any objects found within.
                     Value::Array(array) => {
                         for ele in array.iter_mut() {
                             if let Value::Object(obj) = ele.get_mut() {
@@ -209,19 +243,27 @@ impl Object {
                             }
                         }
                     }
+                    // Primitive values (boolean, null, none, string, number) require no fixup.
                     Value::Boolean(_)
                     | Value::Null
                     | Value::None
                     | Value::String(_)
                     | Value::Number(_) => {}
+                    // For substitutions, prepend the parent path to the substitution's path to make it
+                    // relative to the root configuration.
                     Value::Substitution(substitution) => {
+                        // Clone the parent path and prepare an empty path for swapping.
                         let mut parent: Path = parent.clone().into();
                         let mut sub = Path::new(Key::String("".to_string()), None);
                         let mut path = (*substitution.path).clone();
+                        // Swap the substitution's path with an empty path to facilitate manipulation.
                         std::mem::swap(&mut sub, &mut path);
+                        // Append the original substitution path to the parent path.
                         parent.push_back(sub);
+                        // Update the substitution's path to the fixed-up path.
                         substitution.path = parent.into();
                     }
+                    // For concatenations, fix up any objects within the concatenated values.
                     Value::Concat(concat) => {
                         for ele in concat.values_mut() {
                             if let Value::Object(obj) = ele.get_mut() {
@@ -229,11 +271,13 @@ impl Object {
                             }
                         }
                     }
+                    // For add-assign operations, fix up the object being assigned if it exists.
                     Value::AddAssign(add_assign) => {
                         if let Value::Object(obj) = &mut ***add_assign {
                             obj.fixup_substitution(Some(parent))?;
                         }
                     }
+                    // For delayed replacements, fix up any objects within the replacement values.
                     Value::DelayReplacement(delay_replacement) => {
                         for ele in delay_replacement.iter_mut() {
                             if let Value::Object(obj) = ele.get_mut() {
@@ -244,6 +288,7 @@ impl Object {
                 }
             }
         }
+        // Return Ok if all operations succeeded.
         Ok(())
     }
 
@@ -423,7 +468,49 @@ impl Object {
         }
     }
 
-    /// Do not call the borrow_mut of Value across the substitute function, it may cause panic.
+    /// Recursively resolves substitution expressions within a `Value`.
+    ///
+    /// This function traverses the given `Value` (and its children, if it is an object or array)
+    /// and replaces any `Value::Substitution` nodes with their concrete values.
+    /// It also handles special composite nodes such as `Concat`, `AddAssign`,
+    /// and delayed replacements according to the HOCON specification.
+    ///
+    /// # Substitution depth
+    /// A `substitution_counter` in the provided `Memo` is incremented for each
+    /// recursive call. This protects against cyclic substitutions by enforcing
+    /// a maximum substitution depth (`MAX_SUBSTITUTION_DEPTH`). If the depth
+    /// exceeds the limit, an error is returned (`Error::SubstitutionDepthExceeded`).
+    ///
+    /// # Borrowing rules
+    /// Care must be taken with `RefCell<Value>` borrowing:
+    /// - The function starts by taking an immutable borrow (`value.borrow()`).
+    /// - Before attempting to mutate the node (e.g., calling `try_become_merged`),
+    ///   the immutable borrow **must** be dropped explicitly to avoid runtime panics.
+    /// - This is why calls like `drop(value_ref)` appear before mutation attempts.
+    ///
+    /// # Merging
+    /// Once all children of an `Object` have been processed, the object may
+    /// attempt to transition into a “merged” state (`try_become_merged`). This
+    /// indicates that all substitutions inside have been resolved and the object
+    /// can be treated as a finalized configuration node.
+    ///
+    /// # Tracing
+    /// The function is instrumented with `tracing::instrument`, logging the
+    /// traversal path and the state of the value being resolved. This is
+    /// particularly useful for debugging deeply nested or cyclic substitutions.
+    ///
+    /// # Errors
+    /// - Returns `Error::SubstitutionDepthExceeded` if recursion is too deep.
+    /// - Any errors encountered during child substitution handling are propagated.
+    ///
+    /// # Example
+    /// ```hocon
+    /// foo = 42
+    /// bar = ${foo}
+    /// ```
+    /// After parsing, `bar` would initially be a `Value::Substitution`.
+    /// Calling `substitute_value` on it will replace it with a concrete
+    /// `Value::Number(42)`.
     #[instrument(level = Level::TRACE, skip_all, fields(path = %path, vlaue = %value.borrow(), mreged = %value.borrow().is_merged())
     )]
     pub(crate) fn substitute_value(
@@ -486,6 +573,18 @@ impl Object {
         Ok(())
     }
 
+    /// Handle the case where you have a “add-assign” operation whose operand is a substitution.
+    /// For example: `a += ${var}`.  
+    /// This method resolves (i.e. substitutes) the `${var}` expression, merges it if possible,
+    /// and then re-wraps it into a new `AddAssign` variant in place of the old one.
+    ///
+    /// # Arguments
+    /// * `path` — the reference path of the current node (used as context for substitution)  
+    /// * `value` — a `RefCell<Value>` at the node where AddAssign is stored; expected to be `Value::AddAssign` variant  
+    /// * `memo` — memoization structure to avoid infinite recursion or repeated substitution work  
+    ///
+    /// # Errors
+    /// Returns an error if substitution fails (e.g. unresolved variable), or if some internal invariant is broken.
     fn handle_add_assign(
         &self,
         path: &RefPath,
@@ -494,15 +593,19 @@ impl Object {
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "AddAssign");
         let _enter = span.enter();
+
         let mut value_mut = value.borrow_mut();
         let add_assign = expect_variant!(value_mut, Value::AddAssign, mut);
         let add_assign = std::mem::take(add_assign);
         drop(value_mut);
         let v: RefCell<Value> = RefCell::new(add_assign.into());
+        // Perform substitution on this inner value — resolve any `${var}` recursively
         self.substitute_value(path, &v, memo)?;
         let mut v = v.into_inner();
+        // If possible, collapse or simplify `v` (e.g. merge nested values) to a more direct representation
         v.try_become_merged();
         let add_assign = AddAssign::new(Box::new(v));
+        // Write back into the original slot in `value`
         *value.borrow_mut() = Value::add_assign(add_assign);
         Ok(())
     }
@@ -517,6 +620,58 @@ impl Object {
         Ok(())
     }
 
+    /// Resolves a single substitution node (`${...}`) into its concrete value.
+    ///
+    /// A substitution is a symbolic reference to another configuration path
+    /// (e.g. `bar = ${foo}`), or to an environment variable if no in-memory
+    /// value exists. This function replaces the current `Value::Substitution`
+    /// with the resolved value in-place.
+    ///
+    /// # Features
+    /// - **Path lookup**: Attempts to locate the referenced value in the current
+    ///   configuration tree. If found, the referenced node is recursively resolved
+    ///   (via [`substitute_value`]) before replacement.
+    /// - **Environment variables**: If the path is not found in the configuration,
+    ///   `std::env::var` is queried. On success, the substitution is replaced with
+    ///   a `Value::String` containing the environment variable's value.
+    /// - **Optional substitutions**: `${?foo}` will resolve to `Value::None` if the
+    ///   key or environment variable does not exist.
+    /// - **Required substitutions**: `${foo}` will produce an
+    ///   [`Error::SubstitutionNotFound`] if the reference cannot be resolved.
+    /// - **Cycle detection**: Uses `memo.tracker` to detect circular references.
+    ///   If a substitution resolves back into its own path,
+    ///   [`Error::SubstitutionCycle`] is returned.
+    ///
+    /// # Safety
+    /// This function calls [`unsafe_get_by_path`], which relies on the guarantee that
+    /// the structure of the configuration object tree is not modified during substitution.
+    /// Only scalar values inside existing `RefCell<Value>` nodes are mutated; no `HashMap`
+    /// insertions/removals occur. This ensures the returned references remain valid
+    /// and avoids undefined behavior.
+    ///
+    /// # Borrowing model
+    /// The referenced value is borrowed immutably to inspect its contents,
+    /// then cloned (`target_clone`) to safely replace the current `Value`.
+    /// This avoids holding an active immutable borrow across `borrow_mut`.
+    ///
+    /// # Errors
+    /// - [`Error::SubstitutionCycle`] if a cyclic dependency is detected.
+    /// - [`Error::SubstitutionNotFound`] if a required substitution cannot be resolved.
+    /// - Propagates any errors from recursive resolution via [`substitute_value`].
+    ///
+    /// # Example
+    /// ```hocon
+    /// foo = 42
+    /// bar = ${foo}
+    /// baz = ${?MISSING_ENV}
+    /// ```
+    /// After resolution:
+    /// - `bar` becomes `Value::Number(42)`
+    /// - `baz` becomes `Value::None`
+    ///
+    /// If `MISSING_ENV` were a required substitution (`${MISSING_ENV}`),
+    /// an error would be raised instead.
+    ///
     fn handle_substitution(
         &self,
         path: &RefPath,
@@ -526,6 +681,10 @@ impl Object {
     ) -> crate::Result<()> {
         let span = span!(Level::TRACE, "Substitution");
         let _enter = span.enter();
+
+        // --- Cycle detection ---
+        // Track the current path in `memo.tracker` to detect recursive references.
+        // If this path already appears in the stack, we report a substitution cycle.
         match memo.tracker.iter().rposition(|p| p == path) {
             None => {
                 memo.tracker.push(path.clone().into());
@@ -537,22 +696,28 @@ impl Object {
                 });
             }
         }
+
         trace!("substitute: {}", substitution);
-        // During the substitution stage, we only modify non-`Value::Object` values (e.g., scalars) via `RefCell::borrow_mut`.
-        // This ensures that no `RefCell<Value>` is inserted, removed, or replaced in any `HashMap` within the object tree,
-        // guaranteeing that the address of the target `RefCell` remains valid and safe to access.
-        // Therefore, the `unsafe` call to `unsafe_get_by_path` does not risk undefined behavior (UB) in this context,
-        // as the object tree's structure is not modified during the lifetime of the returned reference.
+
+        // --- Safety note ---
+        // During substitution, only scalar values are mutated (via RefCell::borrow_mut).
+        // We never insert/remove nodes inside HashMaps, so object tree layout is stable.
+        // This makes it safe to call `unsafe_get_by_path` without risking UB.
         let target = unsafe { self.unsafe_get_by_path(&substitution.path) };
+
         match target {
             Some(target) => {
                 if enabled!(Level::TRACE) {
                     trace!("find substitution: {} -> {}", substitution, target.borrow());
                 }
+
+                // Special case: a substitution directly referring to itself.
+                // `${foo}` resolving to `foo = ${foo}` would cause infinite recursion.
                 if &*substitution.path == path
                     && matches!(&*target.borrow(), Value::Substitution(_))
                 {
                     return if substitution.optional {
+                        // Optional self-reference -> just set to None.
                         *target.borrow_mut() = Value::None;
                         Ok(())
                     } else {
@@ -562,7 +727,11 @@ impl Object {
                         })
                     };
                 }
+
+                // Recursively resolve the referenced value before cloning it.
                 self.substitute_value(&RefPath::from(&substitution.path), target, memo)?;
+
+                // Clone the resolved value to replace the current substitution.
                 let target_clone = target.borrow().clone();
                 if enabled!(Level::TRACE) {
                     trace!("set {} to {}", value.borrow(), target_clone);
@@ -571,12 +740,16 @@ impl Object {
             }
             None => match std::env::var(substitution.full_path()) {
                 Ok(env_var) => {
+                    // If no in-memory value exists, check environment variables.
                     if enabled!(Level::TRACE) {
                         trace!("set environment variable {} to {}", env_var, value.borrow());
                     }
                     *value.borrow_mut() = Value::string(env_var);
                 }
                 Err(_) => {
+                    // Missing substitution:
+                    // - required substitutions produce an error
+                    // - optional ones resolve to `None`
                     if !substitution.optional {
                         return Err(Error::SubstitutionNotFound(substitution.to_string()));
                     } else {
@@ -585,6 +758,8 @@ impl Object {
                 }
             },
         }
+
+        // Pop the current path from the tracker after resolution is complete.
         memo.tracker.pop();
         Ok(())
     }
@@ -616,6 +791,36 @@ impl Object {
         popped.map(|(s, v)| (s, v, len - 1))
     }
 
+    /// Resolves a `Value::Concat` node into a concrete value.
+    ///
+    /// In HOCON, adjacent values without a comma are implicitly concatenated.
+    /// For example:
+    /// ```hocon
+    /// foo = bar baz ${other}
+    /// ```
+    /// is parsed as a `Concat` list of [`Value::String("bar")`,
+    /// `Value::String("baz")`, `Value::Substitution("other")`].
+    ///
+    /// This function repeatedly pops the last two elements of the `Concat` list,
+    /// substitutes them into concrete values (if they contain substitutions),
+    /// and then concatenates them using [`Value::concatenate`].
+    /// The result is pushed back to the `Concat` list, and the process repeats
+    /// until only one resolved value remains.
+    ///
+    /// # Behavior
+    /// - Substitutions inside concat parts are recursively resolved via [`substitute_value`].
+    /// - Concatenation preserves optional whitespace between parts (tracked by
+    ///   `space_last` and `space_second_last`).
+    /// - If only one element remains after popping, it is directly merged into
+    ///   the current node.
+    /// - If the concat list is empty, the node becomes `Value::None`.
+    ///
+    /// # Example
+    /// ```hocon
+    /// foo = hello ${user}!
+    /// ```
+    /// After resolution:
+    /// `foo` → `Value::String("hello Alice!")` (assuming `${user} = "Alice"`).
     fn handle_concat(
         &self,
         path: &RefPath,
@@ -625,16 +830,23 @@ impl Object {
         let span = span!(Level::TRACE, "Concat");
         let _enter = span.enter();
 
+        // Try to pop the last element from the concat list
         match Self::pop_value_from_concat(value) {
             Some((space_last, last, last_index)) => {
+                // First resolve the last element (may contain substitutions itself)
                 let sub_path = path.join(RefPath::new(RefKey::Index(last_index), None));
                 self.substitute_value(&sub_path, &last, memo)?;
+
+                // If the value is still a Concat, we can combine further
                 if matches!(&*value.borrow(), Value::Concat(_)) {
                     match Self::pop_value_from_concat(value) {
                         Some((space_second_last, second_last, second_last_index)) => {
+                            // Resolve the second-to-last element
                             let sub_path =
                                 path.join(RefPath::new(RefKey::Index(second_last_index), None));
                             self.substitute_value(&sub_path, &second_last, memo)?;
+
+                            // Concatenate `second_last` and `last`
                             let last = last.into_inner();
                             let new_val = Value::concatenate(
                                 path,
@@ -643,13 +855,18 @@ impl Object {
                                 last,
                             )?;
                             let mut new_val = RefCell::new(new_val);
+
+                            // Resolve any substitutions inside the concatenated result
                             let sub_path =
                                 path.join(RefPath::new(RefKey::Str("concatenation"), None));
                             self.substitute_value(&sub_path, &new_val, memo)?;
                             new_val.get_mut().try_become_merged();
+
                             if enabled!(Level::TRACE) {
                                 trace!("push back {} to {}", new_val.get_mut(), value.borrow());
                             }
+
+                            // Push the new concatenated value back into the concat list
                             match &mut *value.borrow_mut() {
                                 v @ Value::None => {
                                     *v = new_val.into_inner();
@@ -658,14 +875,18 @@ impl Object {
                                     concat.push_back(space_second_last, new_val);
                                 }
                                 v => {
+                                    // If the node is not a concat anymore, collapse it into a single value
                                     let left = std::mem::take(v);
                                     *v =
                                         Value::concatenate(path, left, None, new_val.into_inner())?;
                                 }
                             }
+
+                            // Continue resolving until Concat is fully collapsed
                             self.substitute_value(path, value, memo)?;
                         }
                         None => {
+                            // Only one element left -> finalize it
                             let mut last = last.into_inner();
                             last.try_become_merged();
                             if enabled!(Level::TRACE) {
@@ -675,6 +896,7 @@ impl Object {
                         }
                     }
                 } else {
+                    // If the node is no longer a Concat, concatenate it with the last element directly
                     let second_last = std::mem::take(&mut *value.borrow_mut());
                     let mut new_val =
                         Value::concatenate(path, second_last, space_last, last.into_inner())?;
@@ -683,10 +905,13 @@ impl Object {
                         trace!("set {} to {}", value.borrow(), new_val);
                     }
                     *value.borrow_mut() = new_val;
+
+                    // Resolve any substitutions in the newly concatenated value
                     self.substitute_value(path, value, memo)?;
                 }
             }
             None => {
+                // Empty concat -> set to None
                 if enabled!(Level::TRACE) {
                     trace!("set none to {}", value.borrow());
                 }
@@ -721,6 +946,38 @@ impl Object {
         popped.map(|v| (v, len - 1))
     }
 
+    /// Resolves a `Value::DelayReplacement` node into a concrete value.
+    ///
+    /// In HOCON, the same object key can appear multiple times and is merged according
+    /// to specific rules. For example:
+    /// ```hocon
+    /// a = ${b}
+    /// a = ${c}
+    /// ```
+    /// Here `a` appears twice. Since `${b}` and `${c}` are substitutions, their
+    /// actual values may not yet be known when parsing the object. To handle this,
+    /// the parser generates a `DelayReplacement` structure for keys with multiple
+    /// assignments.
+    ///
+    /// This function repeatedly pops the last two elements from the `DelayReplacement`
+    /// list, substitutes them into concrete values, and then determines whether the
+    /// latter value should replace the former directly or be merged with it.
+    /// The process continues until a single concrete value remains.
+    ///
+    /// # Behavior
+    /// - Substitutions inside delayed replacements are resolved recursively via [`substitute_value`].
+    /// - Once resolved, values are merged using [`Value::replace`], which implements HOCON's
+    ///   merging semantics.
+    /// - If only one element remains, it is directly merged into the current node.
+    /// - If the list is empty, the node becomes `Value::None`.
+    ///
+    /// # Example
+    /// ```hocon
+    /// a = ${b}
+    /// a = ${c}
+    /// ```
+    /// After resolution:
+    /// - The final value of `a` is the merge of `${b}` and `${c}` (or `${c}` if it overrides `${b}`).
     fn handle_delay_replacement(
         &self,
         path: &RefPath,
@@ -730,26 +987,37 @@ impl Object {
         let span = span!(Level::TRACE, "DelayReplacement");
         let _enter = span.enter();
 
+        // Pop the last delayed replacement element
         match Self::pop_value_from_delay_replacement(value) {
             Some((last, last_index)) => {
+                // Resolve substitutions in the last element
                 let sub_path = path.join(RefPath::new(RefKey::Index(last_index), None));
                 self.substitute_value(&sub_path, &last, memo)?;
+
+                // If more elements remain in the DelayReplacement list, combine them
                 if matches!(&*value.borrow(), Value::DelayReplacement(_)) {
                     match Self::pop_value_from_delay_replacement(value) {
                         Some((second_last, second_last_index)) => {
                             let sub_path =
                                 path.join(RefPath::new(RefKey::Index(second_last_index), None));
                             self.substitute_value(&sub_path, &second_last, memo)?;
+
+                            // Merge second_last and last according to HOCON rules
                             let new_val =
                                 Value::replace(path, second_last.into_inner(), last.into_inner())?;
                             let mut new_val = RefCell::new(new_val);
+
+                            // Resolve substitutions inside the merged value
                             let sub_path =
                                 path.join(RefPath::new(RefKey::Str("replacement"), None));
                             self.substitute_value(&sub_path, &new_val, memo)?;
                             new_val.get_mut().try_become_merged();
+
                             if enabled!(Level::TRACE) {
                                 trace!("push back {} to {}", new_val.get_mut(), value.borrow());
                             }
+
+                            // Push the merged value back into the DelayReplacement list
                             match &mut *value.borrow_mut() {
                                 v @ Value::None => {
                                     *v = new_val.into_inner();
@@ -762,9 +1030,12 @@ impl Object {
                                     *v = Value::replace(path, left, new_val.into_inner())?;
                                 }
                             }
+
+                            // Continue resolving until the list is fully collapsed
                             self.substitute_value(path, value, memo)?;
                         }
                         None => {
+                            // Only one element left -> finalize it
                             let mut last = last.into_inner();
                             last.try_become_merged();
                             if enabled!(Level::TRACE) {
@@ -774,6 +1045,7 @@ impl Object {
                         }
                     }
                 } else {
+                    // If the node is no longer a DelayReplacement, merge the last element directly
                     let second_last = std::mem::take(&mut *value.borrow_mut());
                     let mut new_val = Value::replace(path, second_last, last.into_inner())?;
                     new_val.try_become_merged();
@@ -781,10 +1053,13 @@ impl Object {
                         trace!("set {} to {}", value.borrow(), new_val);
                     }
                     *value.borrow_mut() = new_val;
+
+                    // Resolve any substitutions in the newly merged value
                     self.substitute_value(path, value, memo)?;
                 }
             }
             None => {
+                // Empty DelayReplacement -> set to None
                 if enabled!(Level::TRACE) {
                     trace!("set none to {}", value.borrow());
                 }
