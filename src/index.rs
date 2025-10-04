@@ -180,7 +180,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::Result;
+    use crate::index::Type;
     use crate::{Config, Value};
     const CONFIG: &str = r#"
 root = {
@@ -200,13 +203,29 @@ root = {
 
     #[test]
     fn test_index() -> Result<()> {
-        let value: Value = Config::parse_str(CONFIG, None)?;
+        let mut value: Value = Config::parse_str(CONFIG, None)?;
         let v = &value["root"]["a"]["b"][0];
         assert_eq!(v.as_f64(), Some(1.0));
         let v = &value["root"]["a"]["b"][1]["c"][0]["mikai"];
         assert_eq!(v.as_i64(), Some(233));
+        value["root"]["a"]["b"][1]["c"][0]["mikai"] = Value::Number(39.into());
+        let v = &value["root"]["a"]["b"][1]["c"][0]["mikai"];
+        assert_eq!(v.as_i64(), Some(39));
         let v = &value["root"]["a"]["b"][1]["d"];
         assert_eq!(v.as_str(), Some("hello"));
+        value["root"]["a"]["b"][1]["d"] = Value::String("world".to_string());
+        let v = &value["root"]["a"]["b"][1]["d"];
+        assert_eq!(v.as_str(), Some("world"));
         Ok(())
+    }
+
+    #[test]
+    fn test_type() {
+        assert_eq!(Type(&Value::Null).to_string(), "null");
+        assert_eq!(Type(&Value::Array(vec![])).to_string(), "array");
+        assert_eq!(Type(&Value::Object(HashMap::new())).to_string(), "object");
+        assert_eq!(Type(&Value::Boolean(false)).to_string(), "boolean");
+        assert_eq!(Type(&Value::String("".to_string())).to_string(), "string");
+        assert_eq!(Type(&Value::Number(0.into())).to_string(), "number");
     }
 }
