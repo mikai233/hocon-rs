@@ -14,10 +14,7 @@ impl RawObject {
         self.0
     }
 
-    pub fn from_entries<I>(entries: Vec<(RawString, RawValue)>) -> Self
-    where
-        I: IntoIterator<Item = (RawString, RawValue)>,
-    {
+    pub fn from_entries(entries: Vec<(RawString, RawValue)>) -> Self {
         let fields = entries
             .into_iter()
             .map(|(k, v)| ObjectField::key_value(k, v))
@@ -189,5 +186,101 @@ impl From<Value> for RawValue {
             Value::String(string) => RawValue::String(string.into()),
             Value::Number(number) => RawValue::Number(number),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use serde_json::json;
+
+    use crate::{
+        Value, expect_variant,
+        path::{Key, Path},
+        raw::{
+            field::ObjectField, include::Inclusion, raw_object::RawObject, raw_string::RawString,
+            raw_value::RawValue,
+        },
+    };
+
+    #[test]
+    fn test_raw_object() {
+        let entries = vec![
+            (
+                RawString::quoted("hello"),
+                RawValue::String(RawString::multiline("world\nworld\n")),
+            ),
+            (
+                RawString::quoted("hello"),
+                RawValue::String(RawString::multiline("hello\nhello\n")),
+            ),
+        ];
+        let mut object = RawObject::from_entries(entries);
+        let mut object_clone = object.clone();
+        let path = Path::new(Key::String("hello".to_string()), None);
+        let field = object_clone.remove_by_path(&path).unwrap();
+        let (key, value, _) = expect_variant!(&field, ObjectField::KeyValue, key, value, comment);
+        assert_eq!(key, &RawString::quoted("hello"));
+        assert_eq!(
+            value,
+            &RawValue::String(RawString::multiline("hello\nhello\n"))
+        );
+        let removed = object.remove_all_by_path(&path);
+        let expected = vec![
+            ObjectField::key_value(
+                RawString::quoted("hello"),
+                RawValue::String(RawString::multiline("hello\nhello\n")),
+            ),
+            ObjectField::key_value(
+                RawString::quoted("hello"),
+                RawValue::String(RawString::multiline("world\nworld\n")),
+            ),
+        ];
+        assert_eq!(removed, expected);
+        let entries = vec![
+            (
+                RawString::unquoted("a"),
+                RawValue::Object(RawObject::from_entries(vec![(
+                    RawString::unquoted("b"),
+                    RawValue::String(RawString::unquoted("b var")),
+                )])),
+            ),
+            (
+                RawString::unquoted("b"),
+                RawValue::Object(RawObject(vec![ObjectField::Inclusion {
+                    inclusion: Inclusion::new(
+                        "noop".to_string().into(),
+                        false,
+                        None,
+                        Some(RawObject::default().into()),
+                    ),
+                    comment: None,
+                }])),
+            ),
+        ];
+        let mut object = RawObject::from_entries(entries);
+        object
+            .get_by_path_mut(&Path::from_str("a.b").unwrap())
+            .unwrap();
+        let value = object.get_by_path(&Path::from_str("a.b").unwrap()).unwrap();
+        let string = expect_variant!(value, RawValue::String);
+        assert_eq!(string, &RawString::unquoted("b var"));
+        let v = object.get_by_path_mut(&Path::from_str("b.c").unwrap());
+        assert!(v.is_none());
+        let v = object.get_by_path(&Path::from_str("b.c").unwrap());
+        assert!(v.is_none());
+    }
+
+    #[test]
+    fn test_from_value() {
+        let value: Value = json!({
+            "a" : null,
+            "b" : {"c" : [1,2,3]},
+            "c":true,
+            "d":false,
+            "e":"hello world"
+        })
+        .into();
+        let _: RawValue = value.into();
     }
 }

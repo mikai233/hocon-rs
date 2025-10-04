@@ -12,23 +12,26 @@ use std::{cell::RefCell, fmt::Display};
 
 #[macro_export(local_inner_macros)]
 macro_rules! expect_variant {
-    ($expr:expr, $variant:path, mut) => {{
-        match &mut *$expr {
+    // Match tuple-style enum variants, e.g. MyEnum::Foo(x)
+    ($expr:expr, $variant:path) => {{
+        match $expr {
             $variant(var) => var,
             other => std::panic!(
-                "expected variant `{}`, got `{}`",
+                "expected variant `{}`, got `{:?}`",
                 std::stringify!($variant),
-                other.ty()
+                other,
             ),
         }
     }};
-    ($expr:expr, $variant:path) => {{
-        match &*$expr {
-            $variant(var) => var,
+
+    // Match struct-style enum variants, e.g. MyEnum::Foo { a, b }
+    ($expr:expr, $variant:path, $($ident:ident),+ ) => {{
+        match $expr {
+            $variant { $($ident),+ } => ($($ident),+),
             other => std::panic!(
-                "expected variant `{}`, got `{}`",
+                "expected variant `{}`, got `{:?}`",
                 std::stringify!($variant),
-                other.ty()
+                other,
             ),
         }
     }};

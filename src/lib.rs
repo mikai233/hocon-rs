@@ -4,7 +4,6 @@ pub mod config;
 mod config_options;
 pub mod error;
 mod merge;
-pub mod object;
 pub mod parser;
 pub(crate) mod path;
 pub mod raw;

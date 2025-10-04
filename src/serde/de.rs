@@ -178,7 +178,12 @@ impl<'de> Deserializer<'de> for MValue {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+
     use serde::Deserialize;
+
+    use crate::merge::value::Value as MValue;
+    use crate::{Value, from_value, merge::delay_replacement::DelayReplacement};
 
     #[derive(Debug, Deserialize, Eq, PartialEq)]
     struct Config {
@@ -230,12 +235,19 @@ mod tests {
         image: String,
     }
     #[test]
-    fn test_de() -> crate::Result<()> {
-        let config_hocon: Config =
-            crate::config::Config::load("test_conf/comprehensive/deserialize.conf", None)?;
+    fn test_deserialization() -> crate::Result<()> {
+        const HOCON_PATH: &str = "test_conf/comprehensive/deserialize.conf";
+        let config_hocon: Config = crate::config::Config::load(HOCON_PATH, None)?;
         let file = std::fs::File::open("test_conf/comprehensive/deserialize.json")?;
         let config_json: Config = serde_json::from_reader(file)?;
         assert_eq!(config_hocon, config_json);
+        let value: Value = crate::config::Config::load(HOCON_PATH, None)?;
+        let config_hocon: Config = from_value(value)?;
+        assert_eq!(config_hocon, config_json);
+        let value: Value = crate::config::Config::from_str("a = null", None)?;
+        assert_eq!(from_value::<Value>(value.clone())?, value);
+        let value = MValue::DelayReplacement(DelayReplacement::new(VecDeque::new()));
+        assert!(Config::deserialize(value).is_err());
         Ok(())
     }
 }

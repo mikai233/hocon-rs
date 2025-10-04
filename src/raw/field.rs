@@ -67,6 +67,14 @@ impl ObjectField {
             ObjectField::NewlineComment(c) => *c = comment,
         }
     }
+
+    pub fn ty(&self) -> &'static str {
+        match self {
+            ObjectField::Inclusion { .. } => "inclusion",
+            ObjectField::KeyValue { .. } => "key_value",
+            ObjectField::NewlineComment(_) => "newline_comment",
+        }
+    }
 }
 
 impl Display for ObjectField {

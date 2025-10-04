@@ -595,7 +595,7 @@ impl Object {
         let _enter = span.enter();
 
         let mut value_mut = value.borrow_mut();
-        let add_assign = expect_variant!(value_mut, Value::AddAssign, mut);
+        let add_assign = expect_variant!(&mut *value_mut, Value::AddAssign);
         let add_assign = std::mem::take(add_assign);
         drop(value_mut);
         let v: RefCell<Value> = RefCell::new(add_assign.into());
@@ -768,7 +768,7 @@ impl Object {
         value: &RefCell<Value>,
     ) -> Option<(Option<String>, RefCell<Value>, usize)> {
         let mut value_mut = value.borrow_mut();
-        let concat = expect_variant!(value_mut, Value::Concat, mut);
+        let concat = expect_variant!(&mut *value_mut, Value::Concat);
         let len = concat.len();
         let popped = concat.pop_back();
         match &popped {
@@ -923,7 +923,7 @@ impl Object {
 
     fn pop_value_from_delay_replacement(value: &RefCell<Value>) -> Option<(RefCell<Value>, usize)> {
         let mut value_mut = value.borrow_mut();
-        let replacement = expect_variant!(value_mut, Value::DelayReplacement, mut);
+        let replacement = expect_variant!(&mut *value_mut, Value::DelayReplacement);
         let len = replacement.len();
         let popped = replacement.pop_back();
         match &popped {

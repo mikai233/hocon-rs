@@ -16,3 +16,15 @@ impl Display for Syntax {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::syntax::Syntax;
+
+    #[test]
+    fn test_syntax() {
+        assert_eq!(Syntax::Hocon.to_string(), "conf");
+        assert_eq!(Syntax::Json.to_string(), "json");
+        assert_eq!(Syntax::Properties.to_string(), "properties");
+    }
+}

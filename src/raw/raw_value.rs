@@ -181,3 +181,22 @@ impl From<serde_json::Value> for RawValue {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::raw::raw_value::RawValue;
+
+    #[test]
+    fn test_from_json() {
+        let _: RawValue = json!({
+            "a" : null,
+            "b" : {"c" : [1,2,3.001], "mikai":233},
+            "c":true,
+            "d":false,
+            "e":"world hello"
+        })
+        .into();
+    }
+}
