@@ -65,7 +65,21 @@ impl Value {
         }
     }
 
+    pub fn as_object_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
+        match self {
+            Value::Object(object) => Some(object),
+            _ => None,
+        }
+    }
+
     pub fn as_array(&self) -> Option<&Vec<Value>> {
+        match self {
+            Value::Array(array) => Some(array),
+            _ => None,
+        }
+    }
+
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
         match self {
             Value::Array(array) => Some(array),
             _ => None,
@@ -280,7 +294,7 @@ impl Value {
         }
     }
 
-    pub fn into_number(self) -> Option<serde_json::Number> {
+    pub fn into_number(self) -> Option<Number> {
         match self {
             Value::Number(number) => Some(number),
             _ => None,
