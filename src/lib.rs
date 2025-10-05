@@ -3,6 +3,7 @@ use ::serde::{Serialize, de::DeserializeOwned};
 pub mod config;
 mod config_options;
 pub mod error;
+pub mod index;
 pub mod object;
 pub mod parser;
 pub(crate) mod path;
@@ -11,6 +12,7 @@ pub mod serde;
 pub mod syntax;
 pub mod transform;
 pub mod value;
+
 mod merge {
     pub(crate) mod add_assign;
     pub(crate) mod array;
