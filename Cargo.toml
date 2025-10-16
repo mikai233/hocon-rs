@@ -18,7 +18,7 @@ members = ["fuzz"]
 thiserror = "2.0.17"
 serde = { version = "1.0.228" }
 serde_json = { version = "1.0.145" }
-reqwest = { version = "0.12.22", optional = true, default-features = false, features = [
+reqwest = { version = "0.12.24", optional = true, default-features = false, features = [
     "blocking",
     "rustls-tls",
     "rustls-tls-native-roots",
@@ -36,7 +36,7 @@ bigdecimal = "0.4.8"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.19", features = ["local-time"] }
-ctor = "0.5.0"
+ctor = "0.6.0"
 serde = { version = "1.0.228", features = ["derive"] }
 rstest = "0.26.1"
 criterion = "0.7.0"
