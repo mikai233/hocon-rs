@@ -199,7 +199,7 @@ a = {
         "#;
 
     fn make_test_value() -> Value {
-        Config::parse_str(CONFIG, None).unwrap()
+        Config::from_str(CONFIG, None).unwrap()
     }
 
     #[test]
