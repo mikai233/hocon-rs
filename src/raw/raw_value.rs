@@ -10,6 +10,7 @@ use crate::raw::substitution::Substitution;
 use serde_json::Number;
 use std::fmt::{Display, Formatter};
 
+/// Type constants used to represent HOCON value kinds.
 pub const RAW_OBJECT_TYPE: &str = "object";
 pub const RAW_ARRAY_TYPE: &str = "array";
 pub const RAW_BOOLEAN_TYPE: &str = "boolean";
@@ -23,20 +24,42 @@ pub const RAW_SUBSTITUTION_TYPE: &str = "substitution";
 pub const RAW_CONCAT_TYPE: &str = "concat";
 pub const RAW_ADD_ASSIGN_TYPE: &str = "add_assign";
 
+/// Represents any possible raw value in a HOCON configuration file.
+///
+/// This is the core enum used to model parsed HOCON data before
+/// evaluation and resolution (e.g., substitutions or concatenations).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RawValue {
+    /// A key-value object or an include statement.
     Object(RawObject),
+
+    /// An ordered array of values.
     Array(RawArray),
+
+    /// A boolean value (`true` or `false`).
     Boolean(bool),
+
+    /// The `null` literal.
     Null,
+
+    /// A HOCON string (quoted, unquoted, multiline, or path expression).
     String(RawString),
+
+    /// A numeric value (integer or floating-point).
     Number(Number),
+
+    /// A substitution expression like `${path.to.value}`.
     Substitution(Substitution),
+
+    /// A concatenation of multiple values, e.g. `"foo" bar 123`.
     Concat(Concat),
+
+    /// A value assigned via `+=` (HOCON add-assign syntax).
     AddAssign(AddAssign),
 }
 
 impl RawValue {
+    /// Returns a string that identifies the type of this value.
     pub fn ty(&self) -> &'static str {
         match self {
             RawValue::Object(_) => RAW_OBJECT_TYPE,
@@ -51,6 +74,8 @@ impl RawValue {
         }
     }
 
+    /// Returns `true` if the value is a simple literal (boolean, null, string, or number),
+    /// or an `AddAssign` containing a simple value.
     pub fn is_simple_value(&self) -> bool {
         matches!(
             self,
@@ -58,11 +83,13 @@ impl RawValue {
         ) || matches!(self, RawValue::AddAssign(r) if r.is_simple_value())
     }
 
+    /// Creates a new object value containing an inclusion field (e.g., `include "file.conf"`).
     pub fn inclusion(inclusion: Inclusion) -> RawValue {
         let field = ObjectField::inclusion(inclusion);
         RawValue::Object(RawObject::new(vec![field]))
     }
 
+    /// Constructs a new object from a list of key-value pairs.
     pub fn object(values: Vec<(RawString, RawValue)>) -> RawValue {
         let fields = values
             .into_iter()
@@ -71,46 +98,58 @@ impl RawValue {
         RawValue::Object(RawObject::new(fields))
     }
 
+    /// Constructs a new array from a list of values.
     pub fn array(values: Vec<RawValue>) -> RawValue {
         RawValue::Array(RawArray::new(values))
     }
 
+    /// Constructs a new boolean value.
     pub fn boolean(b: bool) -> RawValue {
         RawValue::Boolean(b)
     }
 
+    /// Returns a null value.
     pub fn null() -> RawValue {
         RawValue::Null
     }
 
+    /// Constructs a quoted string (e.g., `"hello world"`).
     pub fn quoted_string(s: impl Into<String>) -> RawValue {
         RawValue::String(RawString::quoted(s))
     }
 
+    /// Constructs an unquoted string (e.g., `fooBar123`).
     pub fn unquoted_string(s: impl Into<String>) -> RawValue {
         RawValue::String(RawString::unquoted(s))
     }
 
+    /// Constructs a multiline string (using triple quotes).
     pub fn multiline_string(s: impl Into<String>) -> RawValue {
         RawValue::String(RawString::multiline(s))
     }
 
+    /// Constructs a path expression string (e.g., `a.b.c`).
     pub fn path_expression(paths: Vec<RawString>) -> RawValue {
         RawValue::String(RawString::path_expression(paths))
     }
 
+    /// Constructs a numeric value.
     pub fn number(n: impl Into<Number>) -> RawValue {
         RawValue::Number(n.into())
     }
 
+    /// Constructs a substitution expression (e.g., `${foo.bar}`).
     pub fn substitution(s: Substitution) -> RawValue {
         RawValue::Substitution(s)
     }
 
+    /// Constructs a concatenated value consisting of multiple elements and optional spaces.
+    /// Returns an error if invalid concatenation rules are violated.
     pub fn concat(values: Vec<RawValue>, spaces: Vec<Option<String>>) -> Result<RawValue> {
         Ok(RawValue::Concat(Concat::new(values, spaces)?))
     }
 
+    /// Constructs an additive assignment value (e.g., `key += value`).
     pub fn add_assign(v: RawValue) -> RawValue {
         RawValue::AddAssign(AddAssign::new(v.into()))
     }

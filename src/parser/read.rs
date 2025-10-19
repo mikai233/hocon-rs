@@ -106,7 +106,7 @@ fn parse_escaped_char<'de, R: Read<'de>>(reader: &mut R, scratch: &mut Vec<u8>) 
 /// Unicode scalar values are emitted, avoiding panics or undefined behavior.
 ///
 /// # Example
-/// ```ignore
+/// ```text
 /// // parsing "\u0041" should append 'A'
 /// let mut buf = Vec::new();
 /// let mut input = SliceReader::new(br"0041"); // hypothetical reader

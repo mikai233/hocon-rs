@@ -6,18 +6,53 @@ use crate::{path::Path, value::Value};
 use derive_more::{Constructor, Deref, DerefMut};
 use std::fmt::{Display, Formatter};
 
+/// Represents a raw HOCON object, which is a collection of fields
+/// such as key-value pairs, include statements, and comments.
+///
+/// In HOCON, an object corresponds to `{}` blocks or top-level
+/// configurations, and may contain nested objects, arrays, or primitive values.
+///
+/// Example:
+/// ```hocon
+/// {
+///   include "common.conf"
+///   host = "localhost"
+///   port = 8080
+///   # This is a comment
+/// }
+/// ```
+///
+/// This structure is a **direct representation of the parsed syntax**,
+/// not yet evaluated or merged. It preserves comments and inclusions
+/// for later processing.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Deref, DerefMut, Constructor)]
 pub struct RawObject(pub Vec<ObjectField>);
 
 impl RawObject {
+    /// Consumes the object and returns the inner vector of [`ObjectField`]s.
+    ///
+    /// This is typically used when transferring ownership of the internal fields
+    /// for further processing or transformation.
     pub fn into_inner(self) -> Vec<ObjectField> {
         self.0
     }
 
-    pub fn from_entries<I>(entries: Vec<(RawString, RawValue)>) -> Self
-    where
-        I: IntoIterator<Item = (RawString, RawValue)>,
-    {
+    /// Constructs a new [`RawObject`] from a list of key-value pairs.
+    ///
+    /// Each `(RawString, RawValue)` pair is automatically wrapped into
+    /// a [`ObjectField::KeyValue`] variant.
+    ///
+    /// # Example
+    /// ```
+    /// use hocon_rs::raw::raw_object::RawObject;
+    /// use hocon_rs::raw::raw_string::RawString;
+    /// use hocon_rs::raw::raw_value::RawValue;
+    /// let obj = RawObject::from_entries(vec![
+    ///     (RawString::unquoted("a"), RawValue::boolean(true)),
+    ///     (RawString::unquoted("b"), RawValue::number(1)),
+    /// ]);
+    /// ```
+    pub fn from_entries(entries: Vec<(RawString, RawValue)>) -> Self {
         let fields = entries
             .into_iter()
             .map(|(k, v)| ObjectField::key_value(k, v))
@@ -25,6 +60,15 @@ impl RawObject {
         Self::new(fields)
     }
 
+    /// Removes the first field in the object (searching from the end of the list)
+    /// that matches the given [`Path`].
+    ///
+    /// - The search order is **reverse**, matching HOCON’s semantics where later
+    ///   fields override earlier ones.
+    /// - If a nested object or included object contains the target path, removal
+    ///   is delegated recursively.
+    ///
+    /// Returns the removed [`ObjectField`] if found.
     pub fn remove_by_path(&mut self, path: &Path) -> Option<ObjectField> {
         let mut remove_index = None;
         for (index, field) in self.iter_mut().enumerate().rev() {
@@ -56,8 +100,11 @@ impl RawObject {
         remove_index.map(|index| self.remove(index))
     }
 
-    /// Removes all object fields from the given path, preserving their original
-    /// order but reversed relative to the file.
+    /// Removes **all** fields that match the given [`Path`] from this object and its nested objects.
+    ///
+    /// - Returns a list of removed [`ObjectField`]s, preserving their original order
+    ///   (but in reverse relative to the file, consistent with HOCON’s “last one wins” semantics).
+    /// - Recursively descends into nested and included objects.
     pub fn remove_all_by_path(&mut self, path: &Path) -> Vec<ObjectField> {
         let mut results = vec![];
         let mut remove_indices = vec![]; // These indices are stored in reverse order
@@ -92,6 +139,11 @@ impl RawObject {
         results
     }
 
+    /// Retrieves a reference to a [`RawValue`] located at the specified [`Path`].
+    ///
+    /// - Returns `None` if no matching field exists.
+    /// - Traverses nested objects and inclusions recursively.
+    /// - Later fields shadow earlier ones (reverse search order).
     pub fn get_by_path(&self, path: &Path) -> Option<&RawValue> {
         for field in self.iter().rev() {
             match field {
@@ -119,6 +171,9 @@ impl RawObject {
         None
     }
 
+    /// Retrieves a mutable reference to a [`RawValue`] located at the specified [`Path`].
+    ///
+    /// Behaves like [`get_by_path`], but allows in-place modification of the found value.
     pub fn get_by_path_mut(&mut self, path: &Path) -> Option<&mut RawValue> {
         for field in self.iter_mut().rev() {
             match field {
@@ -146,13 +201,15 @@ impl RawObject {
         None
     }
 
-    /// Merges two `RawObject`s into one.
+    /// Merges two [`RawObject`]s into one.
     ///
     /// - If both objects contain the same key, the field from `right` takes precedence
     ///   and overwrites the one from `left`.
-    /// - Fields that only exist in `left` are preserved.
-    /// - This follows HOCON’s rule that later definitions of the same key override
-    ///   earlier ones.
+    /// - Fields that exist only in `left` are preserved.
+    /// - This behavior follows **HOCON’s rule**: *later definitions override earlier ones*.
+    ///
+    /// Note: The merge is **syntactic** (on raw fields), not semantic.
+    /// Actual resolution (e.g., substitutions, includes) occurs in later phases.
     pub(crate) fn merge(mut left: Self, right: Self) -> Self {
         left.0.extend(right.0);
         left

@@ -4,17 +4,58 @@ use crate::raw::raw_string::RawString;
 use crate::raw::raw_value::RawValue;
 use std::fmt::{Display, Formatter};
 
+/// Represents a single field (or element) within a [`RawObject`].
+///
+/// A field may be:
+/// - an inclusion directive (`include`, `include required`, etc.)
+/// - a key-value pair
+/// - a standalone comment line
+///
+/// This enum preserves the syntactic structure of HOCON before
+/// semantic merging or substitution resolution.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ObjectField {
+    /// An `include` directive that brings external content into the object.
+    ///
+    /// Example:
+    /// ```hocon
+    /// include "application.conf"
+    /// include required("defaults.conf")
+    /// ```
     Inclusion {
+        /// The inclusion target and its inclusion type.
         inclusion: Inclusion,
+
+        /// An optional comment associated with this inclusion.
         comment: Option<Comment>,
     },
+
+    /// A standard key-value field (e.g., `key = value` or `nested { ... }`).
+    ///
+    /// Example:
+    /// ```hocon
+    /// host = "localhost"
+    /// database {
+    ///   user = "admin"
+    /// }
+    /// ```
     KeyValue {
+        /// The key of the field (can be unquoted, quoted, or path-like).
         key: RawString,
+
+        /// The value associated with the key, which may be any [`RawValue`].
         value: RawValue,
+
+        /// An optional inline or trailing comment.
         comment: Option<Comment>,
     },
+
+    /// A standalone comment line that appears between or after fields.
+    ///
+    /// Example:
+    /// ```hocon
+    /// # This is a comment
+    /// ```
     NewlineComment(Comment),
 }
 
