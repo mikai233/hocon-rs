@@ -33,7 +33,7 @@ derive_more = { version = "2.0.1", features = [
 ] }
 tracing = "0.1.41"
 num-bigint = "0.4.6"
-bigdecimal = "0.4.8"
+bigdecimal = "0.4.9"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.19", features = ["local-time"] }
