@@ -79,6 +79,13 @@ impl Value {
         }
     }
 
+    pub fn as_array_mut(&mut self) -> Option<&mut Vec<Value>> {
+        match self {
+            Value::Array(array) => Some(array),
+            _ => None,
+        }
+    }
+
     /// Attempts to interpret the current [`Value`] as an array by applying
     /// HOCON's "numerically-indexed object to array" conversion rule.
     ///
@@ -287,7 +294,7 @@ impl Value {
         }
     }
 
-    pub fn into_number(self) -> Option<serde_json::Number> {
+    pub fn into_number(self) -> Option<Number> {
         match self {
             Value::Number(number) => Some(number),
             _ => None,
@@ -772,6 +779,7 @@ impl<'de> Deserialize<'de> for Value {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use num_bigint::BigUint;
     use rstest::rstest;
@@ -1109,5 +1117,31 @@ mod tests {
     fn test_with_fallback(#[case] base: Value, #[case] fallback: Value, #[case] expected: Value) {
         let result = base.with_fallback(fallback);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_as_mut() {
+        let mut object = HashMap::new();
+        object.insert("hello".into(), Value::String("world".into()));
+        let mut value = Value::Object(object);
+        let object = value.as_object_mut().unwrap();
+        object.insert("array".into(), Value::Array(vec![]));
+        let array = object.get_mut("array").unwrap();
+        let array = array.as_array_mut().unwrap();
+        array.push(Value::Null);
+    }
+
+    #[test]
+    fn test_into() {
+        let value = Value::Object(HashMap::default());
+        let _ = value.into_object().unwrap();
+        let value = Value::Array(vec![]);
+        let _ = value.into_array().unwrap();
+        let value = Value::Number(1.into());
+        let _ = value.into_number().unwrap();
+        let value = Value::Boolean(false);
+        let _ = value.into_boolean().unwrap();
+        let value = Value::String("hello".into());
+        let _ = value.into_string().unwrap();
     }
 }
