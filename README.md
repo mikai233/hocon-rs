@@ -62,7 +62,7 @@ fn main() -> Result<(), hocon_rs::Error> {
 
 ```rust
 fn main() -> Result<(), hocon_rs::Error> {
-  let value: hocon_rs::Value = hocon_rs::Config::parse_str("{name = mikai233}", None)?;
+  let value: hocon_rs::Value = hocon_rs::Config::from_str("{name = mikai233}", None)?;
   println!("{value}");
   Ok(())
 }
@@ -79,7 +79,7 @@ struct Person {
 }
 
 fn main() -> Result<(), hocon_rs::Error> {
-  let person: Person = hocon_rs::Config::parse_str("{name = mikai233, age = 18, scores = [99, 100]}", None)?;
+  let person: Person = hocon_rs::Config::from_str("{name = mikai233, age = 18, scores = [99, 100]}", None)?;
   println!("{person:?}");
   Ok(())
 }
