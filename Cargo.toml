@@ -37,7 +37,7 @@ bigdecimal = "0.4.9"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3.19", features = ["local-time"] }
-ctor = "0.6.0"
+ctor = "0.6.1"
 serde = { version = "1.0.228", features = ["derive"] }
 rstest = "0.26.1"
 criterion = "0.7.0"
