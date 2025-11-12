@@ -1,35 +1,55 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use hocon_rs::config::Config;
 use hocon_rs::parser::HoconParser;
 use hocon_rs::parser::read::{StrRead, StreamRead};
 use hocon_rs::value::Value;
 use std::fs;
-use std::io::BufReader;
+use std::io::Cursor;
+use std::path::Path;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    // 1. 在 benchmark 外部读取文件 (不计时)
-    let path = "F:/IdeaProjects/akka/akka-actor/src/main/resources/reference.conf";
-    let data = fs::read_to_string(path).expect("failed to read file");
-    // 2. 在迭代j中只做函数调用 (计时)
-    c.bench_function("pure_parser", |b| {
+    let path = Path::new("benches/reference.conf");
+    let data = fs::read_to_string(path).expect("failed to read benchmark fixture");
+    let bytes = data.as_bytes();
+
+    let mut group = c.benchmark_group("parser");
+    group.throughput(Throughput::Bytes(bytes.len() as u64));
+
+    group.bench_function("pure_parser", |b| {
+        b.iter_batched(
+            || StrRead::new(data.as_str()),
+            |read| {
+                let mut parser = HoconParser::new(read);
+                parser.parse().unwrap();
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.bench_function("pure_parser_stream", |b| {
+        b.iter_batched(
+            || {
+                let cursor = Cursor::new(bytes);
+                StreamRead::new(cursor)
+            },
+            |read| {
+                let mut parser = HoconParser::new(read);
+                parser.parse().unwrap();
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.bench_function("parse_config", |b| {
         b.iter(|| {
-            let read = StrRead::new(data.as_str());
-            let mut parser = HoconParser::new(read);
-            parser.parse().unwrap();
+            Config::parse_str::<Value>(data.as_str(), None).unwrap();
         });
     });
-    c.bench_function("pure_parser_stream", |b| {
-        b.iter(|| {
-            let file = fs::File::open(path).unwrap();
-            let read = StreamRead::new(BufReader::new(file));
-            let mut parser = HoconParser::new(read);
-            parser.parse().unwrap();
-        });
-    });
+
+    group.finish();
+
     c.bench_function("load_config", |b| {
-        b.iter(|| {
-            Config::load::<Value>(path, None).unwrap();
-        });
+        b.iter(|| Config::load::<Value>(path, None).unwrap());
     });
 }
 
