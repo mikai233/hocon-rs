@@ -42,7 +42,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("parse_config", |b| {
         b.iter(|| {
-            Config::parse_str::<Value>(data.as_str(), None).unwrap();
+            Config::from_str::<Value>(data.as_str(), None).unwrap();
         });
     });
 
