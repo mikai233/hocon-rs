@@ -31,7 +31,7 @@ derive_more = { version = "2.0.1", features = [
     "deref_mut",
     "constructor",
 ] }
-tracing = "0.1.41"
+tracing = "0.1.43"
 num-bigint = "0.4.6"
 bigdecimal = "0.4.9"
 
