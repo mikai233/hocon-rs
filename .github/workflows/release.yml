@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_to_crates:
+        description: "Publish to crates.io"
+        type: boolean
+        default: true
+      allow_prerelease:
+        description: "Allow publishing pre-release versions (e.g. 1.2.3-alpha.1)"
+        type: boolean
+        default: false
+      create_github_release:
+        description: "Create a GitHub Release (tag v<version>) and attach artifacts"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Run cargo publish --dry-run"
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Cache Rust build (cargo)
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Read crate name/version from Cargo.toml
+        id: crate
+        shell: bash
+        run: |
+          manifest_path="$(realpath Cargo.toml)"
+          metadata="$(cargo metadata --no-deps --format-version=1)"
+          name="$(jq -r --arg manifest "$manifest_path" '.packages[] | select(.manifest_path == $manifest) | .name' <<<"$metadata")"
+          version="$(jq -r --arg manifest "$manifest_path" '.packages[] | select(.manifest_path == $manifest) | .version' <<<"$metadata")"
+
+          if [ -z "$name" ] || [ "$name" = "null" ]; then
+            echo "Failed to determine crate name from Cargo.toml ($manifest_path)" >&2
+            exit 1
+          fi
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Failed to determine crate version from Cargo.toml ($manifest_path)" >&2
+            exit 1
+          fi
+
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Publish to crates.io
+        if: ${{ inputs.publish_to_crates }}
+        shell: bash
+        run: |
+          version='${{ steps.crate.outputs.version }}'
+          allow_prerelease='${{ inputs.allow_prerelease }}'
+          dry_run='${{ inputs.dry_run }}'
+
+          if [[ "$version" == *-* ]] && [[ "$allow_prerelease" != "true" ]]; then
+            echo "Pre-release version ($version), skipping crates.io publish (allow_prerelease=false)"
+            exit 0
+          fi
+
+          if [[ "$dry_run" == "true" ]]; then
+            cargo publish --dry-run --locked
+          else
+            cargo publish --token '${{ secrets.CARGO_REGISTRY_TOKEN }}' --locked
+          fi
+
+      - name: Package source code
+        shell: bash
+        run: |
+          name='${{ steps.crate.outputs.name }}'
+          version='${{ steps.crate.outputs.version }}'
+          out="${name}-${version}.tar.gz"
+          git archive --format=tar.gz --output="$out" HEAD
+          sha256sum "$out" > "$out.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.crate.outputs.name }}-${{ steps.crate.outputs.version }}
+          path: |
+            ${{ steps.crate.outputs.name }}-${{ steps.crate.outputs.version }}.tar.gz
+            ${{ steps.crate.outputs.name }}-${{ steps.crate.outputs.version }}.tar.gz.sha256
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$prev_tag" ]; then
+            log=$(git log --pretty=format:"* %s" ${prev_tag}..HEAD)
+          else
+            log=$(git log --pretty=format:"* %s")
+          fi
+
+          if [ -z "$log" ]; then
+            log="Release ${{ steps.crate.outputs.tag }}"
+          fi
+
+          echo "log<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$log" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: ${{ inputs.create_github_release }}
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Release ${{ steps.crate.outputs.tag }}"
+          tag_name: ${{ steps.crate.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body: ${{ steps.changelog.outputs.log }}
+          files: |
+            ${{ steps.crate.outputs.name }}-${{ steps.crate.outputs.version }}.tar.gz
+            ${{ steps.crate.outputs.name }}-${{ steps.crate.outputs.version }}.tar.gz.sha256
