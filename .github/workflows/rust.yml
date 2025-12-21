@@ -10,6 +10,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
   CRATE_NAME: hocon-rs
 
 jobs:
@@ -29,44 +30,22 @@ jobs:
       # Checkout repo
       - uses: actions/checkout@v4
 
-      # -------------------------
-      # Cache cargo registry & git
-      # -------------------------
-      - name: Cache cargo registry/git
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-registry-
-
-      # -------------------------
-      # Cache target directory
-      # -------------------------
-      - name: Cache cargo target
-        uses: actions/cache@v3
-        with:
-          path: target
-          key: cargo-target-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-target-${{ matrix.rust }}-
+      - name: Cache Rust build (cargo)
+        uses: Swatinem/rust-cache@v2
 
       # Setup Rust
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy, llvm-tools-preview
+          components: rustfmt, clippy
 
       # Install coverage tool
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov
-
-      # Build
-      - name: Build
-        run: cargo build --verbose
+        if: matrix.rust == 'stable'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       # Run tests
       - name: Run tests
@@ -79,10 +58,12 @@ jobs:
 
       # Format check
       - name: Format
+        if: matrix.rust == 'stable'
         run: cargo fmt --all -- --check
 
       # Clippy
       - name: Clippy
+        if: matrix.rust == 'stable'
         run: cargo clippy -- -D warnings
 
       # Coverage report (stable only)
@@ -99,12 +80,13 @@ jobs:
       # Upload coverage to Codecov
       - name: Upload coverage to Codecov
         if: matrix.rust == 'stable'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: ${{ matrix.rust }}-${{ matrix.features }}
           name: codecov-${{ matrix.rust }}-${{ matrix.features }}
+          fail_ci_if_error: true
 
   release:
     needs: build
