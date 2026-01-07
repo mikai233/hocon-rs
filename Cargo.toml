@@ -18,7 +18,7 @@ members = ["fuzz"]
 memchr = "2.7.6"
 thiserror = "2.0.17"
 serde = { version = "1.0.228" }
-serde_json = { version = "1.0.145" }
+serde_json = { version = "1.0.149" }
 reqwest = { version = "0.12.24", optional = true, default-features = false, features = [
     "blocking",
     "rustls-tls",
