@@ -36,7 +36,7 @@ num-bigint = "0.4.6"
 bigdecimal = "0.4.10"
 
 [dev-dependencies]
-tracing-subscriber = { version = "0.3.19", features = ["local-time"] }
+tracing-subscriber = { version = "0.3.22", features = ["local-time"] }
 ctor = "0.6.3"
 serde = { version = "1.0.228", features = ["derive"] }
 rstest = "0.26.1"
