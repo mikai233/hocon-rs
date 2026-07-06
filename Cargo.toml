@@ -32,7 +32,7 @@ derive_more = { version = "2.1.1", features = [
     "constructor",
 ] }
 tracing = "0.1.44"
-num-bigint = "0.4.6"
+num-bigint = "0.5.1"
 bigdecimal = "0.4.10"
 
 [dev-dependencies]
