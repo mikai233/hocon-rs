@@ -65,8 +65,14 @@ pub enum Error {
     SubstitutionDepthExceeded { max_depth: usize },
     #[error("{0}")]
     Deserialize(String),
+    #[cfg(feature = "properties")]
     #[error("{0}")]
     JavaProperties(#[from] java_properties::PropertiesError),
+    #[cfg(not(feature = "properties"))]
+    #[error(
+        "Cannot load Java properties: the 'properties' feature is not enabled. Add 'features = [\"properties\"]' to your dependency declaration"
+    )]
+    PropertiesDisabled,
     #[error("{0}")]
     UrlParse(#[from] url::ParseError),
     #[cfg(not(feature = "urls_includes"))]

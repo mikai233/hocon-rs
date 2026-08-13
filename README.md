@@ -20,6 +20,13 @@ Add this to your `Cargo.toml`:
 hocon-rs = "0.1"
 ```
 
+Java properties support is disabled by default. Enable the `properties` feature to load `.properties` files:
+
+```toml
+[dependencies]
+hocon-rs = { version = "0.1", features = ["properties"] }
+```
+
 # Quick Start
 
 ## Load configuration from a file
@@ -173,8 +180,9 @@ For clarity and consistency, avoid such tricky substitution patterns.
 
 ## Includes without File Extension
 
-According to the HOCON spec, if a file extension is omitted, the loader attempts to parse all supported formats at the
-given path (`JSON`, `JavaProperties`, `HOCON`) and merge them into a single object.
+According to the HOCON spec, if a file extension is omitted, the loader attempts to parse all enabled formats at the
+given path (`JSON`, `HOCON`, and `JavaProperties` when the `properties` feature is enabled) and merge them into a single
+object.
 
 You can customize merge priority using the comparison function defined in `ConfigOptions`.
 

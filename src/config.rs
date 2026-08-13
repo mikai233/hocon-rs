@@ -321,4 +321,20 @@ mod tests {
         assert!(matches!(error, Error::SubstitutionNotFound { .. }));
         Ok(())
     }
+
+    #[cfg(feature = "properties")]
+    #[test]
+    fn test_load_properties() -> Result<()> {
+        let value = Config::load::<Value>("resources/test.properties", None)?;
+        assert_eq!(value["name"], Value::from("properties"));
+        assert_eq!(value["enabled"], Value::from("true"));
+        Ok(())
+    }
+
+    #[cfg(not(feature = "properties"))]
+    #[test]
+    fn test_load_properties_without_feature() {
+        let error = Config::load::<Value>("resources/test.properties", None).unwrap_err();
+        assert!(matches!(error, Error::PropertiesDisabled));
+    }
 }

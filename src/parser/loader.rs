@@ -68,16 +68,19 @@ fn find_config_path(path: impl AsRef<Path>) -> Result<ConfigPath> {
             json_path.set_extension("json");
             let mut hocon_path = path.to_path_buf();
             hocon_path.set_extension("conf");
-            let mut properties_path = path.to_path_buf();
-            properties_path.set_extension("properties");
             if json_path.is_file() {
                 config_path.set_path(json_path, Syntax::Json);
             }
             if hocon_path.is_file() {
                 config_path.set_path(hocon_path, Syntax::Hocon);
             }
-            if properties_path.is_file() {
-                config_path.set_path(properties_path, Syntax::Properties);
+            #[cfg(feature = "properties")]
+            {
+                let mut properties_path = path.to_path_buf();
+                properties_path.set_extension("properties");
+                if properties_path.is_file() {
+                    config_path.set_path(properties_path, Syntax::Properties);
+                }
             }
         }
     }
@@ -259,6 +262,7 @@ where
     }
 }
 
+#[cfg(feature = "properties")]
 fn parse_properties<R>(reader: R) -> Result<RawObject>
 where
     R: std::io::Read,
@@ -270,6 +274,14 @@ where
         .map(|(key, value)| ObjectField::key_value(key, RawValue::quoted_string(value)));
     raw_object.extend(properties);
     Ok(raw_object)
+}
+
+#[cfg(not(feature = "properties"))]
+fn parse_properties<R>(_reader: R) -> Result<RawObject>
+where
+    R: std::io::Read,
+{
+    Err(Error::PropertiesDisabled)
 }
 
 fn parse_environments() -> RawObject {

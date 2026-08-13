@@ -25,7 +25,7 @@ reqwest = { version = "0.12.28", optional = true, default-features = false, feat
     "rustls-tls-native-roots",
 ] }
 url = "2.5.8"
-java-properties = "2.0.0"
+java-properties = { version = "2.0.0", optional = true }
 derive_more = { version = "2.1.1", features = [
     "deref",
     "deref_mut",
@@ -47,5 +47,7 @@ name = "parser_bench"
 harness = false
 
 [features]
+default = []
+properties = ["dep:java-properties"]
 urls_includes = ["dep:reqwest"]
 json_arbitrary_precision = ["serde_json/arbitrary_precision"]
