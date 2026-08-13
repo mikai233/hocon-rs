@@ -229,7 +229,7 @@ impl Object {
         // Only perform fixup if a parent path is provided (i.e., this is an included configuration).
         if let Some(parent) = parent {
             // Iterate over all key-value pairs in the current object.
-            for (_, val) in self.iter_mut() {
+            for val in self.values_mut() {
                 match val.get_mut() {
                     // For nested objects, recursively fix up substitutions with the same parent path.
                     Value::Object(obj) => {

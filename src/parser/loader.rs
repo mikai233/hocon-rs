@@ -153,7 +153,7 @@ pub(crate) fn load_from_url(
             let extension_syntax = if let Some(filename) = response
                 .url()
                 .path_segments()
-                .and_then(|segments| segments.last())
+                .and_then(|mut segments| segments.next_back())
             {
                 if let Some(dot_index) = filename.rfind('.') {
                     let extension = &filename[dot_index + 1..];

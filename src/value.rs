@@ -342,17 +342,11 @@ impl Value {
 
         // Traverse the object tree step by step
         for &path in paths {
-            if let Value::Object(obj) = current {
-                if let Some(val) = obj.get(path) {
-                    current = val;
-                } else {
-                    // Key not found in the current object
-                    return None;
-                }
-            } else {
+            current = match current {
+                Value::Object(obj) => obj.get(path)?,
                 // Current value is not an object, so the path cannot continue
-                return None;
-            }
+                _ => return None,
+            };
         }
 
         Some(current)
@@ -365,13 +359,10 @@ impl Value {
         }
         let mut current = self;
         for &path in paths {
-            if let Value::Object(obj) = current {
-                if let Some(val) = obj.get_mut(path) {
-                    current = val;
-                } else {
-                    return None;
-                }
-            }
+            current = match current {
+                Value::Object(obj) => obj.get_mut(path)?,
+                _ => return None,
+            };
         }
         Some(current)
     }
@@ -1129,6 +1120,13 @@ mod tests {
         let array = object.get_mut("array").unwrap();
         let array = array.as_array_mut().unwrap();
         array.push(Value::Null);
+    }
+
+    #[test]
+    fn test_get_by_path_mut_stops_at_non_object() {
+        let mut value = obj(vec![("leaf", Value::String("value".into()))]);
+
+        assert!(value.get_by_path_mut(["leaf", "child"]).is_none());
     }
 
     #[test]
