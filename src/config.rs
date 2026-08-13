@@ -274,8 +274,10 @@ mod tests {
         #[case] hocon: impl AsRef<std::path::Path>,
         #[case] json: impl AsRef<std::path::Path>,
     ) -> Result<()> {
-        let mut options = ConfigOptions::default();
-        options.classpath = vec!["resources".to_string()].into();
+        let options = ConfigOptions {
+            classpath: vec!["resources".to_string()].into(),
+            ..Default::default()
+        };
         let value = Config::load::<Value>(hocon, Some(options))?;
         let f = std::fs::File::open(json)?;
         let expected_value: serde_json::Value = serde_json::from_reader(f)?;
@@ -295,8 +297,10 @@ mod tests {
 
     #[test]
     fn test_include_cycle() -> Result<()> {
-        let mut options = ConfigOptions::default();
-        options.classpath = vec!["resources".to_string()].into();
+        let options = ConfigOptions {
+            classpath: vec!["resources".to_string()].into(),
+            ..Default::default()
+        };
         let error = Config::load::<Value>("resources/include_cycle.conf", Some(options))
             .err()
             .unwrap();
@@ -306,8 +310,10 @@ mod tests {
 
     #[test]
     fn test_substitution_cycle() -> Result<()> {
-        let mut options = ConfigOptions::default();
-        options.classpath = vec!["resources".to_string()].into();
+        let options = ConfigOptions {
+            classpath: vec!["resources".to_string()].into(),
+            ..Default::default()
+        };
         let error = Config::load::<Value>("resources/substitution_cycle.conf", Some(options))
             .err()
             .unwrap();
@@ -317,8 +323,10 @@ mod tests {
 
     #[test]
     fn test_substitution_not_found() -> Result<()> {
-        let mut options = ConfigOptions::default();
-        options.classpath = vec!["resources".to_string()].into();
+        let options = ConfigOptions {
+            classpath: vec!["resources".to_string()].into(),
+            ..Default::default()
+        };
         let error = Config::load::<Value>("resources/substitution2.conf", Some(options))
             .err()
             .unwrap();

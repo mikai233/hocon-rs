@@ -285,7 +285,7 @@ a = {
         let vals = vec![
             Value::Null,
             Value::Boolean(true),
-            Value::Number(serde_json::Number::from_f64(3.14).unwrap()),
+            Value::Number(serde_json::Number::from_f64(3.15).unwrap()),
             Value::String("abc".into()),
             Value::Array(vec![]),
             Value::Object(HashMap::new()),

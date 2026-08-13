@@ -114,9 +114,9 @@ mod test {
     use tracing::level_filters::LevelFilter;
     use tracing_subscriber::fmt::time::LocalTime;
 
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn init_tracing() {
-        tracing_subscriber::fmt()
+        let _ = tracing_subscriber::fmt()
             .with_test_writer()
             .pretty()
             .with_max_level(LevelFilter::TRACE)

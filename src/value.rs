@@ -1,5 +1,5 @@
 use bigdecimal::BigDecimal;
-use num_bigint::{BigUint, ToBigInt};
+use num_bigint::BigUint;
 use serde::de::{Error, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Number;
@@ -462,9 +462,10 @@ impl Value {
                 Ok(num) => Some(&num * &bytes),
                 Err(_) => match BigDecimal::from_str(num) {
                     Ok(num) => {
-                        let num = &num * &bytes.to_bigint()?;
+                        let bytes = BigDecimal::from_str(&bytes.to_string()).ok()?;
+                        let num = &num * &bytes;
                         let (num, _) = num.with_scale(0).into_bigint_and_exponent();
-                        BigUint::try_from(num).ok()
+                        BigUint::from_str(&num.to_string()).ok()
                     }
                     Err(_) => None,
                 },
@@ -480,7 +481,7 @@ impl Value {
                         .and_then(BigDecimal::from_f64)?
                         .with_scale(0)
                         .into_bigint_and_exponent();
-                    BigUint::try_from(num).ok()
+                    BigUint::from_str(&num.to_string()).ok()
                 }
                 Some(i) => Some(i),
             },
