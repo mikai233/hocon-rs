@@ -17,14 +17,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-hocon-rs = "0.1"
+hocon-rs = "0.2"
 ```
 
 Java properties support is disabled by default. Enable the `properties` feature to load `.properties` files:
 
 ```toml
 [dependencies]
-hocon-rs = { version = "0.1", features = ["properties"] }
+hocon-rs = { version = "0.2", features = ["properties"] }
 ```
 
 # Quick Start

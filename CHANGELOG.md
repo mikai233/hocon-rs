@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.0] - 2026-08-13
+
+### Added
+
+- Added optional Java properties support through the `properties` feature.
+- Added include depth limits and support for relative file and URL includes.
+
+### Changed
+
+- Separated include syntax parsing from file and URL loading.
+- Disabled Java properties support by default.
+- Upgraded all dependencies, including `reqwest` 0.13 and `num-bigint` 0.5.
+
+### Fixed
+
+- Improved include cycle detection, HTTP error handling, content type detection, and `file://` URL handling.
+
 ## [0.1.3] - 2025-10-03
 
 ### Fixed
