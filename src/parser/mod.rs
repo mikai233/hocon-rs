@@ -1,15 +1,10 @@
 mod array;
 mod comment;
 mod include;
-pub(crate) mod loader;
 mod object;
 pub mod read;
 mod string;
 mod substitution;
-
-use std::rc::Rc;
-
-use derive_more::Constructor;
 
 use crate::Result;
 use crate::config_options::ConfigOptions;
@@ -17,30 +12,16 @@ use crate::error::Error;
 use crate::parser::read::Read;
 use crate::raw::raw_object::RawObject;
 
-#[derive(Constructor, Default, Debug, Clone)]
-pub(crate) struct Context {
-    pub(crate) include_chain: Vec<Rc<String>>,
-    pub(crate) depth: usize,
-}
-
-impl Context {
-    pub(crate) fn increase_depth(&mut self) -> usize {
-        self.depth += 1;
-        self.depth
-    }
-
-    pub(crate) fn decrease_depth(&mut self) -> usize {
-        self.depth -= 1;
-        self.depth
-    }
-}
-
+/// Low-level HOCON syntax parser.
+///
+/// Includes are preserved in the returned [`RawObject`] and are not loaded by
+/// this type. Use [`crate::Config`] when includes should be resolved.
 #[derive(Debug)]
 pub struct HoconParser<R> {
     pub(crate) reader: R,
     pub(crate) scratch: Vec<u8>,
     pub(crate) options: ConfigOptions,
-    pub(crate) ctx: Context,
+    pub(crate) depth: usize,
 }
 
 impl<'de, R: Read<'de>> HoconParser<R> {
@@ -49,7 +30,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             reader,
             scratch: vec![],
             options: Default::default(),
-            ctx: Default::default(),
+            depth: 0,
         }
     }
 
@@ -58,16 +39,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             reader,
             scratch: vec![],
             options,
-            ctx: Default::default(),
-        }
-    }
-
-    pub(crate) fn with_options_and_ctx(reader: R, options: ConfigOptions, ctx: Context) -> Self {
-        HoconParser {
-            reader,
-            scratch: vec![],
-            options,
-            ctx,
+            depth: 0,
         }
     }
 
@@ -180,8 +152,8 @@ mod tests {
     #[case("resources/demo.conf")]
     #[case("resources/deserialize.conf")]
     #[case("resources/empty.conf")]
-    #[cfg_attr(feature = "urls_includes", case("resources/included.conf"))]
-    #[cfg_attr(feature = "urls_includes", case("resources/main.conf"))]
+    #[case("resources/included.conf")]
+    #[case("resources/main.conf")]
     fn test_parse(#[case] path: impl AsRef<std::path::Path>) -> Result<()> {
         let file = std::fs::File::open(&path)?;
         let read = StreamRead::new(BufReader::new(file));

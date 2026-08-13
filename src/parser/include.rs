@@ -1,12 +1,8 @@
 use crate::Result;
-use crate::config_options::ConfigOptions;
 use crate::error::Error;
-use crate::parser::loader::{self, load_from_classpath, load_from_path};
+use crate::parser::HoconParser;
 use crate::parser::read::Read;
-use crate::parser::{Context, HoconParser};
 use crate::raw::include::{Inclusion, Location};
-use crate::raw::raw_object::RawObject;
-use std::str::FromStr;
 
 pub(crate) const INCLUDE: &[u8] = b"include";
 
@@ -98,7 +94,6 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 }
                 Some(Location::File)
             }
-            #[cfg(feature = "urls_includes")]
             b'u' => {
                 const URL: &[u8] = b"url(";
                 for ele in URL {
@@ -111,10 +106,6 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                     }
                 }
                 Some(Location::Url)
-            }
-            #[cfg(not(feature = "urls_includes"))]
-            b'u' => {
-                return Err(Error::UrlsIncludesDisabled);
             }
             b'c' => {
                 const CLASSPATH: &[u8] = b"classpath(";
@@ -141,119 +132,6 @@ impl<'de, R: Read<'de>> HoconParser<R> {
             self.drop_horizontal_whitespace()?;
         }
         Ok(location)
-    }
-
-    fn handle_include_error<'a, F>(
-        load: F,
-        options: ConfigOptions,
-        inclusion: &'a mut Inclusion,
-        ctx: Option<Context>,
-    ) -> Result<()>
-    where
-        F: FnOnce(&'a std::path::Path, ConfigOptions, Option<Context>) -> Result<RawObject>,
-    {
-        match load((**inclusion.path).as_ref(), options, ctx) {
-            Ok(object) => {
-                inclusion.val = Some(object.into());
-            }
-            Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
-                if inclusion.required {
-                    return Err(Error::Include {
-                        inclusion: inclusion.to_string(),
-                        error: Box::new(Error::Io(io)),
-                    });
-                }
-            }
-            Err(e) => {
-                return Err(Error::Include {
-                    inclusion: inclusion.to_string(),
-                    error: Box::new(e),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    fn inclusion_from_file(&self, inclusion: &mut Inclusion, ctx: Option<Context>) -> Result<()> {
-        Self::handle_include_error(load_from_path, self.options.clone(), inclusion, ctx)
-    }
-
-    fn inclusion_from_classpath(
-        &self,
-        inclusion: &mut Inclusion,
-        ctx: Option<Context>,
-    ) -> Result<()> {
-        Self::handle_include_error(load_from_classpath, self.options.clone(), inclusion, ctx)
-    }
-
-    fn inclusion_from_file_and_classpath(
-        &self,
-        inclusion: &mut Inclusion,
-        ctx: Option<Context>,
-    ) -> Result<()> {
-        Self::handle_include_error(loader::load, self.options.clone(), inclusion, ctx)
-    }
-
-    #[cfg(feature = "urls_includes")]
-    fn inclusion_from_url(&self, inclusion: &mut Inclusion, ctx: Option<Context>) -> Result<()> {
-        let url = url::Url::from_str(&inclusion.path)?;
-        match loader::load_from_url(url, self.options.clone(), ctx) {
-            Ok(object) => {
-                inclusion.val = Some(object.into());
-            }
-            Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::NotFound => {
-                if inclusion.required {
-                    return Err(Error::Include {
-                        inclusion: inclusion.to_string(),
-                        error: Box::new(Error::Io(io)),
-                    });
-                }
-            }
-            Err(e) => {
-                return Err(Error::Include {
-                    inclusion: inclusion.to_string(),
-                    error: Box::new(e),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn parse_inclusion(&self, inclusion: &mut Inclusion) -> Result<()> {
-        let has_cycle = self
-            .ctx
-            .include_chain
-            .iter()
-            .rfind(|p| **p == inclusion.path)
-            .is_some();
-        if has_cycle {
-            return Err(Error::InclusionCycle);
-        }
-        let mut ctx = self.ctx.clone();
-        ctx.include_chain.push(inclusion.path.clone());
-        match inclusion.location {
-            #[cfg(feature = "urls_includes")]
-            None | Some(Location::Url) => match url::Url::from_str(&inclusion.path) {
-                Ok(url) => {
-                    if url.scheme() != "file" {
-                        self.inclusion_from_url(inclusion, Some(ctx))?;
-                    }
-                }
-                _ => {
-                    self.inclusion_from_file_and_classpath(inclusion, Some(ctx))?;
-                }
-            },
-            #[cfg(not(feature = "urls_includes"))]
-            None => match url::Url::from_str(&inclusion.path) {
-                Ok(url) if url.scheme() != "file" => {
-                    return Err(Error::UrlsIncludesDisabled);
-                }
-                _ => self.inclusion_from_file_and_classpath(inclusion, Some(ctx))?,
-            },
-            Some(Location::Classpath) => self.inclusion_from_classpath(inclusion, Some(ctx))?,
-            Some(Location::File) => self.inclusion_from_file(inclusion, Some(ctx))?,
-        }
-        Ok(())
     }
 }
 

@@ -53,24 +53,26 @@ impl<'de, R: Read<'de>> HoconParser<R> {
                 b'[' => {
                     // Parse array
                     let max_depth = self.options.max_depth;
-                    let current_depth = self.ctx.increase_depth();
+                    self.depth += 1;
+                    let current_depth = self.depth;
                     if current_depth > max_depth {
                         return Err(Error::RecursionDepthExceeded { max_depth });
                     }
                     let array = self.parse_array(false)?;
-                    self.ctx.decrease_depth();
+                    self.depth -= 1;
                     let v = RawValue::Array(array);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
                 b'{' => {
                     // Parse object
                     let max_depth = self.options.max_depth;
-                    let current_depth = self.ctx.increase_depth();
+                    self.depth += 1;
+                    let current_depth = self.depth;
                     if current_depth > max_depth {
                         return Err(Error::RecursionDepthExceeded { max_depth });
                     }
                     let object = self.parse_object(false)?;
-                    self.ctx.decrease_depth();
+                    self.depth -= 1;
                     let v = RawValue::Object(object);
                     prev_space = push_value_and_space(&mut values, &mut spaces, prev_space, v);
                 }
@@ -204,8 +206,7 @@ impl<'de, R: Read<'de>> HoconParser<R> {
         let ch = self.reader.peek()?;
         // It maybe an include syntax, we need to peek more chars to determine.
         let field = if ch == b'i' && self.reader.peek_n(7)? == INCLUDE {
-            let mut inclusion = self.parse_include()?;
-            self.parse_inclusion(&mut inclusion)?;
+            let inclusion = self.parse_include()?;
             ObjectField::inclusion(inclusion)
         } else {
             let (key, value) = self.parse_key_value()?;

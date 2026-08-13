@@ -46,6 +46,8 @@ pub enum Error {
     ResolveIncomplete,
     #[error("Circular include detected")]
     InclusionCycle,
+    #[error("Include nesting depth exceeded the limit of {max_depth} levels")]
+    InclusionDepthExceeded { max_depth: usize },
     #[error("Object nesting depth exceeded the limit of {max_depth} levels")]
     RecursionDepthExceeded { max_depth: usize },
     #[error("Inclusion: {inclusion} error: {error}")]
@@ -75,6 +77,11 @@ pub enum Error {
     PropertiesDisabled,
     #[error("{0}")]
     UrlParse(#[from] url::ParseError),
+    #[error("Invalid file URL: {0}")]
+    InvalidFileUrl(String),
+    #[cfg(feature = "urls_includes")]
+    #[error("{0}")]
+    Http(#[from] reqwest::Error),
     #[cfg(not(feature = "urls_includes"))]
     #[error(
         "Cannot include URL-based config: the 'urls_includes' feature is not enabled. Add 'features = [\"urls_includes\"]' to your dependency declaration"

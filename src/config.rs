@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use crate::config_options::ConfigOptions;
 use crate::merge::object::Object as MObject;
 use crate::merge::value::Value as MValue;
-use crate::parser::loader::{self, load_from_path, parse_hocon};
 use crate::parser::read::{StrRead, StreamRead};
 use crate::raw::raw_object::RawObject;
 use crate::raw::raw_string::RawString;
@@ -36,7 +35,8 @@ impl Config {
     where
         T: DeserializeOwned,
     {
-        let raw = loader::load(&path, options.unwrap_or_default(), None)?;
+        let loader = crate::loader::Loader::new(options.unwrap_or_default());
+        let raw = loader.load(&path)?;
         tracing::debug!("path: {} raw obj: {}", path.as_ref().display(), raw);
         Self::resolve_object::<T>(raw)
     }
@@ -88,7 +88,8 @@ impl Config {
     where
         T: DeserializeOwned,
     {
-        let raw = load_from_path(path, opts.unwrap_or_default(), None)?;
+        let loader = crate::loader::Loader::new(opts.unwrap_or_default());
+        let raw = loader.load_file(path)?;
         Self::resolve_object::<T>(raw)
     }
 
@@ -99,7 +100,8 @@ impl Config {
     {
         use std::str::FromStr;
         let url = url::Url::from_str(url.as_ref())?;
-        let raw = loader::load_from_url(url, opts.unwrap_or_default(), None)?;
+        let loader = crate::loader::Loader::new(opts.unwrap_or_default());
+        let raw = loader.load_url(url)?;
         Self::resolve_object::<T>(raw)
     }
 
@@ -146,7 +148,8 @@ impl Config {
         T: DeserializeOwned,
     {
         let read = StrRead::new(s);
-        let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
+        let loader = crate::loader::Loader::new(options.unwrap_or_default());
+        let raw = loader.parse_hocon(read)?;
         tracing::debug!("raw obj: {}", raw);
         Self::resolve_object::<T>(raw)
     }
@@ -157,7 +160,8 @@ impl Config {
         T: DeserializeOwned,
     {
         let read = StreamRead::new(rdr);
-        let raw = parse_hocon(read, options.unwrap_or_default(), None)?;
+        let loader = crate::loader::Loader::new(options.unwrap_or_default());
+        let raw = loader.parse_hocon(read)?;
         Self::resolve_object::<T>(raw)
     }
 

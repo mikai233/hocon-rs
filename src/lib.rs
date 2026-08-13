@@ -4,6 +4,7 @@ pub mod config;
 mod config_options;
 pub mod error;
 pub mod index;
+mod loader;
 pub mod object;
 pub mod parser;
 pub(crate) mod path;

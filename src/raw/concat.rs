@@ -56,6 +56,10 @@ impl Concat {
         &self.values
     }
 
+    pub(crate) fn get_values_mut(&mut self) -> &mut Vec<RawValue> {
+        &mut self.values
+    }
+
     /// Returns a reference to the vector of optional spaces between values.
     pub fn get_spaces(&self) -> &Vec<Option<String>> {
         &self.spaces

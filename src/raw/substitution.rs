@@ -15,8 +15,8 @@ use std::fmt::{Debug, Display, Formatter};
 /// This structure is used to represent such expressions in the AST (Abstract Syntax Tree).
 ///
 /// # Fields
-/// - [`path`]: the path being referenced (e.g. `"b.c"` or `"x.y"`).
-/// - [`optional`]: indicates whether this is an *optional substitution* (`${?...}`).
+/// - [`Substitution::path`]: the path being referenced (e.g. `"b.c"` or `"x.y"`).
+/// - [`Substitution::optional`]: indicates whether this is an *optional substitution* (`${?...}`).
 ///
 /// # Behavior
 /// - If `optional` is `true`, missing values during resolution will not produce an error.
